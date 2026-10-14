@@ -10,7 +10,7 @@ const KIND_ORDER: Product['kind'][] = ['intro', 'dropin', 'pack', 'membership', 
 type Line = { productId: string; qty: number };
 
 export function Pos({ clientId }: { clientId?: string }) {
-  const { me } = useStudio();
+  const { me, can } = useStudio();
   const toast = useToast();
   const prods = useData(() => store.listProducts(), []);
   const [cart, setCart] = useState<Line[]>([]);
@@ -23,6 +23,14 @@ export function Pos({ clientId }: { clientId?: string }) {
   const [receipt, setReceipt] = useState<{ sale: Sale; passes: Pass[]; client: Client | null } | null>(null);
   const { busy, run } = useAction();
   const cartRef = useRef<HTMLDivElement>(null);
+  const [cartInView, setCartInView] = useState(false);
+  useEffect(() => {
+    const el = cartRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([e]) => setCartInView(!!e && e.isIntersecting), { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [prods.data]);
 
   const preset = useData(() => (clientId ? store.getClient(clientId) : Promise.resolve(null)), [clientId]);
   useEffect(() => { if (preset.data) setClient(preset.data); }, [preset.data]);
@@ -104,7 +112,7 @@ export function Pos({ clientId }: { clientId?: string }) {
               ) : (
                 <div className="pc-noclient">
                   <button className="btn soft block" onClick={() => setPick('search')}><Icon name="search" size={18} />Add client</button>
-                  <p className={cx('small', needsClient ? 'warn-text' : 'faint')}>{needsClient ? 'Class passes need a client.' : 'Optional for retail.'} <button className="linkish" onClick={() => setPick('new')}>New client</button></p>
+                  <p className={cx('small', needsClient ? 'warn-text' : 'faint')}>{needsClient ? 'Class passes need a client.' : 'Optional for retail.'}{can('editClients') && <> <button className="linkish" onClick={() => setPick('new')}>New client</button></>}</p>
                 </div>
               )}
             </div>
@@ -151,7 +159,7 @@ export function Pos({ clientId }: { clientId?: string }) {
         </div>
       )}
 
-      {lines.length > 0 && (
+      {lines.length > 0 && !cartInView && (
         <button className="pos-bar" onClick={() => cartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
           <span>{count} item{count === 1 ? '' : 's'}</span><strong>{money(total, { cents: true })}</strong><span className="pb-go">Checkout<Icon name="down" size={16} /></span>
         </button>
@@ -160,7 +168,7 @@ export function Pos({ clientId }: { clientId?: string }) {
       <Sheet open={pick === 'search'} onClose={() => setPick(null)} label="Choose client">
         <SheetHead title={<>Choose a <em>client</em></>} onClose={() => setPick(null)} />
         <ClientSearch autoFocus onPick={(c) => { setClient(c); setPick(null); }} />
-        <div className="sh-foot"><button className="btn ghost" onClick={() => setPick('new')}><Icon name="userPlus" size={18} />New client</button></div>
+        {can('editClients') && <div className="sh-foot"><button className="btn ghost" onClick={() => setPick('new')}><Icon name="userPlus" size={18} />New client</button></div>}
       </Sheet>
       <NewClientSheet open={pick === 'new'} onClose={() => setPick(null)} onCreated={(c) => { setClient(c); setPick(null); }} />
     </div>

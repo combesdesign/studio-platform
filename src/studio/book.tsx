@@ -14,7 +14,7 @@ export function ClientSearch({ onPick, autoFocus, exclude, placeholder = 'Search
     <div className="csearch">
       <label className="search-in">
         <Icon name="search" size={20} />
-        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} autoFocus={autoFocus} aria-label="Search clients" />
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} autoFocus={autoFocus && wide()} aria-label="Search clients" />
       </label>
       <div className="cs-results list">
         {list.map((c) => (
@@ -34,11 +34,13 @@ export function ClientSearch({ onPick, autoFocus, exclude, placeholder = 'Search
 // ------------------------------------------------------------------ new client form
 export type NewClient = { firstName: string; lastName: string; email: string; phone: string; birthday: string; injuries: string };
 export const emptyClient: NewClient = { firstName: '', lastName: '', email: '', phone: '', birthday: '', injuries: '' };
+/** Autofocus only on iPad/desktop; on phones it pops the keyboard and scrolls the sheet title away. */
+const wide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 700px)').matches;
 export function ClientFields({ v, set, compact }: { v: NewClient; set: (v: NewClient) => void; compact?: boolean }) {
   const f = (k: keyof NewClient) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set({ ...v, [k]: e.target.value });
   return (
     <div className="form-grid">
-      <label className="field"><span>First name</span><input className="input" value={v.firstName} onChange={f('firstName')} required autoFocus /></label>
+      <label className="field"><span>First name</span><input className="input" value={v.firstName} onChange={f('firstName')} required autoFocus={wide()} /></label>
       <label className="field"><span>Last name</span><input className="input" value={v.lastName} onChange={f('lastName')} required /></label>
       <label className="field"><span>Email</span><input className="input" type="email" value={v.email} onChange={f('email')} required /></label>
       <label className="field"><span>Mobile</span><input className="input" type="tel" value={v.phone} onChange={f('phone')} placeholder="04xx xxx xxx" /></label>
@@ -268,10 +270,17 @@ export function WalkInSheet({ open, onClose, session }: { open: boolean; onClose
 }
 
 // ------------------------------------------------------------------ pick an upcoming session
-export function SessionPicker({ onPick, excludeId, days = 14, title }: { onPick: (s: SessionWithCounts) => void; excludeId?: string; days?: number; title?: string }) {
+/** noFull: full classes can't be picked (moving a booking needs a free spot; it never waitlists). */
+export function SessionPicker({ onPick, excludeId, days = 14, title, noFull, clientId }: { onPick: (s: SessionWithCounts) => void; excludeId?: string; days?: number; title?: string; noFull?: boolean; clientId?: string }) {
   const { typeById, staffById } = useStudio();
   const today = studioDate();
   const res = useData(() => store.listSessions({ from: new Date().toISOString(), to: startOfStudioDay(addDays(today, days + 1)) }), [today, days]);
+  // classes this client is already in (booked, checked in or waitlisted) can't be picked again
+  const mine = useData(async () => {
+    if (!clientId) return new Map<string, string>();
+    const bs = await store.listClientBookings(clientId, { when: 'upcoming', statuses: ['booked', 'checked_in', 'waitlisted'] });
+    return new Map(bs.map((b) => [b.sessionId, b.status === 'waitlisted' ? 'On waitlist' : 'Already booked']));
+  }, [clientId]);
   const list = (res.data ?? []).filter((s) => s.status === 'scheduled' && s.id !== excludeId && typeById(s.classTypeId)?.bookable !== false);
   const groups = useMemo(() => {
     const m = new Map<string, SessionWithCounts[]>();
@@ -286,11 +295,13 @@ export function SessionPicker({ onPick, excludeId, days = 14, title }: { onPick:
           <div className="sp-date">{d === today ? 'Today' : d === addDays(today, 1) ? 'Tomorrow' : dayShort(ss[0]!.startsAt)}</div>
           {ss.map((s) => {
             const ct = typeById(s.classTypeId);
+            const already = mine.data?.get(s.id);
+            const blocked = !!already || (!!noFull && s.spotsLeft <= 0);
             return (
-              <button key={s.id} className="sp-row" onClick={() => onPick(s)} type="button" style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>
+              <button key={s.id} className={cx('sp-row', blocked && 'off')} onClick={() => onPick(s)} type="button" disabled={blocked} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>
                 <span className="sp-time">{time(s.startsAt)}</span>
                 <span className="sp-t"><strong>{ct?.name}</strong><span>{staffById(s.instructorId)?.name}</span></span>
-                <span className="sp-fill"><span>{s.spotsLeft === 0 ? `Full${s.waitlistCount ? ` · ${s.waitlistCount} waiting` : ''}` : `${s.spotsLeft} left`}</span><Fill value={s.bookedCount} max={s.capacity} /></span>
+                <span className="sp-fill"><span>{already ?? (s.spotsLeft === 0 ? `Full${s.waitlistCount ? ` · ${s.waitlistCount} waiting` : ''}` : `${s.spotsLeft} left`)}</span><Fill value={s.bookedCount} max={s.capacity} /></span>
               </button>
             );
           })}
@@ -307,7 +318,7 @@ export function BookClientSheet({ open, onClose, client }: { open: boolean; onCl
   return (
     <Sheet open={open} onClose={onClose} label="Book into class">
       <SheetHead title={<>Book <em>{client.firstName}</em> in</>} sub={s ? undefined : 'Pick a class in the next two weeks.'} onClose={onClose} />
-      {s ? <BookOptions client={client} session={s} onDone={onClose} onBack={() => setS(null)} /> : <SessionPicker onPick={setS} />}
+      {s ? <BookOptions client={client} session={s} onDone={onClose} onBack={() => setS(null)} /> : <SessionPicker onPick={setS} clientId={client.id} />}
     </Sheet>
   );
 }

@@ -5,7 +5,7 @@ import { store, useData } from '../shared/react';
 import { studioDate, time } from '../shared/format';
 import { CardSkeletons, Empty, ErrorBlock, Icon, ScreenHead, Segmented, useApp } from './ui';
 import { ClassSheet } from './timetable';
-import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, timeRange } from './lib';
+import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, timeRange, when } from './lib';
 import { weekday } from '../shared/format';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -128,7 +128,7 @@ const PAST_LABEL: Record<string, [string, string]> = {
   no_show: ['No-show', 'danger'],
   late_cancelled: ['Late cancel', 'warn'],
   cancelled: ['Cancelled', 'muted-tag'],
-  removed: ['Studio cancelled', 'muted-tag'],
+  removed: ['Class cancelled', 'muted-tag'],
 };
 
 function PastRow({ b, onOpen }: { b: BookingWithDetails; onOpen: () => void }) {
@@ -138,7 +138,7 @@ function PastRow({ b, onOpen }: { b: BookingWithDetails; onOpen: () => void }) {
       <span className="past-bar" style={{ background: b.classType.color || 'var(--sky)' }} />
       <span className="list-row-main">
         <span className="list-row-title">{b.classType.name}</span>
-        <span className="list-row-sub">{time(b.session.startsAt)} {new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(b.session.startsAt))}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
+        <span className="list-row-sub">{when(b.session.startsAt)}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
       </span>
       <span className={'tag ' + tone}>{label}</span>
     </button>

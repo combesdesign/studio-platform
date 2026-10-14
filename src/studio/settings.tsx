@@ -2,16 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { money } from '../shared/format';
 import type { ClassType, Product, Staff, StaffRole, StudioSettings } from '../shared/types';
-import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, toCents, toDollars, useStudio } from './ui';
+import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
 
-const TABS = [
+const TABS: { key: string; label: string; perm?: Perm }[] = [
   { key: 'studio', label: 'Studio' }, { key: 'policies', label: 'Policies' }, { key: 'classes', label: 'Class types' },
-  { key: 'products', label: 'Products & pricing' }, { key: 'staff', label: 'Staff' },
+  { key: 'products', label: 'Products & pricing', perm: 'products' }, { key: 'staff', label: 'Staff', perm: 'staff' },
 ];
 
 export function Settings({ tab = 'studio' }: { tab?: string }) {
-  const tabs = store.mode === 'demo' ? [...TABS, { key: 'demo', label: 'Demo' }] : TABS;
+  const { can } = useStudio();
+  const allowed = TABS.filter((t) => !t.perm || can(t.perm));
+  const tabs = store.mode === 'demo' ? [...allowed, { key: 'demo', label: 'Demo' }] : allowed;
   const cur = tabs.find((t) => t.key === tab)?.key ?? 'studio';
   return (
     <div className="settings">
@@ -318,8 +320,8 @@ function StaffTab() {
         <dl className="dl roles">
           <dt>Owner</dt><dd>Everything, including pay rates, ABN and payments.</dd>
           <dt>Manager</dt><dd>Everything except staff pay rates and the ABN / payment settings.</dd>
-          <dt>Front desk</dt><dd>Schedule, rosters, check-in, clients and point of sale. No reports or pay.</dd>
-          <dt>Instructor</dt><dd>Rosters and check-in for their own classes, client profiles (no staff notes). No refunds, reports or settings.</dd>
+          <dt>Front desk</dt><dd>Schedule, rosters, check-in, clients, point of sale and refunds. Attendance reports only: no revenue, pay or settings.</dd>
+          <dt>Instructor</dt><dd>Rosters and check-in for their own classes, client profiles (no staff notes) and sales. No refunds, revenue, pay or settings.</dd>
         </dl>
       </div>
       <StaffSheet s={edit} onClose={() => setEdit(null)} />

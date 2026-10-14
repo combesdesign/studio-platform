@@ -19,7 +19,7 @@ select test.eq((select credits_used from public.passes where id = test.id('fay_o
 select test.eq((select count(*) from public.notifications where kind = 'class_cancelled')::int, 3, 'everyone is told the class is cancelled');
 select test.eq((select payload ->> 'cancel_reason' from public.notifications where kind = 'class_cancelled' limit 1), 'Instructor unwell', 'email includes the reason');
 select test.login('alice');
-select test.throws($$select public.book_class(test.id('s_cancel'))$$, 'NOT_ALLOWED', 'can''t book a cancelled class');
+select test.throws($$select public.book_class(test.id('s_cancel'))$$, 'CLASS_CANCELLED', 'can''t book a cancelled class');
 select test.admin();
 select test.eq(public.cancel_session(test.id('s_cancel'), 'again'), 0, 'cancelling twice is harmless');
 
@@ -55,18 +55,18 @@ select test.eq((select jsonb_array_length(j -> 'sale' -> 'items') from cart), 3,
 select test.eq((select (j -> 'sale' ->> 'staff_id')::uuid from cart), test.id('fran_staff'), 'sale records the staff member');
 select test.login('fran');
 select test.throws($$select public.checkout_cart(null, jsonb_build_array(jsonb_build_object('product_id', test.id('p_pack4'))), 'cash')$$,
-                   'NOT_ALLOWED', 'class passes need a client');
+                   'INVALID', 'class passes need a client');
 select test.eq((public.checkout_cart(null, jsonb_build_array(jsonb_build_object('product_id', test.id('p_socks'))), 'cash') -> 'sale' ->> 'total_cents')::int,
                2000, 'walk-in retail sale without a client');
 select test.login('libby');
 update public.products set stock = 1 where id = test.id('p_socks');
 select test.login('fran');
 select test.throws($$select public.checkout_cart(null, jsonb_build_array(jsonb_build_object('product_id', test.id('p_socks'), 'qty', 3)), 'cash')$$,
-                   'NOT_ALLOWED', 'can''t sell more than in stock');
+                   'OUT_OF_STOCK', 'can''t sell more than in stock');
 
 -- refunds
 select test.eq((public.refund_sale((select (j -> 'sale' ->> 'id')::uuid from cart), 2000, false, 'Socks too small') ->> 'refunded_cents')::int, 2000, 'partial refund');
-select test.throws($$select public.refund_sale((select (j -> 'sale' ->> 'id')::uuid from cart), 99999)$$, 'NOT_ALLOWED', 'can''t refund more than the sale');
+select test.throws($$select public.refund_sale((select (j -> 'sale' ->> 'id')::uuid from cart), 99999)$$, 'INVALID', 'can''t refund more than the sale');
 select public.refund_sale((select (j -> 'sale' ->> 'id')::uuid from cart), null, true, 'Changed mind');
 select test.admin();
 select test.eq((select refunded_cents from public.sales where id = (select (j -> 'sale' ->> 'id')::uuid from cart)), 13500, 'refund the rest');
@@ -76,7 +76,7 @@ select test.eq((select status from public.passes where sale_id = (select (j -> '
 select test.login('fran');
 select public.adjust_pass((select id from public.passes where client_id = test.id('alice_client')), 2, null, false, 'Goodwill for cancelled class');
 select test.throws($$select public.adjust_pass((select id from public.passes where client_id = test.id('alice_client')), 1, null, false, '')$$,
-                   'NOT_ALLOWED', 'adjustments need a reason');
+                   'INVALID', 'adjustments need a reason');
 select test.admin();
 select test.eq((select credits from public.passes where client_id = test.id('alice_client')), 6, 'credits added');
 select test.eq((select reason from public.pass_adjustments limit 1), 'Goodwill for cancelled class', 'adjustment logged');
@@ -96,8 +96,11 @@ select public.record_membership_payment('sub_test_1', 'in_test_2', 2200, '2026-1
 select public.record_membership_payment('sub_test_1', 'in_test_2', 2200, '2026-11-02 08:00+11', 'pi_test_2');
 select test.eq((select count(*) from public.sales where stripe_invoice_id = 'in_test_2')::int, 1, 'renewal recorded once');
 select test.eq((select next_billing_at from public.passes where stripe_subscription_id = 'sub_test_1'), '2026-11-02 08:00+11'::timestamptz, 'renewal extends the membership');
-select public.record_stripe_refund('pi_test_1', 4900);
-select test.eq((select refunded_cents from public.sales where stripe_payment_intent_id = 'pi_test_1'), 4900, 'Stripe refund recorded');
+select public.record_stripe_refund('pi_test_1', 2000, false, 'part');
+select public.record_stripe_refund('pi_test_1', 4900, true, 'rest');
+select public.record_stripe_refund('pi_test_1', 4900);   -- webhook arriving after: no double count
+select test.eq((select refunded_cents from public.sales where stripe_payment_intent_id = 'pi_test_1'), 4900, 'Stripe refund recorded once (absolute total)');
+select test.eq((select status from public.passes where client_id = test.id('erin_client')), 'cancelled', 'Stripe refund can cancel the pass');
 select public.end_membership_subscription('sub_test_1');
 select test.eq((select status from public.passes where stripe_subscription_id = 'sub_test_1'), 'cancelled', 'subscription deleted -> pass cancelled');
 select test.admin();
@@ -171,5 +174,43 @@ select test.eq(public.whoami() ->> 'role', 'front_desk', 'whoami for staff');
 select test.login('alice');
 select test.eq(public.whoami() ->> 'kind', 'client', 'whoami for clients');
 select test.admin();
+
+-- ---------------------------------------------------------------- demo-parity behaviours (0005)
+select test.at('2026-10-19 08:00+11');
+select test.login('dan'); select public.book_class(test.id('s_next'));         -- unlimited membership, Mon 26 Oct
+select public.pause_pass((select id from public.passes where client_id = test.id('dan_client') and kind = 'membership'), '2026-10-26', '2026-11-01');
+select test.admin();
+select test.eq((select status from public.bookings where client_id = test.id('dan_client') and session_id = test.id('s_next')), 'cancelled',
+               'pausing cancels bookings inside the pause');
+select test.login('fran');
+select test.throws($$select public.adjust_pass((select id from public.passes where client_id = test.id('fay_client') and activated_at is not null), -4, null, false, 'oops')$$,
+                   'INVALID', 'can''t adjust below credits already used');
+select test.admin();
+select test.login('fay'); select public.book_class(test.id('s_next'));
+select test.login('fran');
+select public.refund_sale((select sale_id from public.passes where id = test.id('fay_old_pass')), null, true, 'moving away');
+select test.admin();
+select test.eq((select status from public.bookings where client_id = test.id('fay_client') and session_id = test.id('s_next')), 'cancelled',
+               'refund + cancel pass cancels upcoming bookings on it');
+select test.login('cara');
+insert into public.class_interest (client_id, class_type_id) values (test.id('cara_client'), test.id('sculpt'));
+select test.throws($$insert into public.class_interest (client_id, class_type_id) values (test.id('alice_client'), test.id('sculpt'))$$, '42501', 'can''t register interest for someone else');
+select test.login('mia');
+select test.eq((select count(*) from public.class_interest)::int, 1, 'staff see who registered interest');
+select test.admin();
+
+-- ---------------------------------------------------------------- email outbox claiming
+select test.login('alice');
+select test.throws($$select * from public.claim_notifications()$$, '42501', 'clients can''t read the email outbox');
+select test.service();
+create temp table c1 as select * from public.claim_notifications(5);
+select test.eq((select count(*) from c1)::int, 5, 'claim hands out pending emails');
+select test.eq((select count(*) from public.claim_notifications(100) where id in (select id from c1))::int, 0, 'claimed emails aren''t handed out twice');
+select public.finish_notification((select id from c1 order by id asc limit 1));
+select public.finish_notification((select id from c1 order by id desc limit 1), 'Resend said no');
+select test.admin();
+select test.eq((select count(*) from public.notifications where sent_at is not null)::int, 1, 'sent email marked');
+select test.ok((select error = 'Resend said no' and claimed_at is null from public.notifications where id = (select id from c1 order by id desc limit 1)),
+               'failed email is released for a retry');
 
 rollback;

@@ -1,0 +1,18 @@
+# Supabase CLI settings (only what differs from the defaults).
+# `supabase link --project-ref <ref>` connects this folder to the real project.
+project_id = "snowy-pilates-club"
+
+# These are called by Stripe, the database or the scheduler rather than a signed-in person,
+# so they skip Supabase's login check and verify their own secret instead
+# (Stripe signature / x-cron-secret). manage-membership accepts either a login or the cron secret.
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.send-email]
+verify_jwt = false
+
+[functions.send-reminders]
+verify_jwt = false
+
+[functions.manage-membership]
+verify_jwt = false

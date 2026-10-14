@@ -81,7 +81,7 @@ export function Today() {
         actions={
           <>
             {can('pos') && <a className="btn soft" href="#/pos"><Icon name="bag" size={20} />Sell</a>}
-            <a className="btn" href="#/clients?new=1"><Icon name="userPlus" size={20} />New client</a>
+            {can('editClients') && <a className="btn" href="#/clients?new=1"><Icon name="userPlus" size={20} />New client</a>}
           </>
         }
       />

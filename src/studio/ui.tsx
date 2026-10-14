@@ -9,6 +9,7 @@ export const dayLong = (iso: string | Date) => _dayLong(iso).replace(',', '');
 /** '6:00am Tue 14 Oct' */
 export const dateTime = (iso: string | Date) => `${time(iso)} ${dayShort(iso)}`;
 import { Sheet } from '../shared/react';
+import { can, type StaffAction } from '../domain';
 
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ');
 
@@ -21,26 +22,30 @@ export function asset(p?: string | null): string | undefined {
 }
 
 // ------------------------------------------------------------------ permissions (RULES.md › Staff permissions)
-export type Perm =
-  | 'reports' // reports + revenue
-  | 'settings' // policies, class types, products, staff
-  | 'studioFinance' // ABN / GST / bank / Stripe
-  | 'pay' // staff pay rates + pay amounts
-  | 'refund'
-  | 'pos'
-  | 'editClass' // edit / cancel / add classes, timetable
-  | 'allRosters' // any class's roster (instructors: own classes only)
-  | 'staffNotes'
-  | 'adjustPasses'
-  | 'exportData';
-
-const MATRIX: Record<StaffRole, Perm[]> = {
-  owner: ['reports', 'settings', 'studioFinance', 'pay', 'refund', 'pos', 'editClass', 'allRosters', 'staffNotes', 'adjustPasses', 'exportData'],
-  manager: ['reports', 'settings', 'refund', 'pos', 'editClass', 'allRosters', 'staffNotes', 'adjustPasses', 'exportData'],
-  front_desk: ['refund', 'pos', 'editClass', 'allRosters', 'staffNotes', 'adjustPasses'],
-  instructor: ['pos'],
-};
-export const roleCan = (role: StaffRole, p: Perm) => MATRIX[role].includes(p);
+// UI-friendly names mapped onto the engine's matrix (src/domain/permissions.ts), so the screens hide
+// exactly what the store would refuse.
+const PERM_MAP = {
+  reports: 'reports', // attendance reports (everyone)
+  revenue: 'reports_revenue', // revenue figures in reports
+  settings: 'settings', // policies, class types
+  products: 'products',
+  staff: 'staff',
+  studioFinance: 'settings_financial', // ABN / GST / bank / Stripe
+  pay: 'reports_pay', // pay amounts in reports, pay rates on staff
+  refund: 'pos_refund',
+  pos: 'pos',
+  editClass: 'schedule', // edit / cancel / add classes, timetable
+  allRosters: 'roster_all', // any class's roster (instructors: own classes only)
+  staffNotes: 'client_staff_notes',
+  adjustPasses: 'passes_manage',
+  editClients: 'clients_edit', // add / edit clients (walk-ins create a client)
+  waiver: 'waiver_record',
+  salesView: 'sales_view', // a client's purchase history
+  exportSales: 'export_sales',
+  exportClients: 'export_clients',
+} as const satisfies Record<string, StaffAction>;
+export type Perm = keyof typeof PERM_MAP;
+export const roleCan = (role: StaffRole, p: Perm) => can(role, PERM_MAP[p]);
 export const ROLE_LABEL: Record<StaffRole, string> = { owner: 'Owner', manager: 'Manager', front_desk: 'Front desk', instructor: 'Instructor' };
 
 // ------------------------------------------------------------------ app context

@@ -5,13 +5,15 @@ import type { Client, Pass, Sale } from '../shared/types';
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import { Avatar, Empty, Icon, Loading, PageHead, Seg, SheetHead, cx, dayShort, fullName, toCents, toDollars, useStudio } from './ui';
 import { BookClientSheet, NewClientSheet, WaiverSheet } from './book';
+import { computePassStatus, isPassCurrent } from '../domain';
 
 // ------------------------------------------------------------------ list
 type Filter = 'all' | 'nowaiver' | 'new' | 'injury';
 export function Clients() {
+  const { can } = useStudio();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [adding, setAdding] = useState(() => /[?&]new=1/.test(location.hash));
+  const [adding, setAdding] = useState(() => can('editClients') && /[?&]new=1/.test(location.hash));
   const res = useData(() => store.listClients({ search: q.trim() || undefined }), [q]);
   const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
   const list = (res.data ?? []).filter((c) =>
@@ -22,7 +24,7 @@ export function Clients() {
   return (
     <div className="clients">
       <PageHead eyebrow={res.data ? `${total} ${q ? 'matching' : 'active'} clients` : 'Clients'} title={<>Your <em>clients</em></>}
-        actions={<button className="btn" onClick={() => setAdding(true)}><Icon name="userPlus" size={20} />New client</button>} />
+        actions={can('editClients') && <button className="btn" onClick={() => setAdding(true)}><Icon name="userPlus" size={20} />New client</button>} />
       <div className="toolbar">
         <label className="search-in grow">
           <Icon name="search" size={20} />
@@ -69,7 +71,7 @@ export function ClientProfile({ id }: { id: string }) {
     ]);
     return { client, passes, credits, upcoming, past };
   }, [id]);
-  const sales = useData(() => (can('refund') ? store.listSales({ from: '2000-01-01', to: addDays(today, 1), clientId: id }) : Promise.resolve([] as Sale[])), [id, today]);
+  const sales = useData(() => (can('salesView') ? store.listSales({ from: '2000-01-01', to: addDays(today, 1), clientId: id }) : Promise.resolve([] as Sale[])), [id, today]);
   const [sheet, setSheet] = useState<null | 'edit' | 'book' | 'waiver'>(null);
   const [passSheet, setPassSheet] = useState<{ kind: 'adjust' | 'pause' | 'cancel'; pass: Pass } | null>(null);
   const [refund, setRefund] = useState<Sale | null>(null);
@@ -79,8 +81,9 @@ export function ClientProfile({ id }: { id: string }) {
   if (!res.data) return <Loading />;
   const { client: c, passes, credits, upcoming, past } = res.data;
   const injuries = c.injuries || c.healthForm?.injuries;
-  const activePasses = passes.filter((p) => p.status === 'active' || p.status === 'paused');
-  const oldPasses = passes.filter((p) => !(p.status === 'active' || p.status === 'paused'));
+  const nowD = new Date();
+  const activePasses = passes.filter((p) => isPassCurrent(p, nowD));
+  const oldPasses = passes.filter((p) => !isPassCurrent(p, nowD));
   const attended = past.filter((b) => b.status === 'checked_in').length;
   const age = c.birthday ? Math.floor((Date.now() - new Date(c.birthday).getTime()) / (365.25 * 864e5)) : null;
 
@@ -92,7 +95,7 @@ export function ClientProfile({ id }: { id: string }) {
         <div className="pf-text">
           <h1>{c.firstName} <em>{c.lastName}</em></h1>
           <div className="pf-chips">
-            {c.waiverSignedAt ? <span className="chip ok"><Icon name="check" size={14} />Waiver signed</span> : <button className="chip danger flag" onClick={() => setSheet('waiver')}><Icon name="doc" size={14} />No waiver</button>}
+            {c.waiverSignedAt ? <span className="chip ok"><Icon name="check" size={14} />Waiver signed</span> : <button className="chip danger flag" onClick={() => setSheet('waiver')} disabled={!can('waiver')}><Icon name="doc" size={14} />No waiver</button>}
             {injuries && <span className="chip warn"><Icon name="injury" size={14} />Injury noted</span>}
             {c.healthForm?.pregnantOrPostnatal && <span className="chip cream">Pregnant / postnatal</span>}
             <span className="chip">Client since {new Date(c.createdAt).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}</span>
@@ -102,7 +105,7 @@ export function ClientProfile({ id }: { id: string }) {
         <div className="pf-actions">
           <button className="btn" onClick={() => setSheet('book')}><Icon name="calendar" size={20} />Book into class</button>
           {can('pos') && <a className="btn soft" href={`#/pos/${c.id}`}><Icon name="bag" size={20} />Sell</a>}
-          <button className="btn icon soft" onClick={() => setSheet('edit')} aria-label="Edit details"><Icon name="edit" /></button>
+          {can('editClients') && <button className="btn icon soft" onClick={() => setSheet('edit')} aria-label="Edit details"><Icon name="edit" /></button>}
         </div>
       </header>
 
@@ -126,7 +129,13 @@ export function ClientProfile({ id }: { id: string }) {
                 <summary>{oldPasses.length} past {oldPasses.length === 1 ? 'pass' : 'passes'}<Icon name="down" size={16} /></summary>
                 <div className="list">
                   {oldPasses.map((p) => (
-                    <div key={p.id} className="spread op-row"><span>{p.name}<span className="faint small"> · bought {dayShort(p.purchasedAt)}</span></span><span className="chip">{PASS_STATUS[p.status]}</span></div>
+                    <div key={p.id} className="spread op-row">
+                      <span>{p.name}<span className="faint small"> · bought {dayShort(p.purchasedAt)}</span></span>
+                      <span className="row" style={{ gap: 8 }}>
+                        <span className="chip">{PASS_STATUS[computePassStatus(p, nowD)]}</span>
+                        {can('adjustPasses') && p.kind !== 'membership' && computePassStatus(p, nowD) !== 'cancelled' && <button className="btn sm soft" onClick={() => setPassSheet({ kind: 'adjust', pass: p })}>Adjust</button>}
+                      </span>
+                    </div>
                   ))}
                 </div>
               </details>
@@ -138,7 +147,7 @@ export function ClientProfile({ id }: { id: string }) {
             <BookingList list={tab === 'upcoming' ? upcoming : [...past].reverse()} empty={tab === 'upcoming' ? 'No upcoming classes.' : 'No past classes yet.'} />
           </section>
 
-          {can('refund') && (
+          {can('salesView') && (
             <section className="card pad">
               <div className="sec-head"><h3>Purchases</h3></div>
               {(sales.data ?? []).length === 0 ? <p className="muted">No purchases yet.</p> : (
@@ -148,7 +157,7 @@ export function ClientProfile({ id }: { id: string }) {
                       <span className="sr-date">{dayShort(s.createdAt)}<span className="faint small">{new Date(s.createdAt).getFullYear()}</span></span>
                       <span className="sr-items">{s.items.map((i) => `${i.qty > 1 ? i.qty + ' × ' : ''}${i.name}`).join(', ')}<span className="faint small">{METHOD_LABEL[s.method] ?? s.method}</span></span>
                       <span className="sr-total">{money(s.totalCents)}{s.refundedCents ? <span className="chip danger">Refunded {money(s.refundedCents)}</span> : null}</span>
-                      {!s.refundedAt && s.method !== 'comp' && s.totalCents > 0 && <button className="btn sm ghost" onClick={() => setRefund(s)}>Refund</button>}
+                      {can('refund') && (s.refundedCents ?? 0) < s.totalCents && s.method !== 'comp' && s.totalCents > 0 && <button className="btn sm ghost" onClick={() => setRefund(s)}>Refund</button>}
                     </div>
                   ))}
                 </div>
@@ -159,7 +168,7 @@ export function ClientProfile({ id }: { id: string }) {
 
         <aside className="stack lg">
           <section className="card pad">
-            <div className="sec-head"><h3>Details</h3><button className="linkish" onClick={() => setSheet('edit')}>Edit</button></div>
+            <div className="sec-head"><h3>Details</h3>{can('editClients') && <button className="linkish" onClick={() => setSheet('edit')}>Edit</button>}</div>
             <dl className="dl">
               <dt>Email</dt><dd><a href={`mailto:${c.email}`}>{c.email}</a></dd>
               <dt>Mobile</dt><dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="faint">Not added</span>}</dd>
@@ -170,7 +179,7 @@ export function ClientProfile({ id }: { id: string }) {
           </section>
 
           <section className="card pad">
-            <div className="sec-head"><h3>Health &amp; <em>waiver</em></h3><button className="linkish" onClick={() => setSheet('waiver')}>{c.waiverSignedAt ? 'Update' : 'Record'}</button></div>
+            <div className="sec-head"><h3>Health &amp; <em>waiver</em></h3>{can('waiver') && <button className="linkish" onClick={() => setSheet('waiver')}>{c.waiverSignedAt ? 'Update' : 'Record'}</button>}</div>
             <p className="small muted">{c.waiverSignedAt ? `Waiver signed ${dayShort(c.waiverSignedAt)} ${new Date(c.waiverSignedAt).getFullYear()}` : 'No waiver yet. They must sign before booking in the app.'}</p>
             {injuries && <div className="injury-box" style={{ marginTop: 12 }}><Icon name="injury" size={20} /><p>{injuries}</p></div>}
             {c.healthForm && Object.keys(c.healthForm.answers).length > 0 && (
@@ -205,12 +214,16 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
   const { run } = useAction();
   const left = p.credits == null ? null : p.kind === 'membership' ? null : Math.max(0, p.credits - p.creditsUsed);
   const pct = p.credits && p.kind !== 'membership' ? (left! / p.credits) * 100 : 100;
-  const resume = async () => { if (await run(() => store.resumePass(p.id))) toast('Membership resumed'); };
+  const st = computePassStatus(p, new Date());
+  const resume = async () => { if (await run(() => store.resumePass(p.id))) toast(st === 'paused' ? 'Membership resumed' : 'Pause cancelled'); };
+  const pauseBooked = st === 'active' && !!p.pausedFrom && !!p.pausedUntil && p.pausedUntil >= studioDate();
   return (
-    <div className={cx('pass', p.status === 'paused' && 'paused')}>
+    <div className={cx('pass', st === 'paused' && 'paused')}>
       <div className="pass-top">
         <span className="pass-kind">{KIND_LABEL[p.kind]}</span>
-        {p.status === 'paused' && <span className="chip warn">Paused{p.pausedUntil ? ` until ${dayShort(p.pausedUntil + 'T02:00:00Z')}` : ''}</span>}
+        {st === 'paused' && <span className="chip warn">Paused{p.pausedUntil ? ` until ${dayShort(p.pausedUntil + 'T02:00:00Z')}` : ''}</span>}
+        {pauseBooked && <span className="chip warn">Pause from {dayShort(p.pausedFrom + 'T02:00:00Z')}</span>}
+        {st === 'cancelled' && <span className="chip">Cancelled{p.nextBillingAt ? ` · ends ${dayShort(p.nextBillingAt)}` : ''}</span>}
       </div>
       <div className="pass-name">{p.name}</div>
       <div className="pass-credit">
@@ -219,18 +232,18 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
       {left != null && <div className="pass-bar"><span style={{ width: pct + '%' }} /></div>}
       <div className="pass-meta">
         {p.activatedAt ? (p.expiresAt ? <>Expires {dayShort(p.expiresAt)} {new Date(p.expiresAt).getFullYear()}</> : 'No expiry') : 'Starts on first booking'}
-        {p.nextBillingAt && p.kind === 'membership' && <> · Next billing {dayShort(p.nextBillingAt)}</>}
+        {p.nextBillingAt && p.kind === 'membership' && st !== 'cancelled' && <> · Next billing {dayShort(p.nextBillingAt)}</>}
       </div>
       {p.adjustments && p.adjustments.length > 0 && (
         <details className="adj"><summary>{p.adjustments.length} adjustment{p.adjustments.length > 1 ? 's' : ''}</summary>
           {p.adjustments.map((a, i) => <div key={i} className="small muted">{dayShort(a.at)}: {a.delta > 0 ? '+' : ''}{a.delta ? `${a.delta} credit${Math.abs(a.delta) === 1 ? '' : 's'}, ` : ''}{a.reason}</div>)}
         </details>
       )}
-      {can('adjustPasses') && (
+      {can('adjustPasses') && st !== 'cancelled' && (
         <div className="pass-actions">
-          <button className="btn sm soft" onClick={() => onAction('adjust')}>Adjust</button>
-          {p.kind === 'membership' && p.status === 'active' && <button className="btn sm soft" onClick={() => onAction('pause')}><Icon name="pause" size={16} />Pause</button>}
-          {p.kind === 'membership' && p.status === 'paused' && <button className="btn sm soft" onClick={resume}><Icon name="play" size={16} />Resume</button>}
+          {p.kind !== 'membership' && <button className="btn sm soft" onClick={() => onAction('adjust')}>Adjust</button>}
+          {p.kind === 'membership' && st === 'active' && !pauseBooked && <button className="btn sm soft" onClick={() => onAction('pause')}><Icon name="pause" size={16} />Pause</button>}
+          {p.kind === 'membership' && (st === 'paused' || pauseBooked) && <button className="btn sm soft" onClick={resume}><Icon name="play" size={16} />{st === 'paused' ? 'Resume' : 'Cancel pause'}</button>}
           {p.kind === 'membership' && <button className="btn sm ghost danger-text" onClick={() => onAction('cancel')}>Cancel</button>}
         </div>
       )}

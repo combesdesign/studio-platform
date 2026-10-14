@@ -71,16 +71,16 @@ on conflict (id) do update set kind = excluded.kind, name = excluded.name, descr
 insert into public.staff (id, name, email, role, bio, photo_url, active) values
   ('5aff0000-0000-4000-8000-000000000001', 'Libby', null, 'owner',
    'The owner of Snowy Pilates Club. You are guaranteed a good time in her classes. They are fun and achievable, but you absolutely will feel muscles burning that you never knew existed.',
-   '/img/libby.webp', true),
+   'img/libby.webp', true),
   ('5aff0000-0000-4000-8000-000000000002', 'Julia', null, 'instructor',
    'A real life angel. Julia''s style is the perfect mix of satisfying and challenging, where you leave every class realising what you are capable of.',
-   '/img/julia.webp', true),
+   'img/julia.webp', true),
   ('5aff0000-0000-4000-8000-000000000003', 'Grace T', null, 'instructor',
    'Grace''s bright smile and easy going nature will put you at ease instantly, and her workouts will give you that signature Pilates burn you''ve been looking for.',
-   '/img/grace-t.webp', true),
+   'img/grace-t.webp', true),
   ('5aff0000-0000-4000-8000-000000000004', 'Grace P', null, 'instructor',
    'Nurse by day (and night) and Pilates queen by early morning (and evening). Grace knows her stuff and wants every session to be challenging yet rewarding.',
-   '/img/grace-p.webp', true)
+   'img/grace-p.webp', true)
 on conflict (id) do nothing;
 
 -- ----------------------------------------------------------------------------- weekly timetable

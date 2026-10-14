@@ -31,12 +31,12 @@ export function time(iso: ISODateTime | Date): string {
 /** 'Tue 14 Oct' */
 export function dayShort(iso: ISODateTime | Date): string {
   const d = typeof iso === 'string' ? new Date(iso) : iso;
-  return parts(d, { weekday: 'short', day: 'numeric', month: 'short' });
+  return parts(d, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
 }
 /** 'Tuesday 14 October' */
 export function dayLong(iso: ISODateTime | Date): string {
   const d = typeof iso === 'string' ? new Date(iso) : iso;
-  return parts(d, { weekday: 'long', day: 'numeric', month: 'long' });
+  return parts(d, { weekday: 'long', day: 'numeric', month: 'long' }).replace(',', '');
 }
 /** '6:00am Tue 14 Oct' */
 export function dateTime(iso: ISODateTime | Date): string {

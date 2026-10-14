@@ -29,6 +29,7 @@ export function Reports() {
   const { busy, run } = useAction();
   const r = rep.data;
   const showPay = can('pay');
+  const showRevenue = can('revenue');
 
   const exportSales = () => run(async () => downloadText(`snowy-sales-${range.from}-to-${range.to}.csv`, await store.exportSalesCsv(range)), 'Sales CSV downloaded');
   const exportClients = () => run(async () => downloadText(`snowy-clients-${t}.csv`, await store.exportClientsCsv()), 'Clients CSV downloaded');
@@ -39,10 +40,11 @@ export function Reports() {
   return (
     <div className="reports">
       <PageHead eyebrow={`${fmtD(range.from)} – ${fmtD(range.to)}`} title={<>How it's <em>going</em></>}
-        actions={can('exportData') && (
+        sub={showRevenue ? undefined : 'Attendance and classes. Revenue is only shown to the owner and managers.'}
+        actions={(can('exportSales') || can('exportClients')) && (
           <>
-            <button className="btn soft" onClick={exportSales} disabled={busy}><Icon name="download" size={20} />Sales CSV</button>
-            <button className="btn soft" onClick={exportClients} disabled={busy}><Icon name="download" size={20} />Clients CSV</button>
+            {can('exportSales') && <button className="btn soft" onClick={exportSales} disabled={busy}><Icon name="download" size={20} />Sales CSV</button>}
+            {can('exportClients') && <button className="btn soft" onClick={exportClients} disabled={busy}><Icon name="download" size={20} />Clients CSV</button>}
           </>
         )} />
       <div className="toolbar">
@@ -62,18 +64,22 @@ export function Reports() {
       {!r ? (rep.error ? <p className="muted">{rep.error.message}</p> : <Loading />) : (
         <div className={cx('stack lg', rep.loading && 'dim')}>
           <div className="kpis">
-            <Kpi label="Revenue" value={money(r.revenueCents - r.refundsCents)} sub={r.refundsCents ? `after ${money(r.refundsCents)} refunds` : `${r.salesCount} sales`} hero />
+            {showRevenue && <Kpi label="Revenue" value={money(r.revenueCents - r.refundsCents)} sub={r.refundsCents ? `after ${money(r.refundsCents)} refunds` : `${r.salesCount} sales`} hero />}
+            {!showRevenue && <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} hero />}
             <Kpi label="Classes run" value={r.classesRun} />
-            <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} />
+            {showRevenue && <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} />}
             <Kpi label="Average fill" value={`${Math.round(r.avgFillPct)}%`} />
             <Kpi label="No-shows" value={r.noShows} />
             <Kpi label="Late cancels" value={r.lateCancels} />
             <Kpi label="New clients" value={r.newClients} />
-            <Kpi label="Active memberships" value={r.activeMemberships} sub={`${r.activePacks} active packs`} />
+            {showRevenue ? <Kpi label="Active memberships" value={r.activeMemberships} sub={`${r.activePacks} active packs`} /> : <>
+              <Kpi label="Active memberships" value={r.activeMemberships} />
+              <Kpi label="Active packs" value={r.activePacks} sub="Includes intro offers" />
+            </>}
           </div>
 
-          <div className="charts">
-            <section className="card pad chart">
+          <div className={cx('charts', !showRevenue && 'two')}>
+            {showRevenue && <section className="card pad chart">
               <h3>Revenue by <em>product</em></h3>
               <Bars data={revKinds} fmt={(v) => money(v)} empty="No sales in this period." />
               {methods.length > 0 && (
@@ -81,7 +87,7 @@ export function Reports() {
                   {methods.map(([k, v]) => <span key={k}><span className="faint">{METHOD_LABEL[k] ?? k}</span> {money(v ?? 0)}</span>)}
                 </div>
               )}
-            </section>
+            </section>}
             <section className="card pad chart">
               <h3>Attendance by <em>class</em></h3>
               <Bars data={r.byClassType.map((c) => ({ label: c.name, value: c.attendees, note: `${c.classes} classes · ${Math.round(c.avgFillPct)}% full` }))} fmt={(v) => String(v)} empty="No classes run in this period." />
@@ -93,7 +99,7 @@ export function Reports() {
           </div>
 
           <section className="card pad">
-            <div className="sec-head"><h3>Instructors</h3>{!showPay && <span className="faint small">Pay amounts are visible to the owner</span>}</div>
+            <div className="sec-head"><h3>Instructors</h3>{!showPay && <span className="faint small">Pay amounts are only shown to the owner</span>}</div>
             <div className="table-wrap">
               <table className="tbl">
                 <thead><tr><th>Instructor</th><th className="num">Classes</th><th className="num">Attendees</th><th className="num">Avg / class</th>{showPay && <th className="num">Pay</th>}</tr></thead>

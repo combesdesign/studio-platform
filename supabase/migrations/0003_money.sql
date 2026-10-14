@@ -59,9 +59,9 @@ begin
     perform app.fail('NOT_ALLOWED', 'You don''t have permission to use the till.');
   end if;
   if p_method not in ('card_online','card_reader','cash','comp','imported') then
-    perform app.fail('NOT_ALLOWED', 'Unknown payment method.');
+    perform app.fail('INVALID', 'Unknown payment method.');
   end if;
-  if p_items is null or jsonb_array_length(p_items) = 0 then perform app.fail('NOT_ALLOWED', 'The cart is empty.'); end if;
+  if p_items is null or jsonb_array_length(p_items) = 0 then perform app.fail('INVALID', 'The cart is empty.'); end if;
   if p_client_id is not null and not exists (select 1 from public.clients where id = p_client_id) then
     perform app.fail('NOT_FOUND', 'We couldn''t find that client.');
   end if;
@@ -75,11 +75,11 @@ begin
     select * into pr from public.products where id = it.product_id for update;
     if pr.id is null then perform app.fail('NOT_FOUND', 'We couldn''t find one of the products.'); end if;
     if pr.kind <> 'retail' and p_client_id is null then
-      perform app.fail('NOT_ALLOWED', 'Choose a client for class passes.');
+      perform app.fail('INVALID', 'Choose a client for class passes.');
     end if;
     if pr.kind = 'intro' and it.qty > 1 then perform app.fail('INTRO_NOT_ELIGIBLE', 'The intro offer is one per client.'); end if;
     if pr.kind = 'retail' and pr.stock is not null then
-      if pr.stock < it.qty then perform app.fail('NOT_ALLOWED', format('Only %s %s left in stock.', pr.stock, pr.name)); end if;
+      if pr.stock < it.qty then perform app.fail('OUT_OF_STOCK', format('Only %s %s left in stock.', pr.stock, pr.name)); end if;
       update public.products set stock = stock - it.qty where id = pr.id;
     end if;
     insert into public.sale_items (sale_id, product_id, name, qty, unit_cents, kind)
@@ -213,15 +213,26 @@ begin
   return app.pass_json(p.id);
 end $$;
 
--- charge.refunded: p_refunded_cents is Stripe's running total for the payment.
-create or replace function public.record_stripe_refund(p_payment_intent_id text, p_refunded_cents integer) returns jsonb
+-- charge.refunded / refund-payment function: p_refunded_cents is Stripe's running total for the
+-- payment, so this is absolute (safe to run twice, in any order).
+create or replace function public.record_stripe_refund(
+  p_payment_intent_id text, p_refunded_cents integer, p_cancel_pass boolean default false, p_reason text default null
+) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_sale uuid;
 begin
   if not app.is_privileged() then perform app.fail('NOT_ALLOWED', 'Only the payment system can do that.'); end if;
-  update public.sales set refunded_cents = least(total_cents, p_refunded_cents), refunded_at = coalesce(refunded_at, app.now())
+  update public.sales set refunded_cents = greatest(refunded_cents, least(total_cents, p_refunded_cents)),
+         refunded_at = coalesce(refunded_at, app.now()),
+         note = case when p_reason is not null and p_reason <> '' then concat_ws(' | ', note, 'Refund: ' || p_reason) else note end
    where stripe_payment_intent_id = p_payment_intent_id returning id into v_sale;
   if v_sale is null then return null; end if;
+  if p_cancel_pass then
+    update public.passes set status = 'cancelled',
+           next_billing_at = case when kind = 'membership' then least(coalesce(next_billing_at, app.now()), app.now()) end
+     where sale_id = v_sale and status <> 'cancelled';
+  end if;
+  perform app.audit('stripe_refund', 'sales', v_sale::text, jsonb_build_object('refunded_total', p_refunded_cents, 'cancel_pass', p_cancel_pass, 'reason', p_reason));
   return app.sale_json(v_sale);
 end $$;
 
@@ -240,7 +251,7 @@ begin
   if s.id is null then perform app.fail('NOT_FOUND', 'We couldn''t find that sale.'); end if;
   v_amt := coalesce(p_amount_cents, s.total_cents - s.refunded_cents);
   if v_amt <= 0 or s.refunded_cents + v_amt > s.total_cents then
-    perform app.fail('NOT_ALLOWED', 'That''s more than is left to refund on this sale.');
+    perform app.fail('INVALID', 'That''s more than is left to refund on this sale.');
   end if;
   update public.sales set refunded_cents = refunded_cents + v_amt, refunded_at = app.now(),
          note = concat_ws(' | ', note, 'Refund: ' || coalesce(nullif(p_reason, ''), 'no reason given'))
@@ -273,14 +284,14 @@ language plpgsql security definer set search_path = public, pg_temp as $$
 declare p public.passes := app.pass_for_change(p_pass_id, true); v_today date := app.local_date(app.now());
 begin
   if p.kind <> 'membership' and not (app.is_privileged() or public.is_staff()) then
-    perform app.fail('NOT_ALLOWED', 'Only memberships can be paused.');
+    perform app.fail('INVALID', 'Only memberships can be paused.');
   end if;
-  if p.status not in ('active','paused') then perform app.fail('NOT_ALLOWED', 'This pass isn''t active.'); end if;
+  if p.status not in ('active','paused') then perform app.fail('INVALID', 'This pass isn''t active.'); end if;
   if p_from is null or p_until is null or p_until < p_from + 6 then
-    perform app.fail('NOT_ALLOWED', 'A pause needs to be at least 1 week.');
+    perform app.fail('INVALID', 'A pause needs to be at least 1 week.');
   end if;
   if p_from < v_today and not (app.is_privileged() or public.is_staff()) then
-    perform app.fail('NOT_ALLOWED', 'A pause can''t start in the past.');
+    perform app.fail('INVALID', 'A pause can''t start in the past.');
   end if;
   update public.passes set paused_from = p_from, paused_until = p_until,
          status = case when p_from <= v_today then 'paused' else 'active' end
@@ -307,7 +318,7 @@ create or replace function public.cancel_membership(p_pass_id uuid) returns json
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare p public.passes := app.pass_for_change(p_pass_id, true);
 begin
-  if p.kind <> 'membership' then perform app.fail('NOT_ALLOWED', 'Only memberships can be cancelled this way.'); end if;
+  if p.kind <> 'membership' then perform app.fail('INVALID', 'Only memberships can be cancelled this way.'); end if;
   if p.status = 'cancelled' then return app.pass_json(p.id); end if;
   update public.passes set cancel_at_period_end = true, status = 'cancelled',
          next_billing_at = coalesce(next_billing_at, case when activated_at is not null then activated_at + interval '7 days' end, app.now())
@@ -324,13 +335,13 @@ create or replace function public.adjust_pass(
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare p public.passes := app.pass_for_change(p_pass_id, false); v_credits int; v_exp timestamptz;
 begin
-  if coalesce(trim(p_reason), '') = '' then perform app.fail('NOT_ALLOWED', 'Please add a reason.'); end if;
+  if coalesce(trim(p_reason), '') = '' then perform app.fail('INVALID', 'Please add a reason.'); end if;
   v_credits := p.credits;
   if coalesce(p_credits_delta, 0) <> 0 then
-    if p.credits is null then perform app.fail('NOT_ALLOWED', 'This pass is unlimited, so there are no credits to adjust.'); end if;
-    if p.kind = 'membership' then perform app.fail('NOT_ALLOWED', 'Membership credits reset weekly. Book them in as a comp instead.'); end if;
+    if p.credits is null then perform app.fail('INVALID', 'This pass is unlimited, so there are no credits to adjust.'); end if;
+    if p.kind = 'membership' then perform app.fail('INVALID', 'Membership credits reset weekly. Book them in as a comp instead.'); end if;
     v_credits := p.credits + p_credits_delta;
-    if v_credits < 0 then perform app.fail('NOT_ALLOWED', 'That would take the pass below zero credits.'); end if;
+    if v_credits < 0 then perform app.fail('INVALID', 'That would take the pass below zero credits.'); end if;
   end if;
   v_exp := case when p_set_expiry then p_new_expires_at else p.expires_at end;
   update public.passes set credits = v_credits, expires_at = v_exp,

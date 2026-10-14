@@ -37,6 +37,8 @@ select test.eq((select credits_used from public.passes where client_id = test.id
 select test.eq((select j -> 'promoted' ->> 'client_id' from r), test.id('fay_client')::text, 'waitlist promotion skips Cara (no credit) and books Fay');
 select test.eq(test.status('fay', 's_early'), 'booked', 'Fay is booked');
 select test.eq(test.status('cara', 's_early'), 'waitlisted', 'Cara stays on the waitlist');
+select test.eq((select array_agg(waitlist_position order by waitlist_position) from public.bookings
+                 where session_id = test.id('s_early') and status = 'waitlisted'), array[1,2], 'waitlist renumbered 1..n after a promotion');
 select test.eq((select credits_used from public.passes where id = test.id('fay_old_pass')), 2, 'Fay''s credit is taken on promotion');
 select test.ok((select promoted_from_waitlist_at is not null from public.bookings where id = test.bid('fay', 's_early')), 'promotion time recorded');
 select test.ok(exists (select 1 from public.notifications where kind = 'waitlist_promoted' and to_email = 'fay@example.test'), 'Fay gets a "you''re in" email');
@@ -95,7 +97,7 @@ select test.eq(public.undo_check_in(test.bid('alice', 's_early')) ->> 'status', 
 select test.eq(public.mark_rest_no_show(test.id('s_early')), 1, 'mark rest as no-show');
 select test.eq(test.status('alice', 's_early'), 'no_show', 'no-show recorded');
 select test.eq(public.check_in(test.bid('alice', 's_early')) ->> 'status', 'checked_in', 'a no-show can still be checked in if they turn up late');
-select test.throws($$select public.check_in(test.bid('fay', 's_early'))$$, 'NOT_ALLOWED', 'can''t check in a cancelled booking');
+select test.throws($$select public.check_in(test.bid('fay', 's_early'))$$, 'INVALID', 'can''t check in a cancelled booking');
 select test.admin();
 select test.eq((select credits_used from public.passes where client_id = test.id('alice_client')), 1, 'no-show/check-in don''t double-charge');
 

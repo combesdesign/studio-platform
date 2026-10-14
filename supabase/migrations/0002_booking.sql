@@ -163,6 +163,15 @@ $$;
 
 -- ----------------------------------------------------------------------------- waitlist
 
+-- Keep waitlist positions as 1..n (people see "You're 2nd on the waitlist").
+create or replace function app.renumber_waitlist(p_session_id uuid) returns void
+language sql security definer set search_path = public, pg_temp as $$
+  update public.bookings b set waitlist_position = x.rn
+    from (select id, row_number() over (order by waitlist_position nulls last, created_at, id)::int as rn
+            from public.bookings where session_id = p_session_id and status = 'waitlisted') x
+   where b.id = x.id and b.waitlist_position is distinct from x.rn
+$$;
+
 -- Fill free spots from the waitlist, in order, skipping anyone without an eligible credit.
 -- Stops 1h before class (waitlist_cutoff_hours): later spots stay open, the waitlist stays put.
 -- Internal: not callable through the API. Returns the promoted bookings.
@@ -200,6 +209,7 @@ begin
     perform app.audit('promote_waitlist', 'bookings', w.id::text, jsonb_build_object('pass_id', p.id));
     v_out := v_out || jsonb_build_array(app.booking_json(w.id));
   end loop;
+  if jsonb_array_length(v_out) > 0 then perform app.renumber_waitlist(s.id); end if;
   return v_out;
 end $$;
 
@@ -249,7 +259,7 @@ begin
     if v_client is null then perform app.fail('NOT_FOUND', 'Choose a client to book.'); end if;
   else
     v_client := public.current_client_id();
-    if v_client is null then perform app.fail('NOT_ALLOWED', 'Please sign in to book.'); end if;
+    if v_client is null then perform app.fail('AUTH_REQUIRED', 'Please sign in to book.'); end if;
     if p_client_id is not null and p_client_id <> v_client then perform app.fail('NOT_ALLOWED', 'You can only book for yourself.'); end if;
     if p_allow_over_capacity or p_skip_credit then perform app.fail('NOT_ALLOWED', 'Only staff can do that.'); end if;
   end if;
@@ -257,15 +267,15 @@ begin
   select * into c from public.clients where id = v_client;
   if c.id is null then perform app.fail('NOT_FOUND', 'We couldn''t find that client.'); end if;
 
-  if s.status = 'cancelled' then perform app.fail('NOT_ALLOWED', 'This class has been cancelled.'); end if;
+  if s.status = 'cancelled' then perform app.fail('CLASS_CANCELLED', 'This class has been cancelled.'); end if;
 
   if p_as_staff then
     if v_now >= s.ends_at then perform app.fail('TOO_LATE', 'This class has already finished.'); end if;
   else
     if v_now >= s.starts_at then perform app.fail('TOO_LATE', 'This class has already started.'); end if;
-    if not ct.bookable or not ct.active then perform app.fail('NOT_ALLOWED', 'This class isn''t open for booking yet.'); end if;
+    if not ct.bookable or not ct.active then perform app.fail('NOT_BOOKABLE', 'This class isn''t open for booking yet.'); end if;
     if app.local_date(s.starts_at) > app.local_date(v_now) + st.booking_window_days then
-      perform app.fail('NOT_ALLOWED', format('Bookings open %s days before class.', st.booking_window_days));
+      perform app.fail('TOO_EARLY', format('Bookings open %s days before class.', st.booking_window_days));
     end if;
     if c.waiver_signed_at is null then
       perform app.fail('WAIVER_REQUIRED', 'Please sign the waiver and health form before your first booking.');
@@ -354,11 +364,12 @@ begin
 
   if b.status = 'waitlisted' then
     update public.bookings set status = 'removed', cancelled_at = v_now, waitlist_position = null where id = b.id;
+    perform app.renumber_waitlist(s.id);
     return jsonb_build_object('booking', app.booking_json(b.id), 'creditReturned', false, 'lateCancel', false, 'promoted', null);
   end if;
 
   if not (b.status = 'booked' or (p_as_staff and b.status in ('checked_in','no_show'))) then
-    perform app.fail('NOT_ALLOWED', 'This booking can''t be cancelled.');
+    perform app.fail('INVALID', 'This booking can''t be cancelled.');
   end if;
   if not p_as_staff and v_now >= s.starts_at then
     perform app.fail('TOO_LATE', 'This class has already started.');
@@ -397,8 +408,9 @@ begin
   if b.client_id is distinct from public.current_client_id() and not app.can_staff_session(s) then
     perform app.fail('NOT_FOUND', 'We couldn''t find that booking.');
   end if;
-  if b.status <> 'waitlisted' then perform app.fail('NOT_ALLOWED', 'You''re not on the waitlist for this class.'); end if;
+  if b.status <> 'waitlisted' then perform app.fail('INVALID', 'You''re not on the waitlist for this class.'); end if;
   update public.bookings set status = 'removed', cancelled_at = app.now(), waitlist_position = null where id = b.id;
+  perform app.renumber_waitlist(b.session_id);
   return app.booking_json(b.id);
 end $$;
 
@@ -421,7 +433,7 @@ begin
     perform app.fail('NOT_ALLOWED', 'You can only move bookings between classes you manage.');
   end if;
   select * into b from public.bookings where id = p_booking_id for update;
-  if b.status not in ('booked','waitlisted') then perform app.fail('NOT_ALLOWED', 'Only upcoming bookings can be moved.'); end if;
+  if b.status not in ('booked','waitlisted') then perform app.fail('INVALID', 'Only upcoming bookings can be moved.'); end if;
   if b.session_id = s_to.id then perform app.fail('ALREADY_BOOKED', 'They''re already in that class.'); end if;
   select count(*) into v_booked from public.bookings where session_id = s_to.id and status in ('booked','checked_in');
   if b.status = 'booked' and v_booked >= s_to.capacity then perform app.fail('CLASS_FULL', 'That class is full.'); end if;
@@ -439,6 +451,7 @@ begin
   end if;
   v_res := public.book_class(s_to.id, v_pass, b.client_id, true, false, b.status = 'booked' and b.pass_id is null);
   perform app.promote_waitlist(s_from.id, app.now());
+  perform app.renumber_waitlist(s_from.id);
   perform app.audit('move_booking', 'bookings', b.id::text, jsonb_build_object('to_session', s_to.id, 'new_booking', v_res -> 'booking' ->> 'id'));
   return v_res;
 end $$;
@@ -460,8 +473,8 @@ create or replace function public.check_in(p_booking_id uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare b public.bookings := app.staff_booking_for_update(p_booking_id);
 begin
-  if b.status = 'waitlisted' then perform app.fail('NOT_ALLOWED', 'They''re on the waitlist. Book them in first.'); end if;
-  if b.status not in ('booked','no_show','checked_in') then perform app.fail('NOT_ALLOWED', 'This booking was cancelled.'); end if;
+  if b.status = 'waitlisted' then perform app.fail('INVALID', 'They''re on the waitlist. Book them in first.'); end if;
+  if b.status not in ('booked','no_show','checked_in') then perform app.fail('INVALID', 'This booking was cancelled.'); end if;
   update public.bookings set status = 'checked_in', checked_in_at = coalesce(checked_in_at, app.now()) where id = b.id;
   return app.booking_json(b.id);
 end $$;
@@ -470,7 +483,7 @@ create or replace function public.undo_check_in(p_booking_id uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare b public.bookings := app.staff_booking_for_update(p_booking_id);
 begin
-  if b.status <> 'checked_in' then perform app.fail('NOT_ALLOWED', 'They aren''t checked in.'); end if;
+  if b.status <> 'checked_in' then perform app.fail('INVALID', 'They aren''t checked in.'); end if;
   update public.bookings set status = 'booked', checked_in_at = null where id = b.id;
   return app.booking_json(b.id);
 end $$;
@@ -479,7 +492,7 @@ create or replace function public.mark_no_show(p_booking_id uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare b public.bookings := app.staff_booking_for_update(p_booking_id);
 begin
-  if b.status not in ('booked','no_show') then perform app.fail('NOT_ALLOWED', 'Only booked clients can be marked as a no-show.'); end if;
+  if b.status not in ('booked','no_show') then perform app.fail('INVALID', 'Only booked clients can be marked as a no-show.'); end if;
   update public.bookings set status = 'no_show' where id = b.id;
   return app.booking_json(b.id);
 end $$;
@@ -531,7 +544,7 @@ begin
     perform app.fail('NOT_ALLOWED', 'You don''t have permission to change the schedule.');
   end if;
   if p_to < p_from then return 0; end if;
-  if p_to - p_from > 400 then perform app.fail('NOT_ALLOWED', 'Please generate at most about a year at a time.'); end if;
+  if p_to - p_from > 400 then perform app.fail('INVALID', 'Please generate at most about a year at a time.'); end if;
 
   insert into public.class_sessions (class_type_id, template_id, template_date, starts_at, ends_at, instructor_id, capacity)
   select t.class_type_id, t.id, d::date,
@@ -614,7 +627,8 @@ begin
      and not exists (select 1 from public.passes where client_id = v_client);
 end $$;
 
--- Roster for check-in: booked/checked-in/no-show first, then waitlist in order, then late cancels.
+-- Roster for check-in (same order as the demo store): booked + checked in by name, no-shows,
+-- late cancels, then the waitlist in order. Cancelled/removed bookings are left out.
 create or replace function public.get_roster(p_session_id uuid) returns jsonb
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare
@@ -628,7 +642,7 @@ begin
   v_week := app.week_start(s.starts_at);
 
   return coalesce((
-    select jsonb_agg(entry order by grp, sort1 nulls last, created_at)
+    select jsonb_agg(entry order by grp, sort1 nulls last, sort_name, created_at)
     from (
       select
         (to_jsonb(b) - 'reminder_sent_at' - 'updated_at') || jsonb_build_object(
@@ -651,8 +665,9 @@ begin
                        and p.expires_at <= s.starts_at + interval '7 days' then 'pass_expiring' end
           ]::text[], null))
         ) as entry,
-        case when b.status in ('booked','checked_in','no_show') then 0 when b.status = 'waitlisted' then 1 else 2 end as grp,
-        b.waitlist_position as sort1,
+        case b.status when 'booked' then 0 when 'checked_in' then 0 when 'no_show' then 1 when 'late_cancelled' then 2 else 3 end as grp,
+        case when b.status = 'waitlisted' then b.waitlist_position end as sort1,
+        lower(c.first_name || ' ' || c.last_name) as sort_name,
         b.created_at
       from public.bookings b
       join public.clients c on c.id = b.client_id

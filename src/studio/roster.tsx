@@ -103,7 +103,7 @@ export function Roster({ id }: { id: string }) {
         }
         actions={!cancelled && (
           <>
-            <button className="btn soft" onClick={() => setSheet('walkin')}><Icon name="userPlus" size={20} />Walk-in</button>
+            {can('editClients') && can('pos') && <button className="btn soft" onClick={() => setSheet('walkin')}><Icon name="userPlus" size={20} />Walk-in</button>}
             <button className="btn" onClick={() => setSheet('add')}><Icon name="plus" size={20} />Add client</button>
             <button className="btn icon soft" onClick={() => setSheet('menu')} aria-label="Class actions"><Icon name="more" /></button>
           </>
@@ -293,10 +293,10 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
             {!wl && <button onClick={onToggle}><Icon name={e.status === 'checked_in' ? 'undo' : 'check'} /><span><strong>{e.status === 'checked_in' ? 'Undo check-in' : 'Check in'}</strong></span></button>}
             {e.status === 'booked' && <button onClick={noShow} disabled={busy}><Icon name="ban" /><span><strong>Mark no-show</strong><span>Credit is used{settings.noShowFeeCents ? ', fee applies' : ''}</span></span></button>}
             {!wl && e.status !== 'checked_in' && <button onClick={() => setView('cancel')}><Icon name="x" /><span><strong>Cancel booking</strong><span>{late ? 'Inside the cancel window (late cancel)' : 'Credit goes back to their pass'}</span></span></button>}
-            {!wl && <button onClick={() => setView('move')}><Icon name="move" /><span><strong>Move to another class</strong><span>The credit moves with them</span></span></button>}
+            {e.status === 'booked' && <button onClick={() => setView('move')}><Icon name="move" /><span><strong>Move to another class</strong><span>The credit moves with them</span></span></button>}
             {wl && <button onClick={() => setView('promote')}><Icon name="plus" /><span><strong>Book in now</strong><span>Squeeze them in ahead of the waitlist</span></span></button>}
             {wl && <button onClick={leave} disabled={busy}><Icon name="x" /><span><strong>Remove from waitlist</strong><span>No penalty</span></span></button>}
-            {!e.client.waiverSignedAt && <button onClick={onWaiver}><Icon name="doc" /><span><strong>Record waiver</strong><span>Signed in person today</span></span></button>}
+            {!e.client.waiverSignedAt && can('waiver') && <button onClick={onWaiver}><Icon name="doc" /><span><strong>Record waiver</strong><span>Signed in person today</span></span></button>}
             <a href={`#/clients/${e.clientId}`} onClick={onClose}><Icon name="users" /><span><strong>View profile</strong><span>{e.client.email}</span></span></a>
           </div>
         </>
@@ -315,7 +315,7 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
       )}
       {view === 'move' && (
         <div>
-          <SessionPicker excludeId={s.id} onPick={move} title="Move to" />
+          <SessionPicker excludeId={s.id} onPick={move} title="Move to" noFull clientId={e.clientId} />
           <div className="sh-foot"><button className="btn ghost" onClick={() => setView('main')}>Back</button></div>
         </div>
       )}

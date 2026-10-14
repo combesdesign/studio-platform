@@ -145,9 +145,11 @@ function PassCard({ p, summary }: { p: Pass; summary?: CreditSummary }) {
   const tone = p.kind === 'intro' ? 'cream' : isMember ? 'navy' : 'white';
   const dl = daysLeft(p.expiresAt);
   const label = passLabel(p, summary);
+  // A pause can be booked ahead: status stays 'active' until pausedFrom.
+  const pauseBooked = p.status !== 'paused' && !!p.pausedUntil && p.pausedUntil >= studioDate();
   const resume = async () => {
     setBusy(true);
-    try { await store.resumePass(p.id); toast('Welcome back – membership resumed'); }
+    try { await store.resumePass(p.id); toast(pauseBooked ? 'Pause cancelled' : 'Welcome back – membership resumed'); }
     catch (e) { toast(errorMessage(e)); } finally { setBusy(false); }
   };
   return (
@@ -156,7 +158,7 @@ function PassCard({ p, summary }: { p: Pass; summary?: CreditSummary }) {
         <Flower size={170} white={tone === 'navy'} className="pass-flower" />
         <div className="pass-top">
           <span className="pass-kind">{kindName(p)}</span>
-          {p.status === 'paused' ? <span className="tag cream">Paused</span> : p.status === 'cancelled' ? <span className="tag cream">Ending</span> : !p.activatedAt ? <span className="tag pass-tag">Not started</span> : null}
+          {p.status === 'paused' ? <span className="tag cream">Paused</span> : pauseBooked ? <span className="tag cream">Pause booked</span> : p.status === 'cancelled' ? <span className="tag cream">Ending</span> : !p.activatedAt ? <span className="tag pass-tag">Not started</span> : null}
         </div>
         {p.name.toLowerCase() !== kindName(p).toLowerCase() && <div className="pass-name">{p.name}</div>}
         <div className="pass-big serif">{label}</div>
@@ -166,18 +168,18 @@ function PassCard({ p, summary }: { p: Pass; summary?: CreditSummary }) {
           </div>
         )}
         <div className="pass-foot">
-          <span>{p.status === 'cancelled' && p.nextBillingAt ? `Ends ${dateShortNoDay(p.nextBillingAt)}` : expiryLabel(p)}{dl != null && dl >= 0 && dl <= 7 && p.status === 'active' ? ` · ${dl === 0 ? 'last day' : `${dl} day${dl === 1 ? '' : 's'} left`}` : ''}</span>
+          <span>{pauseBooked ? `Paused ${dateOnlyShort(p.pausedFrom!)} – ${dateOnlyShort(p.pausedUntil!)}` : p.status === 'cancelled' && p.nextBillingAt ? `Ends ${dateShortNoDay(p.nextBillingAt)}` : expiryLabel(p)}{dl != null && dl >= 0 && dl <= 7 && p.status === 'active' ? ` · ${dl === 0 ? 'last day' : `${dl} day${dl === 1 ? '' : 's'} left`}` : ''}</span>
           {isMember && <span>{money(p.priceCents)}/{p.billingInterval === 'month' ? 'month' : 'week'}</span>}
         </div>
       </div>
       {isMember && p.status !== 'cancelled' && (
         <div className="pass-actions">
-          {p.status === 'paused' ? (
-            <button className="btn soft sm" disabled={busy} onClick={resume}><Icon name="play" size={16} />Resume</button>
+          {p.status === 'paused' || pauseBooked ? (
+            <button className="btn soft sm" disabled={busy} onClick={resume}><Icon name="play" size={16} />{pauseBooked ? 'Cancel pause' : 'Resume now'}</button>
           ) : (
             <button className="btn soft sm" onClick={() => setSheet('pause')}><Icon name="pause" size={16} />Pause</button>
           )}
-          <button className="btn ghost sm" onClick={() => setSheet('cancel')}>Cancel membership</button>
+          <button className="btn sm plain" onClick={() => setSheet('cancel')}>Cancel membership</button>
         </div>
       )}
       <PauseSheet open={sheet === 'pause'} p={p} onClose={() => setSheet(null)} />
@@ -192,7 +194,7 @@ function PauseSheet({ open, p, onClose }: { open: boolean; p: Pass; onClose: () 
   const [from, setFrom] = useState(addDays(today, 1));
   const [until, setUntil] = useState(addDays(today, 8));
   const [busy, setBusy] = useState(false);
-  const days = Math.round((Date.parse(until) - Date.parse(from)) / 86_400_000);
+  const days = Math.round((Date.parse(until) - Date.parse(from)) / 86_400_000) + 1; // inclusive
   const ok = from >= today && days >= 7;
   const save = async () => {
     setBusy(true);
@@ -205,11 +207,11 @@ function PauseSheet({ open, p, onClose }: { open: boolean; p: Pass; onClose: () 
       <div className="stack lg">
         <p className="muted">Going away or need a break? There’s no billing and no booking while you’re paused. Pauses are at least a week.</p>
         <div className="grid2">
-          <label className="field"><span>From</span><input className="input" type="date" min={today} value={from} onChange={(e) => { setFrom(e.target.value); if (until < addDays(e.target.value, 7)) setUntil(addDays(e.target.value, 7)); }} /></label>
-          <label className="field"><span>Until</span><input className="input" type="date" min={addDays(from, 7)} value={until} onChange={(e) => setUntil(e.target.value)} /></label>
+          <label className="field"><span>From</span><input className="input" type="date" min={today} value={from} onChange={(e) => { setFrom(e.target.value); if (until < addDays(e.target.value, 6)) setUntil(addDays(e.target.value, 7)); }} /></label>
+          <label className="field"><span>Until</span><input className="input" type="date" min={addDays(from, 6)} value={until} onChange={(e) => setUntil(e.target.value)} /></label>
         </div>
-        {!ok && <p className="form-error">Pauses need to be at least 7 days, starting from today.</p>}
-        {ok && <p className="panel-soft">Paused for <strong>{days} days</strong>, {dateOnlyShort(from)} to {dateOnlyShort(until)}. Billing picks up again after that.</p>}
+        {!ok && <p className="form-error">Pauses need to be at least a week, starting today or later.</p>}
+        {ok && <p className="panel-soft">Paused for <strong>{days} days</strong>, {dateOnlyShort(from)} to {dateOnlyShort(until)}. Billing picks up again after that. Any classes you’ve booked in that time will be cancelled and the credits returned.</p>}
         <button className="btn block" disabled={!ok || busy} onClick={save}>{busy ? 'Pausing…' : 'Pause membership'}</button>
       </div>
     </Sheet>
