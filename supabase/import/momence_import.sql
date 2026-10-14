@@ -1,0 +1,154 @@
+-- =============================================================================
+-- Momence -> Snowy Pilates Club app: import clients and their current passes.
+--
+-- How to use (see docs/GO-LIVE.md, "Bring your clients across from Momence"):
+--   1. Paste this whole file into the Supabase SQL editor and press Run.
+--      The first run just creates two empty "staging" tables.
+--   2. In Table editor, open import_momence_clients and use Insert -> Import data from CSV.
+--      Your CSV's first row must use the column names below (rename them in Numbers/Excel first).
+--      Do the same for import_momence_passes (one row per pass that's still active).
+--   3. Run this file again. It copies everything into the real tables and prints a summary.
+--      Running it again later is safe: people and passes already imported are skipped.
+--   4. When you're happy, delete the staging tables (last lines of this file, commented out).
+--
+-- Clients columns (only email is required; everything else can be blank):
+--   momence_id, first_name, last_name, email, phone, birthday, joined_on, marketing_opt_in,
+--   injuries, emergency_contact_name, emergency_contact_phone, staff_notes, has_purchased_before
+-- Passes columns (one row per active pass):
+--   email, pass_name, kind, credits_total, credits_left, expires_on, paid_until, momence_id
+--   kind = membership | pack | intro | dropin (blank = we work it out from pass_name)
+--   credits_left: packs only. expires_on: packs/intro. paid_until: memberships (the date Momence
+--   would next charge them). Dates can be 2026-10-31 or 31/10/2026.
+-- =============================================================================
+
+create table if not exists public.import_momence_clients (
+  momence_id text, first_name text, last_name text, email text, phone text, birthday text, joined_on text,
+  marketing_opt_in text, injuries text, emergency_contact_name text, emergency_contact_phone text,
+  staff_notes text, has_purchased_before text
+);
+create table if not exists public.import_momence_passes (
+  email text, pass_name text, kind text, credits_total text, credits_left text, expires_on text, paid_until text,
+  momence_id text
+);
+-- Staging tables hold personal info: keep them away from the app's API.
+alter table public.import_momence_clients enable row level security;
+alter table public.import_momence_passes enable row level security;
+revoke all on public.import_momence_clients, public.import_momence_passes from anon, authenticated;
+
+create or replace function app.parse_date_au(p text) returns date
+language plpgsql immutable as $$
+declare t text := nullif(trim(coalesce(p, '')), '');
+begin
+  if t is null then return null; end if;
+  if t ~ '^\d{4}-\d{1,2}-\d{1,2}' then return substring(t from '^\d{4}-\d{1,2}-\d{1,2}')::date; end if;
+  if t ~ '^\d{1,2}/\d{1,2}/\d{4}' then return to_date(substring(t from '^\d{1,2}/\d{1,2}/\d{4}'), 'DD/MM/YYYY'); end if;
+  if t ~ '^\d{1,2}/\d{1,2}/\d{2}$' then return to_date(t, 'DD/MM/YY'); end if;
+  return null;
+exception when others then return null;
+end $$;
+
+create or replace function app.parse_bool(p text) returns boolean
+language sql immutable as $$
+  select lower(trim(coalesce(p, ''))) in ('yes','y','true','t','1','subscribed','opted in')
+$$;
+
+-- ----------------------------------------------------------------------------- 1. clients
+with src as (
+  select distinct on (lower(trim(email))) *
+    from public.import_momence_clients
+   where coalesce(trim(email), '') <> ''
+   order by lower(trim(email)), momence_id
+)
+insert into public.clients (momence_id, first_name, last_name, email, phone, birthday, created_at, marketing_opt_in,
+                            injuries, emergency_contact_name, emergency_contact_phone, source, intro_ineligible)
+select nullif(trim(src.momence_id), ''), coalesce(trim(src.first_name), ''), coalesce(trim(src.last_name), ''),
+       lower(trim(src.email)), nullif(trim(src.phone), ''), app.parse_date_au(src.birthday),
+       coalesce(app.parse_date_au(src.joined_on)::timestamptz, now()), app.parse_bool(src.marketing_opt_in),
+       nullif(trim(src.injuries), ''), nullif(trim(src.emergency_contact_name), ''), nullif(trim(src.emergency_contact_phone), ''),
+       'import',
+       -- Anyone who's bought from the studio before can't take the new-client intro offer.
+       app.parse_bool(src.has_purchased_before)
+         or exists (select 1 from public.import_momence_passes ip where lower(trim(ip.email)) = lower(trim(src.email)))
+  from src
+ where not exists (select 1 from public.clients c where lower(c.email) = lower(trim(src.email)));
+
+-- If they'd already signed up in the new app before the import, just mark them as existing clients.
+update public.clients c set intro_ineligible = true
+  from public.import_momence_clients s
+ where lower(c.email) = lower(trim(s.email)) and app.parse_bool(s.has_purchased_before) and not c.intro_ineligible;
+
+insert into public.client_notes (client_id, notes)
+select c.id, trim(s.staff_notes)
+  from public.import_momence_clients s join public.clients c on lower(c.email) = lower(trim(s.email))
+ where coalesce(trim(s.staff_notes), '') <> ''
+on conflict (client_id) do nothing;
+
+-- ----------------------------------------------------------------------------- 2. passes
+with src as (
+  select s.*, c.id as client_id,
+         coalesce(nullif(lower(trim(s.kind)), ''),
+                  case when s.pass_name ~* 'week|unlimited|member' then 'membership'
+                       when s.pass_name ~* 'intro' then 'intro'
+                       when s.pass_name ~* 'single|drop|casual|1 class' then 'dropin'
+                       else 'pack' end) as k
+    from public.import_momence_passes s
+    join public.clients c on lower(c.email) = lower(trim(s.email))
+   where coalesce(trim(s.email), '') <> ''
+),
+matched as (
+  select src.*, pr.id as product_id, pr.credits as product_credits, pr.validity_days, pr.price_cents,
+         pr.name as product_name
+    from src
+    left join lateral (
+      select * from public.products p
+       where p.kind = src.k
+       order by (lower(p.name) = lower(trim(src.pass_name))) desc,
+                (p.credits is not distinct from nullif(trim(src.credits_total), '')::int) desc,
+                p.sort_order
+       limit 1) pr on true
+)
+insert into public.passes (client_id, product_id, kind, name, status, purchased_at, activated_at, expires_at, validity_days,
+                           credits, credits_used, billing_interval, next_billing_at, price_cents, momence_id, cancel_at_period_end)
+select m.client_id, m.product_id, m.k, coalesce(nullif(trim(m.pass_name), ''), m.product_name, 'Imported pass'), 'active', now(),
+       -- In use already (has an expiry date or credits used, or a membership): keep Momence's dates.
+       -- Untouched packs with no expiry yet start their clock at first booking, like new ones.
+       case when m.k = 'membership' or app.parse_date_au(m.expires_on) is not null
+                 or coalesce(nullif(trim(m.credits_left), '')::int, -1) < coalesce(nullif(trim(m.credits_total), '')::int, m.product_credits, 0)
+            then now() end,
+       -- valid to the end of that day, Sydney time
+       case when m.k = 'membership'
+            then coalesce((app.parse_date_au(m.paid_until) + 1)::timestamp at time zone app.tz(), now() + interval '8 days')
+            else (app.parse_date_au(m.expires_on) + 1)::timestamp at time zone app.tz() end,
+       m.validity_days,
+       case when m.k = 'membership' then m.product_credits
+            when m.k = 'intro' then null
+            else coalesce(nullif(trim(m.credits_total), '')::int, m.product_credits) end,
+       case when m.k in ('pack','dropin') then greatest(0,
+            coalesce(nullif(trim(m.credits_total), '')::int, m.product_credits, 0) - coalesce(nullif(trim(m.credits_left), '')::int, 0))
+            else 0 end,
+       case when m.k = 'membership' then 'week' end,
+       case when m.k = 'membership' then (app.parse_date_au(m.paid_until) + 1)::timestamp at time zone app.tz() end,
+       0,
+       coalesce(nullif(trim(m.momence_id), ''), md5(m.email || '|' || coalesce(m.pass_name, '') || '|' || coalesce(m.expires_on, m.paid_until, ''))),
+       m.k = 'membership'  -- no Stripe subscription yet: ends at paid_until unless they re-join in the app
+  from matched m
+ where not exists (select 1 from public.passes p where p.client_id = m.client_id
+                     and p.momence_id = coalesce(nullif(trim(m.momence_id), ''), md5(m.email || '|' || coalesce(m.pass_name, '') || '|' || coalesce(m.expires_on, m.paid_until, ''))));
+
+-- Imported memberships have no Stripe subscription yet. They work until paid_until; ask members
+-- to re-join in the app before then (GO-LIVE.md explains). Passes that are already used up:
+update public.passes set status = 'used_up'
+ where momence_id is not null and kind in ('pack','dropin') and credits is not null and credits_used >= credits and status = 'active';
+
+-- ----------------------------------------------------------------------------- 3. summary
+select
+  (select count(*) from public.import_momence_clients) as client_rows_in_csv,
+  (select count(*) from public.clients where source = 'import') as clients_imported_total,
+  (select count(*) from public.import_momence_passes) as pass_rows_in_csv,
+  (select count(*) from public.passes where momence_id is not null) as passes_imported_total,
+  (select count(*) from public.import_momence_passes s
+    where not exists (select 1 from public.clients c where lower(c.email) = lower(trim(s.email)))) as passes_skipped_no_matching_client;
+
+-- When you're done and have checked a few clients in the studio app, tidy up:
+-- drop table public.import_momence_clients;
+-- drop table public.import_momence_passes;

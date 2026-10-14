@@ -1,0 +1,250 @@
+/** Studio app: small UI kit, permissions and app context. */
+import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
+import type { AuthUser, ClassType, Staff, StaffRole, StudioSettings } from '../shared/types';
+import { dayLong as _dayLong, dayShort as _dayShort, initials, time } from '../shared/format';
+
+/** 'Tue 14 Oct' (Intl adds a comma in en-AU; RULES.md wants none). */
+export const dayShort = (iso: string | Date) => _dayShort(iso).replace(',', '');
+export const dayLong = (iso: string | Date) => _dayLong(iso).replace(',', '');
+/** '6:00am Tue 14 Oct' */
+export const dateTime = (iso: string | Date) => `${time(iso)} ${dayShort(iso)}`;
+import { Sheet } from '../shared/react';
+
+export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ');
+
+// ------------------------------------------------------------------ assets
+/** Studio is served at /studio/, so brand + store photo paths need a '../' prefix. */
+export function asset(p?: string | null): string | undefined {
+  if (!p) return undefined;
+  if (/^(https?:|data:|blob:)/.test(p)) return p;
+  return '../' + p.replace(/^(\.\.\/|\.\/|\/)+/, '');
+}
+
+// ------------------------------------------------------------------ permissions (RULES.md › Staff permissions)
+export type Perm =
+  | 'reports' // reports + revenue
+  | 'settings' // policies, class types, products, staff
+  | 'studioFinance' // ABN / GST / bank / Stripe
+  | 'pay' // staff pay rates + pay amounts
+  | 'refund'
+  | 'pos'
+  | 'editClass' // edit / cancel / add classes, timetable
+  | 'allRosters' // any class's roster (instructors: own classes only)
+  | 'staffNotes'
+  | 'adjustPasses'
+  | 'exportData';
+
+const MATRIX: Record<StaffRole, Perm[]> = {
+  owner: ['reports', 'settings', 'studioFinance', 'pay', 'refund', 'pos', 'editClass', 'allRosters', 'staffNotes', 'adjustPasses', 'exportData'],
+  manager: ['reports', 'settings', 'refund', 'pos', 'editClass', 'allRosters', 'staffNotes', 'adjustPasses', 'exportData'],
+  front_desk: ['refund', 'pos', 'editClass', 'allRosters', 'staffNotes', 'adjustPasses'],
+  instructor: ['pos'],
+};
+export const roleCan = (role: StaffRole, p: Perm) => MATRIX[role].includes(p);
+export const ROLE_LABEL: Record<StaffRole, string> = { owner: 'Owner', manager: 'Manager', front_desk: 'Front desk', instructor: 'Instructor' };
+
+// ------------------------------------------------------------------ app context
+export type StaffUser = Extract<AuthUser, { kind: 'staff' }>;
+export interface StudioCtxValue {
+  me: StaffUser;
+  staff: Staff[];
+  classTypes: ClassType[];
+  settings: StudioSettings;
+  can: (p: Perm) => boolean;
+  staffById: (id?: string) => Staff | undefined;
+  typeById: (id?: string) => ClassType | undefined;
+}
+export const StudioCtx = createContext<StudioCtxValue>(null as unknown as StudioCtxValue);
+export const useStudio = () => useContext(StudioCtx);
+
+// ------------------------------------------------------------------ icons (1.6px line, 24 grid)
+const P: Record<string, React.ReactNode> = {
+  today: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" /></>,
+  calendar: <><rect x="3.5" y="5" width="17" height="15.5" rx="3" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>,
+  users: <><circle cx="9" cy="8.5" r="3.5" /><path d="M2.8 19.5c.8-3.3 3.3-5 6.2-5s5.4 1.7 6.2 5" /><path d="M15.5 5.3a3.4 3.4 0 0 1 0 6.4M17.6 14.8c1.8.6 3.1 2.2 3.6 4.7" /></>,
+  bag: <><path d="M5 8h14l-1.1 11.2a2 2 0 0 1-2 1.8H8.1a2 2 0 0 1-2-1.8L5 8Z" /><path d="M9 10V7a3 3 0 0 1 6 0v3" /></>,
+  chart: <><path d="M4 20h16" /><rect x="5.5" y="11" width="3" height="6.5" rx="1" /><rect x="10.5" y="6" width="3" height="11.5" rx="1" /><rect x="15.5" y="13" width="3" height="4.5" rx="1" /></>,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4.9a7.5 7.5 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.4A7.5 7.5 0 0 0 7 6.4l-2.4-.9-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-.9a7.5 7.5 0 0 0 2.6 1.5l.4 2.4h4l.4-2.4a7.5 7.5 0 0 0 2.6-1.5l2.4.9 2-3.4-2-1.6Z" /></>,
+  logout: <><path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14" /><path d="M10 16l-4-4 4-4M6 12h10" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
+  search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></>,
+  check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+  x: <path d="M6 6l12 12M18 6 6 18" />,
+  left: <path d="m14.5 6-6 6 6 6" />,
+  right: <path d="m9.5 6 6 6-6 6" />,
+  down: <path d="m6 9.5 6 6 6-6" />,
+  more: <><circle cx="5.5" cy="12" r="1.3" fill="currentColor" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /><circle cx="18.5" cy="12" r="1.3" fill="currentColor" /></>,
+  clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
+  alert: <><path d="M12 3.5 21.5 20h-19L12 3.5Z" /><path d="M12 10v4.5M12 17.3v.2" /></>,
+  cake: <><path d="M4.5 20.5v-7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v7M3 20.5h18" /><path d="M4.5 15.5c1.5 1.2 3 1.2 4.5 0s3-1.2 4.5 0 3 1.2 4.5 0M12 11.5V8M12 5.5c-.8-.8-.8-1.8 0-2.5.8.7.8 1.7 0 2.5Z" /></>,
+  injury: <><rect x="4" y="4" width="16" height="16" rx="5" /><path d="M12 8.5v7M8.5 12h7" /></>,
+  sparkle: <path d="M12 3.5c.6 4.4 2.3 6.4 6.5 7-4.2.6-5.9 2.6-6.5 7-.6-4.4-2.3-6.4-6.5-7 4.2-.6 5.9-2.6 6.5-7Z" />,
+  ticket: <><path d="M3.5 8a2 2 0 0 0 2-2h13a2 2 0 0 0 2 2v8a2 2 0 0 0-2 2h-13a2 2 0 0 0-2-2V8Z" /><path d="M14 6.5v11" strokeDasharray="1.6 2" /></>,
+  move: <><path d="M4 8h13l-3-3M20 16H7l3 3" /></>,
+  undo: <><path d="M9 7 5 11l4 4" /><path d="M5 11h9a5 5 0 0 1 0 10h-2" /></>,
+  phone: <path d="M6.5 3.5h3l1.5 4-2 1.3a10 10 0 0 0 6.2 6.2L16.5 13l4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2Z" />,
+  mail: <><rect x="3" y="5.5" width="18" height="13" rx="2.5" /><path d="m4 7 8 6 8-6" /></>,
+  edit: <><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>,
+  trash: <><path d="M4.5 7h15M10 4h4M6.5 7l.8 12a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8l.8-12" /></>,
+  card: <><rect x="3" y="5.5" width="18" height="13" rx="2.5" /><path d="M3 10h18M7 15h3" /></>,
+  cash: <><rect x="2.5" y="6.5" width="19" height="11" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 9.5v5M18 9.5v5" /></>,
+  gift: <><rect x="4" y="9" width="16" height="11.5" rx="1.5" /><path d="M3 9h18M12 9v11.5M12 9c-1.5-3.5-5.5-4-5.5-1.5S12 9 12 9Zm0 0c1.5-3.5 5.5-4 5.5-1.5S12 9 12 9Z" /></>,
+  external: <><path d="M14 4h6v6M20 4l-9 9" /><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" /></>,
+  print: <><path d="M7 9V3.5h10V9M7 17H4.5v-6.5a1.5 1.5 0 0 1 1.5-1.5h12a1.5 1.5 0 0 1 1.5 1.5V17H17" /><rect x="7" y="14" width="10" height="6.5" rx="1" /></>,
+  download: <><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M4.5 19.5h15" /></>,
+  userPlus: <><circle cx="10" cy="8.5" r="3.5" /><path d="M3.5 19.5c.8-3.3 3.4-5 6.5-5 1.6 0 3 .4 4.2 1.3M18.5 13v6M15.5 16h6" /></>,
+  repeat: <><path d="M4 11V9.5A3.5 3.5 0 0 1 7.5 6H19l-3-3M20 13v1.5a3.5 3.5 0 0 1-3.5 3.5H5l3 3" /></>,
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  doc: <><path d="M6.5 3.5h7l4 4v13h-11a1.5 1.5 0 0 1-1.5-1.5V5a1.5 1.5 0 0 1 1.5-1.5Z" /><path d="M13.5 3.5v4h4M8.5 12.5h7M8.5 16h5" /></>,
+  pause: <path d="M9 5.5v13M15 5.5v13" />,
+  play: <path d="M8 5.5v13l10-6.5-10-6.5Z" />,
+  waitlist: <><path d="M4 6.5h10M4 12h10M4 17.5h6" /><circle cx="18" cy="16" r="3.5" /><path d="M18 14.5V16l1 .8" /></>,
+  ban: <><circle cx="12" cy="12" r="8.5" /><path d="m6 6 12 12" /></>,
+  flower: <><circle cx="12" cy="12" r="2.2" /><path d="M12 9.8C10 6.5 10.5 3.5 12 3.5s2 3 0 6.3ZM12 14.2c2 3.3 1.5 6.3 0 6.3s-2-3 0-6.3ZM9.8 12C6.5 14 3.5 13.5 3.5 12s3-2 6.3 0ZM14.2 12c3.3-2 6.3-1.5 6.3 0s-3 2-6.3 0Z" /></>,
+};
+export function Icon({ name, size = 22, className }: { name: string; size?: number; className?: string }) {
+  return (
+    <svg className={cx('ic', className)} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {P[name] ?? null}
+    </svg>
+  );
+}
+
+// ------------------------------------------------------------------ bits
+const TINTS = ['t1', 't2', 't3', 't4', 't5'];
+function hash(s: string) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+export function Avatar({ name, photo, size = 44, className }: { name: string; photo?: string; size?: number; className?: string }) {
+  const src = asset(photo);
+  return (
+    <span className={cx('av', TINTS[hash(name) % TINTS.length], className)} style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}>
+      {src ? <img src={src} alt="" loading="lazy" /> : initials(name)}
+    </span>
+  );
+}
+
+/** 'Mat Essentials' -> Mat <em>Essentials</em> */
+export function Accent({ text }: { text: string }) {
+  const i = text.lastIndexOf(' ');
+  if (i < 0) return <em>{text}</em>;
+  return <>{text.slice(0, i + 1)}<em>{text.slice(i + 1)}</em></>;
+}
+
+export function PageHead({ eyebrow, title, sub, actions, back }: { eyebrow?: React.ReactNode; title: React.ReactNode; sub?: React.ReactNode; actions?: React.ReactNode; back?: { href: string; label: string } }) {
+  return (
+    <header className="page-head">
+      <div className="ph-text">
+        {back && <a className="back" href={back.href}><Icon name="left" size={18} />{back.label}</a>}
+        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        <h1>{title}</h1>
+        {sub && <div className="ph-sub">{sub}</div>}
+      </div>
+      {actions && <div className="ph-actions">{actions}</div>}
+    </header>
+  );
+}
+
+export function SheetHead({ title, sub, onClose }: { title: React.ReactNode; sub?: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="sh-head">
+      <div>
+        <h3>{title}</h3>
+        {sub && <p className="muted small" style={{ marginTop: 6 }}>{sub}</p>}
+      </div>
+      <button className="btn icon soft sh-x" onClick={onClose} aria-label="Close"><Icon name="x" size={18} /></button>
+    </div>
+  );
+}
+
+export function Fill({ value, max, tone }: { value: number; max: number; tone?: 'light' }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  return (
+    <span className={cx('fill', tone, pct >= 100 && 'full', pct >= 75 && pct < 100 && 'hot')}>
+      <span style={{ width: pct + '%' }} />
+    </span>
+  );
+}
+
+export function Seg<T extends string>({ value, options, onChange, className }: { value: T; options: { value: T; label: React.ReactNode }[]; onChange: (v: T) => void; className?: string }) {
+  return (
+    <div className={cx('seg', className)} role="tablist">
+      {options.map((o) => (
+        <button key={o.value} role="tab" aria-selected={o.value === value} className={cx(o.value === value && 'on')} onClick={() => onChange(o.value)} type="button">{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+export function Empty({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <div className="empty">
+      <img src="../brand/flower.svg" alt="" />
+      <p className="serif" style={{ fontSize: 24, color: 'var(--ink)' }}>{title}</p>
+      {children && <div className="muted" style={{ marginTop: 6 }}>{children}</div>}
+    </div>
+  );
+}
+
+export function Loading() {
+  return <div className="loading" aria-label="Loading"><span /><span /><span /></div>;
+}
+
+/** Confirm sheet. */
+export function Confirm({ open, title, body, confirmLabel, danger, busy, onConfirm, onClose, children }: {
+  open: boolean; title: React.ReactNode; body?: React.ReactNode; confirmLabel: string; danger?: boolean; busy?: boolean;
+  onConfirm: () => void; onClose: () => void; children?: React.ReactNode;
+}) {
+  return (
+    <Sheet open={open} onClose={onClose} label={typeof title === 'string' ? title : 'Confirm'}>
+      <SheetHead title={title} onClose={onClose} />
+      {body && <p className="muted" style={{ marginBottom: 16 }}>{body}</p>}
+      {children}
+      <div className="sh-foot">
+        <button className="btn ghost" onClick={onClose}>Not now</button>
+        <button className={cx('btn', danger && 'danger-solid')} disabled={busy} onClick={onConfirm}>{confirmLabel}</button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ snackbar with an action (undo)
+type Snack = { id: number; msg: string; action?: { label: string; run: () => void } };
+const SnackCtx = createContext<(msg: string, action?: Snack['action']) => void>(() => {});
+export function SnackProvider({ children }: { children: React.ReactNode }) {
+  const [snack, setSnack] = useState<Snack | null>(null);
+  const t = useRef<number>(0);
+  const show = useCallback((msg: string, action?: Snack['action']) => {
+    const id = Date.now();
+    setSnack({ id, msg, action });
+    window.clearTimeout(t.current);
+    t.current = window.setTimeout(() => setSnack((s) => (s && s.id === id ? null : s)), action ? 5000 : 2800);
+  }, []);
+  return (
+    <SnackCtx.Provider value={show}>
+      {children}
+      {snack && (
+        <div className="snack" role="status" key={snack.id}>
+          <span>{snack.msg}</span>
+          {snack.action && (
+            <button onClick={() => { snack.action!.run(); setSnack(null); }}>{snack.action.label}</button>
+          )}
+        </div>
+      )}
+    </SnackCtx.Provider>
+  );
+}
+export const useSnack = () => useContext(SnackCtx);
+
+// ------------------------------------------------------------------ money input helpers
+export const toDollars = (c: number | undefined | null) => (c == null ? '' : (c / 100).toFixed(c % 100 ? 2 : 0));
+export const toCents = (s: string) => { const n = parseFloat(s.replace(/[^0-9.]/g, '')); return isFinite(n) ? Math.round(n * 100) : 0; };
+
+/** Download text as a file (CSV export). */
+export function downloadText(name: string, text: string, type = 'text/csv') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export const fullName = (c: { firstName: string; lastName: string }) => `${c.firstName} ${c.lastName}`.trim();

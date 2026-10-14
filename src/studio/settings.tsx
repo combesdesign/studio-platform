@@ -1,0 +1,387 @@
+import React, { useEffect, useState } from 'react';
+import { Sheet, store, useAction, useData, useToast } from '../shared/react';
+import { money } from '../shared/format';
+import type { ClassType, Product, Staff, StaffRole, StudioSettings } from '../shared/types';
+import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, toCents, toDollars, useStudio } from './ui';
+import { productKindLabel } from './book';
+
+const TABS = [
+  { key: 'studio', label: 'Studio' }, { key: 'policies', label: 'Policies' }, { key: 'classes', label: 'Class types' },
+  { key: 'products', label: 'Products & pricing' }, { key: 'staff', label: 'Staff' },
+];
+
+export function Settings({ tab = 'studio' }: { tab?: string }) {
+  const tabs = store.mode === 'demo' ? [...TABS, { key: 'demo', label: 'Demo' }] : TABS;
+  const cur = tabs.find((t) => t.key === tab)?.key ?? 'studio';
+  return (
+    <div className="settings">
+      <PageHead eyebrow="Settings" title={<>Studio <em>setup</em></>} />
+      <nav className="tabs" aria-label="Settings sections">
+        {tabs.map((t) => <a key={t.key} href={`#/settings/${t.key}`} className={cx(cur === t.key && 'on')}>{t.label}</a>)}
+      </nav>
+      {cur === 'studio' && <StudioTab />}
+      {cur === 'policies' && <PoliciesTab />}
+      {cur === 'classes' && <ClassTypesTab />}
+      {cur === 'products' && <ProductsTab />}
+      {cur === 'staff' && <StaffTab />}
+      {cur === 'demo' && <DemoTab />}
+    </div>
+  );
+}
+
+function useDraft() {
+  const { settings } = useStudio();
+  const [d, setD] = useState<StudioSettings>(settings);
+  useEffect(() => setD(settings), [settings]);
+  const dirty = JSON.stringify(d) !== JSON.stringify(settings);
+  return { d, setD, dirty, reset: () => setD(settings), settings };
+}
+
+function SaveBar({ dirty, busy, onSave, onReset }: { dirty: boolean; busy: boolean; onSave: () => void; onReset: () => void }) {
+  if (!dirty) return null;
+  return (
+    <div className="savebar"><span>Unsaved changes</span><button className="btn sm ghost light" onClick={onReset}>Discard</button><button className="btn sm cream" onClick={onSave} disabled={busy}>Save changes</button></div>
+  );
+}
+
+function StudioTab() {
+  const { can } = useStudio();
+  const { d, setD, dirty, reset } = useDraft();
+  const { busy, run } = useAction();
+  const fin = can('studioFinance');
+  const f = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, [k]: e.target.value });
+  const save = () => run(() => store.updateSettings(fin ? { name: d.name, address: d.address, email: d.email, phone: d.phone, abn: d.abn, gstRegistered: d.gstRegistered } : { name: d.name, address: d.address, email: d.email, phone: d.phone }), 'Studio details saved');
+  return (
+    <div className="set-grid">
+      <section className="card pad">
+        <h3>Studio <em>details</em></h3>
+        <p className="muted small" style={{ margin: '6px 0 18px' }}>Shown on receipts, emails and the client app.</p>
+        <div className="form-grid">
+          <label className="field span2"><span>Studio name</span><input className="input" value={d.name} onChange={f('name')} /></label>
+          <label className="field span2"><span>Address</span><input className="input" value={d.address} onChange={f('address')} /></label>
+          <label className="field"><span>Email</span><input className="input" type="email" value={d.email} onChange={f('email')} /></label>
+          <label className="field"><span>Phone</span><input className="input" type="tel" value={d.phone ?? ''} onChange={f('phone')} /></label>
+        </div>
+      </section>
+      <section className="card pad">
+        <h3>Tax &amp; <em>payments</em></h3>
+        <p className="muted small" style={{ margin: '6px 0 18px' }}>{fin ? 'Used on tax invoices. Prices include GST.' : 'Only the owner can change these.'}</p>
+        <div className="form-grid">
+          <label className="field span2"><span>ABN</span><input className="input" value={d.abn ?? ''} onChange={f('abn')} disabled={!fin} placeholder="12 345 678 901" /></label>
+          <label className="check span2"><input type="checkbox" checked={d.gstRegistered} disabled={!fin} onChange={(e) => setD({ ...d, gstRegistered: e.target.checked })} /><span>Registered for GST (receipts show "Total includes GST of $X")</span></label>
+        </div>
+        <div className="panel" style={{ marginTop: 18 }}>
+          <strong>Card payments</strong>
+          <p className="small muted" style={{ marginTop: 4 }}>{store.mode === 'demo' ? 'Demo mode: payments are simulated.' : 'Online payments and memberships run through Stripe. Bank details are managed in your Stripe dashboard.'} In-studio card reader (Stripe Terminal) is coming later.</p>
+        </div>
+      </section>
+      <SaveBar dirty={dirty} busy={busy} onSave={save} onReset={reset} />
+    </div>
+  );
+}
+
+function PoliciesTab() {
+  const { d, setD, dirty, reset } = useDraft();
+  const { busy, run } = useAction();
+  const n = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, [k]: Math.max(0, Number(e.target.value) || 0) });
+  const c = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, [k]: toCents(e.target.value) });
+  const t = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLTextAreaElement>) => setD({ ...d, [k]: e.target.value });
+  const save = () => run(() => store.updateSettings({
+    cancelWindowHours: d.cancelWindowHours, waitlistCutoffHours: d.waitlistCutoffHours, lateCancelFeeCents: d.lateCancelFeeCents, noShowFeeCents: d.noShowFeeCents,
+    bookingWindowDays: d.bookingWindowDays, defaultCapacity: d.defaultCapacity, cancellationPolicyText: d.cancellationPolicyText, waitlistPolicyText: d.waitlistPolicyText,
+    waiverText: d.waiverText, healthQuestions: d.healthQuestions.map((q) => q.trim()).filter(Boolean),
+  }), 'Policies saved');
+  return (
+    <div className="set-grid">
+      <section className="card pad">
+        <h3>Booking <em>rules</em></h3>
+        <div className="form-grid" style={{ marginTop: 18 }}>
+          <label className="field"><span>Cancel window (hours before class)</span><input className="input" type="number" min={0} value={d.cancelWindowHours} onChange={n('cancelWindowHours')} /></label>
+          <label className="field"><span>Waitlist stops (hours before class)</span><input className="input" type="number" min={0} value={d.waitlistCutoffHours} onChange={n('waitlistCutoffHours')} /></label>
+          <label className="field"><span>Late cancel fee</span><div className="money-in"><span>$</span><input className="input" inputMode="decimal" defaultValue={toDollars(d.lateCancelFeeCents)} key={'l' + d.lateCancelFeeCents} onBlur={c('lateCancelFeeCents') as never} /></div></label>
+          <label className="field"><span>No-show fee</span><div className="money-in"><span>$</span><input className="input" inputMode="decimal" defaultValue={toDollars(d.noShowFeeCents)} key={'n' + d.noShowFeeCents} onBlur={c('noShowFeeCents') as never} /></div></label>
+          <label className="field"><span>Clients can book (days ahead)</span><input className="input" type="number" min={1} value={d.bookingWindowDays} onChange={n('bookingWindowDays')} /></label>
+          <label className="field"><span>Default class capacity</span><input className="input" type="number" min={1} value={d.defaultCapacity} onChange={n('defaultCapacity')} /></label>
+        </div>
+        <p className="small faint" style={{ marginTop: 12 }}>Fees are charged on top of losing the credit. $0 means no fee.</p>
+      </section>
+      <section className="card pad">
+        <h3>Policy <em>text</em></h3>
+        <div className="stack" style={{ marginTop: 18 }}>
+          <label className="field"><span>Cancellation policy (shown to clients)</span><textarea className="textarea" rows={5} value={d.cancellationPolicyText} onChange={t('cancellationPolicyText')} /></label>
+          <label className="field"><span>Waitlist policy</span><textarea className="textarea" rows={5} value={d.waitlistPolicyText} onChange={t('waitlistPolicyText')} /></label>
+        </div>
+      </section>
+      <section className="card pad span-all">
+        <h3>Waiver &amp; health <em>form</em></h3>
+        <div className="stack" style={{ marginTop: 18 }}>
+          <label className="field"><span>Waiver text</span><textarea className="textarea" rows={9} value={d.waiverText} onChange={t('waiverText')} /></label>
+          <div className="field"><span>Health questions</span>
+            <div className="stack">
+              {d.healthQuestions.map((q, i) => (
+                <div key={i} className="row">
+                  <input className="input" value={q} onChange={(e) => setD({ ...d, healthQuestions: d.healthQuestions.map((x, j) => (j === i ? e.target.value : x)) })} />
+                  <button className="btn icon ghost" onClick={() => setD({ ...d, healthQuestions: d.healthQuestions.filter((_, j) => j !== i) })} aria-label="Remove question"><Icon name="trash" size={18} /></button>
+                </div>
+              ))}
+              <button className="btn sm soft" style={{ justifySelf: 'start' }} onClick={() => setD({ ...d, healthQuestions: [...d.healthQuestions, ''] })}><Icon name="plus" size={16} />Add question</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <SaveBar dirty={dirty} busy={busy} onSave={save} onReset={reset} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ class types
+function ClassTypesTab() {
+  const { classTypes } = useStudio();
+  const [edit, setEdit] = useState<Partial<ClassType> | null>(null);
+  const { settings } = useStudio();
+  return (
+    <div>
+      <div className="tab-head"><p className="muted">The kinds of classes on the timetable.</p><button className="btn" onClick={() => setEdit({ color: '#85A2D1', durationMin: 55, defaultCapacity: settings.defaultCapacity, bookable: true, active: true })}><Icon name="plus" size={20} />New class type</button></div>
+      <div className="ct-grid">
+        {classTypes.map((t) => (
+          <button key={t.id} className={cx('card ct-card', !t.active && 'off')} onClick={() => setEdit(t)} style={{ ['--ct' as string]: t.color }}>
+            <span className="ct-sw" />
+            <span className="ct-name">{t.name}</span>
+            <span className="ct-meta">{t.durationMin} min · {t.defaultCapacity} spots{t.level ? ` · ${t.level}` : ''}</span>
+            <span className="ct-desc">{t.description}</span>
+            <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {!t.bookable && <span className="chip cream">Coming soon</span>}
+              {!t.active && <span className="chip">Hidden</span>}
+              {t.bookingNote && <span className="chip">Booking note</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+      <ClassTypeSheet t={edit} onClose={() => setEdit(null)} />
+    </div>
+  );
+}
+
+const SWATCHES = ['#5069AC', '#85A2D1', '#24345F', '#7FA79B', '#C9A961', '#9C8AB4', '#6E8FA6'];
+function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose: () => void }) {
+  const [v, setV] = useState<Partial<ClassType>>({});
+  const { busy, run } = useAction();
+  useEffect(() => { if (t) setV(t); }, [t]);
+  const s = (k: keyof ClassType) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value });
+  const save = async () => {
+    const r = await run(() => store.upsertClassType({
+      id: v.id, name: (v.name ?? '').trim(), description: v.description ?? '', durationMin: Number(v.durationMin) || 55, color: v.color ?? '#85A2D1',
+      defaultCapacity: Number(v.defaultCapacity) || 14, level: v.level || undefined, bookingNote: v.bookingNote || undefined, bookable: v.bookable !== false, active: v.active !== false,
+    }), 'Class type saved');
+    if (r) onClose();
+  };
+  return (
+    <Sheet open={!!t} onClose={onClose} label="Class type">
+      <SheetHead title={v.id ? <>Edit <em>{v.name}</em></> : <>New class <em>type</em></>} onClose={onClose} />
+      <div className="form-grid">
+        <label className="field span2"><span>Name</span><input className="input" value={v.name ?? ''} onChange={s('name')} /></label>
+        <label className="field span2"><span>Description</span><textarea className="textarea" rows={2} value={v.description ?? ''} onChange={s('description')} /></label>
+        <label className="field"><span>Length (minutes)</span><input className="input" type="number" value={v.durationMin ?? ''} onChange={(e) => setV({ ...v, durationMin: Number(e.target.value) })} /></label>
+        <label className="field"><span>Default capacity</span><input className="input" type="number" value={v.defaultCapacity ?? ''} onChange={(e) => setV({ ...v, defaultCapacity: Number(e.target.value) })} /></label>
+        <label className="field"><span>Level</span><input className="input" value={v.level ?? ''} onChange={s('level')} placeholder="All levels" /></label>
+        <div className="field"><span>Timetable colour</span>
+          <div className="swatches">{SWATCHES.map((c) => <button key={c} type="button" className={cx('sw', v.color?.toLowerCase() === c.toLowerCase() && 'on')} style={{ background: c }} onClick={() => setV({ ...v, color: c })} aria-label={c} />)}</div>
+        </div>
+        <label className="field span2"><span>Booking note (shown before booking)</span><textarea className="textarea" rows={2} value={v.bookingNote ?? ''} onChange={s('bookingNote')} placeholder="e.g. Mums must have clearance from a women's health professional" /></label>
+        <label className="check span2"><input type="checkbox" checked={v.bookable !== false} onChange={(e) => setV({ ...v, bookable: e.target.checked })} /><span>Bookable (untick for “Coming soon – register interest”)</span></label>
+        <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>Active</span></label>
+      </div>
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim()}>Save</button></div>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ products
+function ProductsTab() {
+  const res = useData(() => store.listProducts({ includeInactive: true }), []);
+  const [edit, setEdit] = useState<Partial<Product> | null>(null);
+  const kinds: Product['kind'][] = ['membership', 'pack', 'intro', 'dropin', 'retail'];
+  if (!res.data) return <Loading />;
+  return (
+    <div>
+      <div className="tab-head"><p className="muted">Prices include GST.</p><button className="btn" onClick={() => setEdit({ kind: 'pack', active: true, sortOrder: 50, credits: 4, validityDays: 61 })}><Icon name="plus" size={20} />New product</button></div>
+      <div className="stack lg">
+        {kinds.map((k) => {
+          const list = res.data!.filter((p) => p.kind === k).sort((a, b) => a.sortOrder - b.sortOrder);
+          if (!list.length) return null;
+          return (
+            <section key={k} className="card">
+              <div className="prod-head">{productKindLabel(k)}</div>
+              <div className="list">
+                {list.map((p) => (
+                  <button key={p.id} className={cx('prod-row', !p.active && 'off')} onClick={() => setEdit(p)}>
+                    <span className="grow"><strong>{p.name}</strong>{p.highlight && <span className="chip navy" style={{ marginLeft: 8 }}>{p.highlight}</span>}{!p.active && <span className="chip" style={{ marginLeft: 8 }}>Hidden</span>}
+                      <span className="faint small block">{prodSummary(p)}</span></span>
+                    <span className="prod-price">{money(p.priceCents)}{p.kind === 'membership' ? <span className="faint small">/{p.billingInterval ?? 'week'}</span> : null}</span>
+                    <Icon name="right" size={18} className="faint" />
+                  </button>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <ProductSheet p={edit} onClose={() => setEdit(null)} />
+    </div>
+  );
+}
+function prodSummary(p: Product) {
+  if (p.kind === 'retail') return p.stock == null ? 'Stock not tracked' : `${p.stock} in stock`;
+  if (p.kind === 'membership') return `${p.credits == null ? 'Unlimited' : `${p.credits} credit${p.credits === 1 ? '' : 's'}`} per week, billed weekly`;
+  if (p.kind === 'intro') return `Unlimited for ${p.validityDays ?? 14} days from first booking · new clients only`;
+  return `${p.credits ?? 1} credit${(p.credits ?? 1) === 1 ? '' : 's'}${p.validityDays ? ` · expires ${p.validityDays} days after first use` : ''}`;
+}
+
+function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () => void }) {
+  const [v, setV] = useState<Partial<Product>>({});
+  const [price, setPrice] = useState('');
+  const { busy, run } = useAction();
+  useEffect(() => { if (p) { setV(p); setPrice(toDollars(p.priceCents ?? 0)); } }, [p]);
+  const kind = v.kind ?? 'pack';
+  const unlimited = v.credits === null;
+  const save = async () => {
+    const isPass = kind !== 'retail';
+    const r = await run(() => store.upsertProduct({
+      id: v.id, kind, name: (v.name ?? '').trim(), description: v.description ?? '', priceCents: toCents(price), active: v.active !== false,
+      highlight: v.highlight || undefined, sortOrder: Number(v.sortOrder) || 0,
+      credits: isPass ? (kind === 'intro' ? null : kind === 'dropin' ? 1 : v.credits ?? null) : undefined,
+      validityDays: isPass && kind !== 'membership' ? (v.validityDays ?? null) : undefined,
+      billingInterval: kind === 'membership' ? v.billingInterval ?? 'week' : undefined,
+      newClientsOnly: kind === 'intro' ? true : undefined,
+      classTypeIds: v.classTypeIds,
+      stock: kind === 'retail' ? (v.stock ?? null) : undefined,
+    }), 'Product saved');
+    if (r) onClose();
+  };
+  return (
+    <Sheet open={!!p} onClose={onClose} label="Product">
+      <SheetHead title={v.id ? <>Edit <em>product</em></> : <>New <em>product</em></>} onClose={onClose} />
+      <div className="form-grid">
+        <label className="field"><span>Type</span>
+          <select className="select" value={kind} onChange={(e) => setV({ ...v, kind: e.target.value as Product['kind'] })} disabled={!!v.id}>
+            <option value="membership">Membership</option><option value="pack">Class pack</option><option value="intro">Intro offer</option><option value="dropin">Drop-in</option><option value="retail">Retail</option>
+          </select>
+        </label>
+        <label className="field"><span>Price (inc GST)</span><div className="money-in"><span>$</span><input className="input" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div></label>
+        <label className="field span2"><span>Name</span><input className="input" value={v.name ?? ''} onChange={(e) => setV({ ...v, name: e.target.value })} /></label>
+        <label className="field span2"><span>Description</span><textarea className="textarea" rows={2} value={v.description ?? ''} onChange={(e) => setV({ ...v, description: e.target.value })} /></label>
+        {kind === 'membership' && (
+          <>
+            <label className="field"><span>Classes per week</span><input className="input" type="number" min={1} value={unlimited ? '' : v.credits ?? ''} disabled={unlimited} onChange={(e) => setV({ ...v, credits: Number(e.target.value) || 1 })} /></label>
+            <label className="check" style={{ alignSelf: 'end', minHeight: 48 }}><input type="checkbox" checked={unlimited} onChange={(e) => setV({ ...v, credits: e.target.checked ? null : 1 })} /><span>Unlimited</span></label>
+          </>
+        )}
+        {kind === 'pack' && <label className="field"><span>Credits</span><input className="input" type="number" min={1} value={v.credits ?? ''} onChange={(e) => setV({ ...v, credits: Number(e.target.value) || 1 })} /></label>}
+        {(kind === 'pack' || kind === 'dropin' || kind === 'intro') && (
+          <label className="field"><span>Expires (days after first use)</span><input className="input" type="number" min={1} value={v.validityDays ?? ''} onChange={(e) => setV({ ...v, validityDays: e.target.value ? Number(e.target.value) : null })} /></label>
+        )}
+        {kind === 'retail' && <label className="field"><span>Stock (blank = not tracked)</span><input className="input" type="number" min={0} value={v.stock ?? ''} onChange={(e) => setV({ ...v, stock: e.target.value === '' ? null : Number(e.target.value) })} /></label>}
+        <label className="field"><span>Badge (optional)</span><input className="input" value={v.highlight ?? ''} onChange={(e) => setV({ ...v, highlight: e.target.value })} placeholder="Recommended" /></label>
+        <label className="field"><span>Sort order</span><input className="input" type="number" value={v.sortOrder ?? 0} onChange={(e) => setV({ ...v, sortOrder: Number(e.target.value) })} /></label>
+        <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>On sale (shown in the shop and POS)</span></label>
+      </div>
+      {kind === 'intro' && <p className="small faint" style={{ marginTop: 12 }}>Intro offers are unlimited for the period and only for clients who've never had a class pass.</p>}
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim()}>Save</button></div>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ staff
+function StaffTab() {
+  const { staff, can, me } = useStudio();
+  const [edit, setEdit] = useState<Partial<Staff> | null>(null);
+  const showPay = can('pay');
+  return (
+    <div>
+      <div className="tab-head"><p className="muted">Who can sign in to the studio app, and what they can do.</p><button className="btn" onClick={() => setEdit({ role: 'instructor', active: true })}><Icon name="userPlus" size={20} />Add staff</button></div>
+      <div className="staff-grid">
+        {staff.map((s) => (
+          <button key={s.id} className={cx('card staff-card', !s.active && 'off')} onClick={() => setEdit(s)}>
+            <Avatar name={s.name} photo={s.photoUrl} size={64} />
+            <span className="sc-t">
+              <strong>{s.name}{s.id === me.staffId && <span className="faint small"> (you)</span>}</strong>
+              <span className="chip">{ROLE_LABEL[s.role]}</span>
+              <span className="faint small">{s.email}</span>
+              {showPay && s.payPerClassCents != null && <span className="small muted">{money(s.payPerClassCents)} per class</span>}
+              {!s.active && <span className="chip">Inactive</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="card pad perm-card">
+        <h3>What each role <em>can do</em></h3>
+        <dl className="dl roles">
+          <dt>Owner</dt><dd>Everything, including pay rates, ABN and payments.</dd>
+          <dt>Manager</dt><dd>Everything except staff pay rates and the ABN / payment settings.</dd>
+          <dt>Front desk</dt><dd>Schedule, rosters, check-in, clients and point of sale. No reports or pay.</dd>
+          <dt>Instructor</dt><dd>Rosters and check-in for their own classes, client profiles (no staff notes). No refunds, reports or settings.</dd>
+        </dl>
+      </div>
+      <StaffSheet s={edit} onClose={() => setEdit(null)} />
+    </div>
+  );
+}
+
+function StaffSheet({ s, onClose }: { s: Partial<Staff> | null; onClose: () => void }) {
+  const { can, me } = useStudio();
+  const [v, setV] = useState<Partial<Staff>>({});
+  const [pay, setPay] = useState('');
+  const { busy, run } = useAction();
+  useEffect(() => { if (s) { setV(s); setPay(toDollars(s.payPerClassCents)); } }, [s]);
+  const showPay = can('pay');
+  const roles: StaffRole[] = me.role === 'owner' ? ['owner', 'manager', 'front_desk', 'instructor'] : ['manager', 'front_desk', 'instructor'];
+  const lockedOwner = v.role === 'owner' && me.role !== 'owner';
+  const save = async () => {
+    const r = await run(() => store.upsertStaff({
+      id: v.id, name: (v.name ?? '').trim(), email: (v.email ?? '').trim().toLowerCase(), phone: v.phone || undefined, role: v.role ?? 'instructor',
+      bio: v.bio || undefined, photoUrl: v.photoUrl, active: v.active !== false,
+      payPerClassCents: showPay ? (pay.trim() ? toCents(pay) : undefined) : v.payPerClassCents,
+    }), 'Staff saved');
+    if (r) onClose();
+  };
+  return (
+    <Sheet open={!!s} onClose={onClose} label="Staff member">
+      <SheetHead title={v.id ? <>Edit <em>{v.name?.split(' ')[0]}</em></> : <>Add <em>staff</em></>} sub={v.id ? undefined : 'They sign in to the studio app with this email.'} onClose={onClose} />
+      {lockedOwner ? <p className="muted">Only the owner can edit the owner's details.</p> : (
+        <div className="form-grid">
+          <label className="field"><span>Name</span><input className="input" value={v.name ?? ''} onChange={(e) => setV({ ...v, name: e.target.value })} /></label>
+          <label className="field"><span>Role</span>
+            <select className="select" value={v.role ?? 'instructor'} onChange={(e) => setV({ ...v, role: e.target.value as StaffRole })} disabled={v.id === me.staffId}>
+              {roles.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            </select>
+          </label>
+          <label className="field"><span>Email</span><input className="input" type="email" value={v.email ?? ''} onChange={(e) => setV({ ...v, email: e.target.value })} /></label>
+          <label className="field"><span>Phone</span><input className="input" type="tel" value={v.phone ?? ''} onChange={(e) => setV({ ...v, phone: e.target.value })} /></label>
+          <label className="field span2"><span>Bio (shown in the client app)</span><textarea className="textarea" rows={3} value={v.bio ?? ''} onChange={(e) => setV({ ...v, bio: e.target.value })} /></label>
+          {showPay && <label className="field"><span>Pay per class</span><div className="money-in"><span>$</span><input className="input" inputMode="decimal" value={pay} onChange={(e) => setPay(e.target.value)} placeholder="0" /></div></label>}
+          <label className="check span2"><input type="checkbox" checked={v.active !== false} disabled={v.id === me.staffId} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>Active (can sign in and be scheduled)</span></label>
+        </div>
+      )}
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button>{!lockedOwner && <button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim() || !(v.email ?? '').trim()}>Save</button>}</div>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------------ demo
+function DemoTab() {
+  const [open, setOpen] = useState(false);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const go = async () => {
+    const ok = await run(async () => { await store.demoReset?.(); return true; });
+    if (ok) { setOpen(false); toast('Demo data reset'); location.hash = '/'; }
+  };
+  return (
+    <div className="card pad" style={{ maxWidth: 640 }}>
+      <h3>Demo <em>data</em></h3>
+      <p className="muted" style={{ marginTop: 8 }}>This is a demo with made-up clients and bookings, saved in this browser. Resetting wipes everything you've changed and starts fresh. It also resets the client app in this browser.</p>
+      <button className="btn danger" style={{ marginTop: 18 }} onClick={() => setOpen(true)} disabled={!store.demoReset}><Icon name="repeat" size={20} />Reset demo data</button>
+      <Confirm open={open} onClose={() => setOpen(false)} title={<>Reset the <em>demo</em>?</>} body="All demo changes are lost and the sample data is restored." confirmLabel="Reset demo" danger busy={busy} onConfirm={go} />
+    </div>
+  );
+}
