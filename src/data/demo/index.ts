@@ -21,8 +21,8 @@ import {
 import { Engine, STATE_VERSION, type Actor, type DemoState } from './engine';
 import { PERSONA_EMAILS, seedState } from './seed';
 
-export const STATE_KEY = 'spc-demo-v2';
-export const REV_KEY = 'spc-demo-v2:rev';
+export const STATE_KEY = 'spc-demo-v3';
+export const REV_KEY = 'spc-demo-v3:rev';
 export const AUTH_KEYS = { client: 'spc-demo-auth-client', studio: 'spc-demo-auth-studio' } as const;
 export { PERSONA_EMAILS };
 

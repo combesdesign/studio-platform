@@ -139,9 +139,23 @@ Other seeded cases worth testing against:
   - Date inputs use native pickers.
   - .ics download via `<a download>` may need Capacitor's Filesystem/Share plugin once wrapped.
 
+
+### Brand pass (14 Oct)
+Pete asked for the client app to feel like the new website, so it now uses the website's visual language and the shared `Logo`/`Flower`/`FlowerStars`/`Marquee` from `src/shared/brand.tsx`. It builds clean, the full Playwright run passes with **0 console errors** (Chloe: welcome → demo sign-in → class → waiver → NO_CREDITS → intro offer → book → late cancel → waitlist → bookings → passes → profile → cold-open launch; plus Hannah pausing her membership and cancelling the pause), and `npm test` still passes. Website reference screenshots are in `screenshots/client/website/`; the app's screenshots are in `screenshots/client/` (01–40).
+- **Launch moment:** opening the app already signed in plays the website's logo reveal (cream + sky on navy, "Feel your best") once per session, then the navy curtain lifts away. Signed-out visitors get the reveal on the welcome hero instead, and it's skipped entirely with prefers-reduced-motion. The loading splash is navy with the flower, so there's no flash between the splash and the hero.
+- **Welcome** mirrors the website hero: a full-bleed `wide.webp` with the navy gradient, the animated logo, "Join the newest club to hit *Cooma!*", a white "Join the club →" pill and a glass "Sign in" pill. Under it are the navy marquee, the italic Reena S. pull quote with flower stars, and the demo personas.
+- **Timetable:** centred serif head. Strength + Sculpt "coming soon" is now the website's navy class card (photo on top, cream italic, "Register interest →").
+- **Class sheet:** class photo on top, the "01" index, an "All levels welcome" tag and a serif title. The instructor shows as the website's team circle (128px photo, mist ring, role in navy, bio).
+- **Shop:** a navy marquee, then the intro offer as a full-bleed band like the website ($49 with a superscript $, "Feel stronger, more confident and *enjoy movement*", "Claim your intro offer →", "New clients only."). Below that is "Find what's *best* for you" with a Memberships / Class packs toggle and the website's pricing cards: big serif price, "/week", per-class line, rule, description, "Join today" / "Buy now", and the navy **Recommended** card. Studio extras sit on a mist band.
+- **Profile:** a centred hello with a mist-ringed avatar, a "Meet your *instructors*" mist band with team circles, the policies as the website's FAQ cards ("How does the waitlist work? / Waitlists ⊕"), and the website's navy footer (cream logo, italic tagline, address/email/phone/site rows of 48px).
+- **Bookings:** the classes-done stat is now a navy block. Policies use the same FAQ cards. Flower marks replace the checkout tick bullets, the empty-state marks and the receipt mark. The segmented control matches the website (mist track, white thumb).
+- `public/sw.js` now precaches `square.webp` and the four team photos, so the new images work offline. Checked: the shell renders offline, and the only failed request is Google Fonts.
+- **For the engine agent:** the demo product descriptions in `fixtures.ts` are terse ("One class every week. Billed weekly by direct debit."). The website copy reads much better in the new pricing cards. For example, the 2-class membership says "What we recommend for those wanting to be consistent with their pilates practice! Receive 2 class credits each week." It would help to copy the website's descriptions for the memberships, packs and single class (and maybe rename "Single class" to "Single class credit").
+- **For the lead:** class photos are picked by class name in `classPhoto()` (`src/client/ui.tsx`): Mums + Bubs is portrait, Strength + Sculpt is square, and everything else is wide. An optional `imageUrl` on `ClassType` would let Libby set them. Also, `index.html` has `theme-color #FAF8F3`. That's fine, but `#5069AC` would match the navy splash/hero status bar if you prefer.
+
 ## studio
 
-**Status:** done. `node build.mjs` is clean, and `tsc -p tsconfig.core.json` plus `npm test` (27) still pass. The Playwright run-through passes with **0 console errors and 0 layout problems** at 1024×768, 768×1024 and 390×844, plus the permission passes. The script lives outside the repo at `/tmp/studio-e2e/run.mjs`. It pins the clock to 4:00pm Wed 14 Oct 2026 (Sydney) so the run is repeatable, and it checks every screen for horizontal overflow, clipped text and text under 12px. Screenshots are in `screenshots/studio/`: `NN-name-<width>.png` for each size, plus `50–59` for the instructor and front-desk passes. `src/studio/e2e.mjs` has been removed.
+**Status:** done. `node build.mjs` is clean, and `tsc -p tsconfig.core.json` plus `npm test` (27) still pass. The Playwright run-through passes with **0 console errors and 0 layout problems** at 1024×768, 768×1024 and 390×844, plus the permission passes. The script lives outside the repo at `/tmp/studio-e2e/run.mjs` (with `fonts.mjs`, which serves local Instrument Serif and a Questrial stand-in so screenshots aren't in fallback fonts; test-only). Serve dist on 4194 first. It pins the clock to 4:00pm Wed 14 Oct 2026 (Sydney) so the run is repeatable, and it checks every screen for horizontal overflow, clipped text and text under 12px. Screenshots are in `screenshots/studio/`: `NN-name-<width>.png` for each size, plus `50–55` for Grace T (instructor), `56–62` for Grace P (front desk who teaches) and `63` for reduced motion, at all three sizes. `src/studio/e2e.mjs` has been removed.
 
 ### Screens (hash routes under `/studio/`)
 - **Sign in** shows a staff form plus the demo quick sign-in. Client accounts are bounced.
@@ -174,8 +188,8 @@ Other seeded cases worth testing against:
 - Settings: save and revert the policies, edit a class type, change a product price, add staff.
 - Jump the clock to 7:10pm, then "Mark rest as no-show" on the 6pm class.
 - Demo reset.
-- **Grace P (instructor):** no Settings, no Walk-in or New client, no edit/cancel class, no revenue, pay or sales CSV, no staff notes, refunds, pass adjustments or client edits. Other classes are locked on the schedule, and `#/class/<someone else's>` shows "Not your class".
-- **Front desk** (created in Settings, signed in by email): no Settings; reports show attendance only plus Clients CSV; sees staff notes and purchases and can refund.
+- **Grace T (instructor):** Today and the schedule start on her own classes; no Settings, Walk-in, New client or edit/cancel class; no revenue, pay or sales CSV; no staff notes, refunds or pass adjustments. Other classes are locked on the schedule, and `#/class/<someone else's>` shows "Not your class". She can check in on her own class.
+- **Grace P (front desk who teaches Mums + Bubs):** sees every class and roster, checks in and undoes on someone else's class, Walk-in and New client, POS sale with receipt, staff notes and purchases; reports are attendance only plus Clients CSV; Settings blocked. Her sidebar says "Front desk + instructor", the greeting says "You're teaching Mums + Bubs at 10:30am", and "My classes" on Today and the schedule shows just her class.
 
 ### Fixes made in this pass
 - **Permissions:** the studio's own role matrix disagreed with the engine. `roleCan` now maps UI permissions onto `can()` from `src/domain`.
@@ -208,9 +222,25 @@ Other seeded cases worth testing against:
   - Long staff names wrap in the sidebar.
   - Autofocus is skipped on phones, so the keyboard doesn't scroll the sheet title away.
 
+### Brand pass (14 Oct, evening)
+Made the studio feel like the back of house of snowypilatesclub.com, using the lead's `Logo`, `Flower`, `FlowerStars`, `Marquee` and `BRAND_PHRASES`. Compared side by side with website screenshots at 1440, 1024 and 390.
+- **Sign in:** the website hero. Studio photo with the navy gradient, the animated logo reveal in cream + sky, a serif line with a cream italic word, and the navy marquee with flower separators. Personas are pill rows with ringed photos.
+- **Chrome:** the sidebar and phone tab bar are navy (like the site's navy bands and footer), with the inline logo in cream + sky and an italic cream "Studio". The active item is a white pill with a small flower. Buttons hover to ink like the site, with white and glass variants on navy.
+- **Today:** a navy hero over the wide photo: "Good afternoon, *Libby*" (cream italic), the day's summary and a gently rotating `BRAND_PHRASES` line in italic serif. Stats use serif numerals, colour-blocked white / white / mist / cream. "Up next" is a mist block, like the site's middle class card. The live "On now" dot is a slowly turning flower, and empty states and "Heads up" use the flower.
+- **Staff photos** are circles with a mist ring everywhere (sidebar, rosters, schedule, reports, staff cards), like the team section. Staff cards read like the site: serif name, "Owner + instructor", what they teach.
+- **Reports:** the KPI hero is navy and attendance is mist. The charts follow the site's classes trio: white, mist, and navy with cream bars.
+- **Settings › Products & pricing** mirrors "Find what's best for you": membership cards with big serif prices, "$20.00 per class", the navy **Recommended** card, the intro offer as the navy "$49" block with photo, packs in three columns, and retail rows. Settings tabs (and every segmented control) use the site's mist pill toggle.
+- **Small touches:** eyebrows start with a flower, flower separators in meta lines, the schedule legend is flowers in each class colour, the loader is three bouncing flowers, the receipt uses the inline logo with flower stars, and the highlighted POS tile is the navy pick.
+- **Kept out of the way:** the roster rows, check-in circles, flags and sheets are unchanged in size and position, and the motion lives only on sign-in and in the Today hero. With `prefers-reduced-motion`, the logo, marquee and loader stand still and the phrase doesn't rotate (checked in the run).
+
+**Front desk who also teaches.** "Teaching" now comes from the timetable (`instructorId`), never from the role:
+- `useStudio()` has `templates`, `teaches(staffId)` and `usualInstructor(classTypeId)`. `roleLabel()` gives "Front desk + instructor" or "Owner + instructor".
+- Today: anyone who can see every roster and teaches today gets an **All classes / My classes (n)** toggle, and the greeting names their class. Instructors still see only their own.
+- The schedule's **All / My classes** toggle shows for anyone who teaches (instructors start on My classes). Their own cells are tinted mist.
+- New-class and new-timetable sheets default the instructor to whoever usually teaches that class type (so Mums + Bubs picks Grace P), not the first staff member with role `instructor`.
+- Also fixed: `.btn.block` lost its icon gap (the `.block` utility overrode `display`).
+
 ### Known gaps
-- **No front-desk persona** in the demo seed. I tested front desk by adding one in Settings. *Engine:* consider adding one to `demoPersonas()`.
-- **Instructors can't create clients**, because `clients_edit` isn't in their role, so Walk-in is hidden for them. RULES says "Grace P does front desk". If she should handle walk-ins, give her the front_desk role or add `clients_edit` to instructor.
 - **Moving into a full class isn't possible.** You have to squeeze them in from that class's roster, or remove them and add them there.
 - Card-reader payments are recorded manually; there's no Stripe Terminal yet. Refunds are only recorded, not sent to Stripe, until live.
 - **The Today "passes expiring" panel** calls `listPasses` once per client. That's fine for ~50 clients. The live store may want a dedicated query.

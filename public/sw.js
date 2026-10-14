@@ -8,7 +8,8 @@ const SHELL = [
   './', 'index.html', 'assets/client.js', 'assets/client.css', 'manifest.webmanifest',
   'favicon.svg', 'apple-touch-icon.png', 'icons/icon-192.png',
   'brand/flower.svg', 'brand/flower-white.svg', 'brand/logo.svg', 'brand/logo-white.svg',
-  'img/portrait.webp', 'img/wide.webp',
+  'img/portrait.webp', 'img/wide.webp', 'img/square.webp',
+  'img/libby.webp', 'img/julia.webp', 'img/grace-t.webp', 'img/grace-p.webp',
 ];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 

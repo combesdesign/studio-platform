@@ -217,7 +217,6 @@ function PlanCard({ p, onEdit, ghostBadge }: { p: Product; onEdit: () => void; g
       <span className="per">{perClass(p)}</span>
       <hr />
       <span className="pdesc">{p.description || prodSummary(p)}</span>
-      <span className="pmeta">{prodSummary(p)}</span>
       <span className={cx('btn sm', pick ? 'white' : 'soft', 'plan-edit')}><Icon name="edit" size={16} />Edit</span>
     </button>
   );
