@@ -155,6 +155,16 @@ export function icsFileName(s: SessionWithCounts, ct?: ClassType): string {
   return `${(ct?.name ?? 'class').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${studioDate(s.startsAt)}.ics`;
 }
 
+// ------------------------------------------------------------------ launch moment (once per session)
+const LAUNCH_KEY = 'spc.launched';
+export function markLaunched() { try { sessionStorage.setItem(LAUNCH_KEY, '1'); } catch { /* private mode */ } }
+export function shouldLaunch(): boolean {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    return !sessionStorage.getItem(LAUNCH_KEY);
+  } catch { return false; }
+}
+
 // ------------------------------------------------------------------ platform
 export const isIOS = () => typeof navigator !== 'undefined' &&
   (/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1));

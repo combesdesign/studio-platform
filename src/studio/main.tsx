@@ -5,7 +5,8 @@ import '../shared/theme.css';
 import './studio.css';
 import { DemoBadge, Sheet, ToastProvider, match, store, useData, useRoute } from '../shared/react';
 import type { StaffRole } from '../shared/types';
-import { Avatar, Icon, Loading, ROLE_LABEL, SnackProvider, StudioCtx, cx, roleCan, type Perm, type StaffUser, type StudioCtxValue } from './ui';
+import { Flower, Logo } from '../shared/brand';
+import { Avatar, Icon, Loading, SnackProvider, StudioCtx, cx, roleCan, roleLabel, teacherIds, type Perm, type StaffUser, type StudioCtxValue } from './ui';
 import { SignIn } from './signin';
 import { Today } from './today';
 import { Roster } from './roster';
@@ -41,20 +42,29 @@ function App() {
 
 function Signed({ me }: { me: StaffUser }) {
   const base = useData(async () => {
-    const [staff, classTypes, settings] = await Promise.all([
+    const [staff, classTypes, settings, templates] = await Promise.all([
       store.listStaff({ includeInactive: true }), store.listClassTypes({ includeInactive: true }), store.getSettings(),
+      store.listTemplates().catch(() => []),
     ]);
-    return { staff, classTypes, settings };
+    return { staff, classTypes, settings, templates };
   }, []);
   const role: StaffRole = me.role;
   const can = useCallback((p: Perm) => roleCan(role, p), [role]);
   const ctx = useMemo<StudioCtxValue | null>(() => {
     if (!base.data) return null;
-    const { staff, classTypes, settings } = base.data;
+    const { staff, classTypes, settings, templates } = base.data;
+    const teaching = teacherIds(templates);
     return {
-      me, staff, classTypes, settings, can,
+      me, staff, classTypes, settings, can, templates,
       staffById: (id) => staff.find((s) => s.id === id),
       typeById: (id) => classTypes.find((t) => t.id === id),
+      teaches: (id) => !!id && teaching.has(id),
+      usualInstructor: (classTypeId) => {
+        const n = new Map<string, number>();
+        for (const t of templates) if (t.active && t.classTypeId === classTypeId) n.set(t.instructorId, (n.get(t.instructorId) ?? 0) + 1);
+        const best = [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+        return best && staff.find((s) => s.id === best && s.active) ? best : undefined;
+      },
     };
   }, [base.data, me, can]);
 
@@ -65,7 +75,8 @@ function Signed({ me }: { me: StaffUser }) {
 
 function Shell() {
   const [path] = useRoute();
-  const { me, staffById, can } = React.useContext(StudioCtx);
+  const { me, staffById, can, teaches } = React.useContext(StudioCtx);
+  const myRole = roleLabel(me.role, teaches(me.staffId));
   const [moreOpen, setMoreOpen] = useState(false);
   const cur = section(path);
   const items = NAV.filter((n) => !n.perm || can(n.perm));
@@ -97,14 +108,14 @@ function Shell() {
     <div className="app">
       <aside className="side" aria-label="Main">
         <a className="brand" href="#/" aria-label="Snowy Pilates Club studio home">
-          <img className="brand-full" src="../brand/logo-white.svg" alt="Snowy Pilates Club" />
-          <img className="brand-mark" src="../brand/flower-white.svg" alt="" />
+          <Logo className="brand-logo" letters="var(--cream)" flower="var(--sky)" />
           <span className="brand-tag">Studio</span>
         </a>
         <nav className="nav">
           {items.map((n) => (
             <a key={n.key} href={n.href} className={cx(cur === n.key && 'on')} aria-current={cur === n.key ? 'page' : undefined}>
               <Icon name={n.icon} /><span className="nl">{n.label}</span><span className="ns">{n.short ?? n.label}</span>
+              {cur === n.key && <Flower size={12} className="nav-fl" />}
             </a>
           ))}
         </nav>
@@ -112,7 +123,7 @@ function Shell() {
           <a className="side-link" href="../" target="_blank" rel="noopener"><Icon name="external" size={18} /><span>Client app</span></a>
           <div className="me">
             <Avatar name={me.name} photo={photo} size={40} />
-            <div className="me-text"><strong>{me.name}</strong><span>{ROLE_LABEL[me.role]}</span></div>
+            <div className="me-text"><strong>{me.name}</strong><span>{myRole}</span></div>
             <button className="me-out" onClick={signOut} aria-label="Sign out" title="Sign out"><Icon name="logout" size={20} /></button>
           </div>
         </div>
@@ -127,7 +138,7 @@ function Shell() {
       <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} label="More">
         <div className="more-me">
           <Avatar name={me.name} photo={photo} size={48} />
-          <div><strong>{me.name}</strong><div className="muted small">{ROLE_LABEL[me.role]}</div></div>
+          <div><strong>{me.name}</strong><div className="muted small">{myRole}</div></div>
         </div>
         <div className="list more-list">
           {overflow.map((n) => (
@@ -147,7 +158,7 @@ function NoAccess({ title = 'Not available for your role' }: { title?: string })
   return (
     <div className="card pad" style={{ marginTop: 40 }}>
       <div className="empty">
-        <img src="../brand/flower.svg" alt="" />
+        <Flower size={40} className="empty-fl" />
         <p className="serif" style={{ fontSize: 28, color: 'var(--ink)' }}>{title}</p>
         <p style={{ marginTop: 8 }}>Ask Libby if you think you should have access.</p>
         <a className="btn soft" style={{ marginTop: 18 }} href="#/">Back to today</a>

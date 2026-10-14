@@ -3,7 +3,8 @@ import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { studioDate, studioToUTC, time, weekStart } from '../shared/format';
 import type { Booking, Pass, SessionWithCounts } from '../shared/types';
 import type { RosterEntry } from '../shared/store';
-import { Accent, Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, SheetHead, cx, dayLong, fullName, useSnack, useStudio } from './ui';
+import { Flower } from '../shared/brand';
+import { Accent, Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Sep, SheetHead, cx, dayLong, fullName, useSnack, useStudio } from './ui';
 import { AddClientSheet, SessionPicker, WaiverSheet, WalkInSheet } from './book';
 import { useNow } from './today';
 
@@ -57,7 +58,7 @@ export function Roster({ id }: { id: string }) {
   if (!s) return <Loading />;
   const ct = typeById(s.classTypeId); const ins = staffById(s.instructorId);
   if (!can('allRosters') && s.instructorId !== me.staffId) {
-    return <div className="card pad" style={{ marginTop: 40 }}><Empty title="Not your class">Instructors can open the rosters for their own classes. <a href="#/">Back to today</a></Empty></div>;
+    return <div className="card pad" style={{ marginTop: 40 }}><Empty title="Not your class">You can open the rosters for classes you teach. <a href="#/">Back to today</a></Empty></div>;
   }
   const started = now >= new Date(s.startsAt).getTime();
   const ended = now >= new Date(s.endsAt).getTime();
@@ -89,15 +90,15 @@ export function Roster({ id }: { id: string }) {
     <div className="roster">
       <PageHead
         back={back}
-        eyebrow={<>{dayLong(s.startsAt)} · {time(s.startsAt)} – {time(s.endsAt)}</>}
+        eyebrow={<>{dayLong(s.startsAt)}<Sep />{time(s.startsAt)} – {time(s.endsAt)}</>}
         title={<Accent text={ct?.name ?? 'Class'} />}
         sub={
           <div className="rs-sub">
             {ins && <Avatar name={ins.name} photo={ins.photoUrl} size={30} />}
-            <span>with {ins?.name ?? 'no instructor'}</span>
+            <span>with {ins?.name ?? 'no instructor'}{ins && ins.id === me.staffId ? ' (you)' : ''}</span>
             {s.note && <span className="chip">{s.note}</span>}
             {cancelled && <span className="chip danger">Cancelled{s.cancelReason ? ` · ${s.cancelReason}` : ''}</span>}
-            {!cancelled && started && !ended && <span className="chip ok"><span className="dot" />On now</span>}
+            {!cancelled && started && !ended && <span className="chip ok"><Flower size={11} spin className="live-fl" color="currentColor" />On now</span>}
             {!cancelled && ended && <span className="chip">Finished</span>}
           </div>
         }
@@ -132,7 +133,7 @@ export function Roster({ id }: { id: string }) {
         <>
           <section className="rs-sec">
             {attending.length === 0 ? (
-              <div className="card"><Empty title={cancelled ? 'This class was cancelled' : 'No one booked yet'}>{cancelled ? 'Everyone was removed and their credits returned.' : 'Tap “Add client” to book someone in.'}</Empty></div>
+              <div className="card"><Empty title={cancelled ? 'This class was cancelled' : 'No one booked in yet'}>{cancelled ? 'Everyone was removed and their credits returned.' : 'Tap “Add client” to book someone in.'}</Empty></div>
             ) : (
               <div className="rlist">
                 {attending.map((e) => (

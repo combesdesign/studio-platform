@@ -3,10 +3,10 @@ import React, { useEffect, useState } from 'react';
 import type { Sale } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet } from '../shared/react';
 import { money, studioDate } from '../shared/format';
-import { Avatar, Flower, Icon, Logo, SheetHead, Toggle, useApp } from './ui';
+import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useApp } from './ui';
 import { Receipt, ReceiptSkeleton } from './passes';
 import { Policies } from './bookings';
-import { dateShortNoDay, isIOS, isNative, isStandalone, mapsUrl, saveClient } from './lib';
+import { dateShortNoDay, isIOS, isNative, isStandalone, mapsUrl, saveClient, staffRole } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -42,16 +42,15 @@ export function Profile({ nav }: { nav: Nav }) {
 
   const since = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', month: 'long', year: 'numeric' }).format(new Date(c.createdAt));
   const s = app.settings;
+  const team = app.staff.filter((x) => x.active && !!x.photoUrl);
 
   return (
     <div className="screen">
-      <div className="me">
-        <Avatar name={`${c.firstName} ${c.lastName}`} size={76} className="me-avatar" />
-        <div>
-          <h1>Hi, <em>{c.firstName}</em></h1>
-          <p className="muted">Member since {since}</p>
-        </div>
-      </div>
+      <header className="me">
+        <Avatar name={`${c.firstName} ${c.lastName}`} size={92} className="me-avatar" />
+        <h1>Hi, <em>{c.firstName}</em></h1>
+        <p className="muted">Member since {since}</p>
+      </header>
 
       <InstallHint />
 
@@ -86,47 +85,45 @@ export function Profile({ nav }: { nav: Nav }) {
         </div>
       </div>
 
-      <div className="group">
-        <div className="group-label">The studio</div>
-        <div className="list-card">
-          <a className="list-row" href={mapsUrl(s.address)} target="_blank" rel="noopener">
-            <span className="row-ic"><Icon name="pin" size={20} /></span>
-            <span className="list-row-main"><span className="list-row-title">{s.address}</span><span className="list-row-sub">Get directions</span></span>
-            <Icon name="chevron" size={18} className="faint" />
-          </a>
-          <a className="list-row" href={`mailto:${s.email}`}>
-            <span className="row-ic"><Icon name="mail" size={20} /></span>
-            <span className="list-row-main"><span className="list-row-title">{s.email}</span><span className="list-row-sub">Questions? Flick us an email</span></span>
-            <Icon name="chevron" size={18} className="faint" />
-          </a>
-          {s.phone && (
-            <a className="list-row" href={`tel:${s.phone.replace(/\s+/g, '')}`}>
-              <span className="row-ic"><Icon name="phone" size={20} /></span>
-              <span className="list-row-main"><span className="list-row-title">{s.phone}</span><span className="list-row-sub">Call the studio</span></span>
-              <Icon name="chevron" size={18} className="faint" />
-            </a>
-          )}
-          <a className="list-row" href="https://snowypilatesclub.com" target="_blank" rel="noopener">
-            <span className="row-ic"><Icon name="globe" size={20} /></span>
-            <span className="list-row-main"><span className="list-row-title">snowypilatesclub.com</span><span className="list-row-sub">Classes, team and pricing</span></span>
-            <Icon name="chevron" size={18} className="faint" />
-          </a>
-        </div>
-      </div>
+      {team.length > 0 && (
+        <section className="team-band">
+          <SectionHead title={<>Meet your <em>instructors</em></>} />
+          <div className="team">
+            {team.map((m) => (
+              <figure key={m.id} className="member">
+                <span className="member-pic"><Avatar name={m.name} src={m.photoUrl} size={96} /></span>
+                <span className="member-name serif">{m.name}</span>
+                <span className="member-role">{staffRole(m)}</span>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="group">
-        <div className="group-label">Policies</div>
+        <div className="group-label">Waitlists + cancellations</div>
         <Policies />
       </div>
 
       <div className="stack mt-28">
-        <button className="btn ghost block" onClick={signOut}><Icon name="logout" size={18} />Sign out</button>
+        <button className="btn soft block" onClick={signOut}><Icon name="logout" size={18} />Sign out</button>
         {store.mode === 'demo' && store.demoReset && <button className="btn link-btn block" onClick={resetDemo}>Reset demo data</button>}
       </div>
 
-      <footer className="sign-off">
-        <Logo width={92} />
-        <p className="muted fine">Mat Pilates for every body · Cooma NSW</p>
+      <footer className="studio-foot">
+        <Logo white width={150} />
+        <p className="foot-tagline">Feel-good mat Pilates in Cooma, where movement becomes addictive.</p>
+        <div className="foot-group">
+          <small>Studio</small>
+          <a href={mapsUrl(s.address)} target="_blank" rel="noopener"><span>{s.address}</span><Arrow /></a>
+        </div>
+        <div className="foot-group">
+          <small>Connect</small>
+          <a href={`mailto:${s.email}`}><span>{s.email}</span><Arrow /></a>
+          {s.phone && <a href={`tel:${s.phone.replace(/\s+/g, '')}`}><span>{s.phone}</span><Arrow /></a>}
+          <a href="https://snowypilatesclub.com" target="_blank" rel="noopener"><span>snowypilatesclub.com</span><Arrow /></a>
+        </div>
+        <p className="foot-base">Mat Pilates for every body · Cooma NSW</p>
       </footer>
 
       <DetailsSheet open={sheet === 'details'} onClose={() => setSheet(null)} />

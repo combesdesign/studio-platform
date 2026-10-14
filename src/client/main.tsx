@@ -1,5 +1,5 @@
 /** Snowy Pilates Club — client app entry (PWA now, Capacitor later). Hash routing only. */
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../shared/theme.css';
 import './client.css';
@@ -13,7 +13,7 @@ import { Profile, captureInstallPrompt } from './profile';
 import { Waiver } from './waiver';
 import { Ctx, ErrorBlock, Flower, Icon, Logo } from './ui';
 import type { AppCtx } from './ui';
-import { isNative, pathOnly } from './lib';
+import { isNative, markLaunched, pathOnly, shouldLaunch } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -29,7 +29,7 @@ function App() {
   const [path, nav] = useRoute();
   const auth = useData(() => store.currentUser(), []);
 
-  if (auth.data === undefined && !auth.error) return <Splash />;
+  if (auth.data === undefined && !auth.error) return <Splash tone="navy" />;
   if (auth.error && auth.data === undefined) return <div className="app"><div className="screen"><ErrorBlock error={auth.error} onRetry={auth.reload} /></div></div>;
 
   const user = auth.data ?? null;
@@ -41,7 +41,33 @@ function App() {
     );
   }
   if (user.kind !== 'client') return <StaffNotice user={user} onSignOut={async () => { await store.signOut().catch(() => {}); auth.reload(); }} />;
-  return <SignedIn user={user} path={path} nav={nav} refreshAuth={auth.reload} />;
+  return (
+    <>
+      <SignedIn user={user} path={path} nav={nav} refreshAuth={auth.reload} />
+      <Launch />
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ launch moment
+// Opening the app already signed in plays the website's logo reveal once per session, on navy,
+// then lifts away. Signed-out visitors get the same reveal on the welcome hero instead.
+function Launch() {
+  const [phase, setPhase] = useState<'show' | 'leave' | 'gone'>(() => shouldLaunch() ? 'show' : 'gone');
+  useEffect(() => {
+    if (phase === 'gone') return;
+    markLaunched();
+    const a = window.setTimeout(() => setPhase('leave'), 2100);
+    const b = window.setTimeout(() => setPhase('gone'), 2700);
+    return () => { window.clearTimeout(a); window.clearTimeout(b); };
+  }, []);
+  if (phase === 'gone') return null;
+  return (
+    <div className={'launch' + (phase === 'leave' ? ' leave' : '')} aria-hidden="true" onClick={() => setPhase('gone')}>
+      <Logo animate white width={236} />
+      <p className="launch-line">Feel your best</p>
+    </div>
+  );
 }
 
 function SignedIn({ user, path, nav, refreshAuth }: { user: Extract<AuthUser, { kind: 'client' }>; path: string; nav: Nav; refreshAuth: () => void }) {
@@ -101,10 +127,10 @@ function TabBar({ active, nav }: { active: string; nav: Nav }) {
   );
 }
 
-function Splash() {
+function Splash({ tone }: { tone?: 'navy' }) {
   return (
-    <div className="splash" aria-busy="true" aria-label="Loading">
-      <Flower size={56} className="pulse" />
+    <div className={'splash' + (tone ? ' ' + tone : '')} aria-busy="true" aria-label="Loading">
+      <Flower size={44} className="pulse" />
     </div>
   );
 }
@@ -113,7 +139,7 @@ function StaffNotice({ user, onSignOut }: { user: AuthUser; onSignOut: () => voi
   return (
     <div className="app">
       <div className="screen center-col staff-notice">
-        <Logo width={110} />
+        <Logo width={150} animate />
         <h1>Hi <em>{user.name.split(' ')[0]}</em></h1>
         <p className="muted">You’re signed in with a staff account. The front desk and roster tools live in the studio app.</p>
         <a className="btn block" href="studio/">Open the studio app <Icon name="chevron" size={18} /></a>

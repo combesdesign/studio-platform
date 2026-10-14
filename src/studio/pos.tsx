@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { gstOf, money } from '../shared/format';
 import type { Client, Pass, PaymentMethod, Product, Sale } from '../shared/types';
+import { FlowerStars, Logo } from '../shared/brand';
 import { Avatar, Icon, Loading, PageHead, Seg, SheetHead, cx, dateTime, fullName, toCents, useStudio } from './ui';
 import { ClientSearch, MethodPicker, NewClientSheet, productKindLabel } from './book';
 import { METHOD_LABEL } from './clients';
@@ -87,7 +88,7 @@ export function Pos({ clientId }: { clientId?: string }) {
                     const out = p.kind === 'retail' && p.stock != null && p.stock <= 0;
                     const notEligible = p.kind === 'intro' && !!client && intro.data === false;
                     return (
-                      <button key={p.id} className={cx('tile', inCart > 0 && 'in', (out || notEligible) && 'off', `k-${p.kind}`)} onClick={() => add(p)} disabled={out}>
+                      <button key={p.id} className={cx('tile', !!p.highlight && 'pick', inCart > 0 && 'in', (out || notEligible) && 'off', `k-${p.kind}`)} onClick={() => add(p)} disabled={out}>
                         {p.highlight && <span className="tile-badge">{p.highlight}</span>}
                         {inCart > 0 && <span className="tile-qty">{inCart}</span>}
                         <span className="tile-name">{p.name}</span>
@@ -192,7 +193,7 @@ function Receipt({ r, onNew }: { r: { sale: Sale; passes: Pass[]; client: Client
     <div className="receipt-wrap">
       <div className="rc-done no-print"><span className="rc-tick"><Icon name="check" size={30} /></span><h1>All <em>done</em></h1><p className="muted">{s.method === 'comp' ? 'Comp sale recorded.' : `${money(s.totalCents, { cents: true })} paid by ${(METHOD_LABEL[s.method] ?? s.method).toLowerCase()}.`}{r.passes.length ? ` ${r.passes.map((p) => p.name).join(', ')} added to ${r.client?.firstName}'s account.` : ''}</p></div>
       <article className="receipt card">
-        <img src="../brand/logo.svg" alt="Snowy Pilates Club" className="rc-logo" />
+        <Logo className="rc-logo" />
         <div className="rc-studio">
           <div>{settings.name || 'Snowy Pilates Club'}</div>
           <div>{settings.address}</div>
@@ -208,7 +209,7 @@ function Receipt({ r, onNew }: { r: { sale: Sale; passes: Pass[]; client: Client
         <div className="rc-total"><span>Total</span><span>{money(s.totalCents, { cents: true })}</span></div>
         {settings.gstRegistered !== false && <div className="rc-gst">Total includes GST of {money(gstOf(s.totalCents), { cents: true })}</div>}
         <div className="rc-meta"><span>Paid by</span><span>{METHOD_LABEL[s.method] ?? s.method}</span></div>
-        <p className="rc-thanks">Thank you for moving with us.</p>
+        <div className="rc-thanks"><FlowerStars count={5} size={12} /><p>Thank you for moving with us.</p></div>
       </article>
       <div className="rc-actions no-print">
         <button className="btn soft" onClick={() => window.print()}><Icon name="print" size={20} />Print</button>

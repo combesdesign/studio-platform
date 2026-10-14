@@ -3,6 +3,7 @@ import React, { createContext, useContext } from 'react';
 import type { AuthUser, ClassType, Client, Staff, StudioSettings } from '../shared/types';
 import { initials } from '../shared/format';
 import { asset } from './lib';
+import { Flower as BrandFlower, Logo as BrandLogo } from '../shared/brand';
 
 // ------------------------------------------------------------------ app context
 export interface AppCtx {
@@ -64,11 +65,37 @@ export function Icon({ name, size = 22, className, fill }: { name: keyof typeof 
 }
 
 // ------------------------------------------------------------------ brand
-export function Flower({ size = 40, white, className, spin }: { size?: number; white?: boolean; className?: string; spin?: boolean }) {
-  return <img className={'flower ' + (spin ? 'spin ' : '') + (className || '')} src={white ? 'brand/flower-white.svg' : 'brand/flower.svg'} width={size} height={size} alt="" aria-hidden="true" />;
+/** The flower mark, drawn inline (shared/brand). white = cream on navy surfaces, like the website. */
+export function Flower({ size = 40, white, color, className, spin }: { size?: number; white?: boolean; color?: string; className?: string; spin?: boolean }) {
+  return <BrandFlower size={size} color={color ?? (white ? 'var(--cream)' : 'var(--sky)')} className={'flower ' + (spin ? 'spin ' : '') + (className || '')} />;
 }
-export function Logo({ white, width = 96 }: { white?: boolean; width?: number }) {
-  return <img className="logo" src={white ? 'brand/logo-white.svg' : 'brand/logo.svg'} width={width} style={{ height: 'auto' }} alt="Snowy Pilates Club" />;
+/** The wordmark, drawn inline. white = cream letters + sky flower (the website's on-navy colours). */
+export function Logo({ white, width = 96, animate }: { white?: boolean; width?: number; animate?: boolean }) {
+  return <BrandLogo animate={animate} letters={white ? 'var(--cream)' : 'var(--navy)'} flower="var(--sky)" className="logo" style={{ width, height: 'auto', aspectRatio: '1024.7 / 443.9' }} />;
+}
+
+/** The website's thin arrow, used on pill buttons ("Join the club ->"). */
+export function Arrow({ size = 16 }: { size?: number }) {
+  return <svg className="ic arr" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 12h15M14 6.5l5.5 5.5-5.5 5.5" /></svg>;
+}
+
+/** Studio photos per class type, as on the website's class cards. */
+export function classPhoto(name?: string): string {
+  const n = (name || '').toLowerCase();
+  if (/mum|bub|postnatal/.test(n)) return 'img/portrait.webp';
+  if (/strength|sculpt/.test(n)) return 'img/square.webp';
+  return 'img/wide.webp';
+}
+
+/** Centred section head like the website: optional kicker, serif headline with an italic sky word, short line under. */
+export function SectionHead({ kicker, title, sub, className }: { kicker?: React.ReactNode; title: React.ReactNode; sub?: React.ReactNode; className?: string }) {
+  return (
+    <header className={'sec-head ' + (className || '')}>
+      {kicker && <div className="kicker">{kicker}</div>}
+      <h2>{title}</h2>
+      {sub && <p className="muted">{sub}</p>}
+    </header>
+  );
 }
 
 /** 'Mums + Bubs' -> Mums + <em>Bubs</em> */
@@ -91,14 +118,10 @@ export function Avatar({ name, src, size = 40, className }: { name: string; src?
 export function ScreenHead({ eyebrow, title, right, sub }: { eyebrow?: React.ReactNode; title: React.ReactNode; right?: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <header className="shead">
-      <div className="shead-row">
-        <div>
-          {eyebrow && <div className="kicker">{eyebrow}</div>}
-          <h1>{title}</h1>
-        </div>
-        {right}
-      </div>
+      {eyebrow && <div className="kicker">{eyebrow}</div>}
+      <h1>{title}</h1>
       {sub && <p className="shead-sub">{sub}</p>}
+      {right}
     </header>
   );
 }

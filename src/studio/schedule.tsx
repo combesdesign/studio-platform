@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { addDays, startOfStudioDay, studioDate, studioToUTC, time, weekStart } from '../shared/format';
 import type { ScheduleTemplate, SessionWithCounts } from '../shared/types';
-import { Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, SheetHead, cx, dayShort, useStudio } from './ui';
+import { Flower } from '../shared/brand';
+import { Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Seg, SheetHead, cx, dayShort, useStudio } from './ui';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const fmtRange = (from: string) => {
@@ -13,13 +14,15 @@ const fmtRange = (from: string) => {
 const hhmm12 = (t: string) => { const [h, m] = t.split(':').map(Number); const hh = ((h! + 11) % 12) + 1; return `${hh}:${String(m).padStart(2, '0')}${h! < 12 ? 'am' : 'pm'}`; };
 
 export function Schedule({ week }: { week?: string }) {
-  const { me, can, typeById, staffById, classTypes } = useStudio();
+  const { me, can, typeById, staffById, classTypes, teaches } = useStudio();
   const today = studioDate();
   const from = weekStart(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : today);
   const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
   const res = useData(() => store.listSessions({ from: startOfStudioDay(from), to: startOfStudioDay(addDays(from, 7)), includeCancelled: true }), [from]);
   const [adding, setAdding] = useState<string | null>(null);
+  // "My classes" follows instructorId, so a front-desk person who teaches gets it too. Instructors start on their own.
   const [mineOnly, setMineOnly] = useState(!can('allRosters'));
+  const iTeach = !can('allRosters') || teaches(me.staffId) || (res.data ?? []).some((s) => s.instructorId === me.staffId);
   const byDay = useMemo(() => {
     const m: Record<string, SessionWithCounts[]> = {};
     for (const s of res.data ?? []) {
@@ -52,11 +55,12 @@ export function Schedule({ week }: { week?: string }) {
           <button className="btn sm soft" onClick={() => go(weekStart(today))} disabled={isThisWeek}>Today</button>
           <button className="btn icon soft" onClick={() => go(addDays(from, 7))} aria-label="Next week"><Icon name="right" /></button>
         </div>
-        {can('allRosters') ? null : (
-          <label className="check"><input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} /><span>Only my classes</span></label>
+        {iTeach && (
+          <Seg className="sm mine-seg" value={mineOnly ? 'mine' : 'all'} onChange={(v) => setMineOnly(v === 'mine')}
+            options={[{ value: 'all', label: 'All classes' }, { value: 'mine', label: 'My classes' }]} />
         )}
         <div className="legend">
-          {classTypes.filter((t) => t.active).map((t) => <span key={t.id}><i style={{ background: t.color }} />{t.name}</span>)}
+          {classTypes.filter((t) => t.active).map((t) => <span key={t.id}><Flower size={13} color={t.color} />{t.name}</span>)}
         </div>
       </div>
 
@@ -77,6 +81,7 @@ export function Schedule({ week }: { week?: string }) {
                     const ct = typeById(s.classTypeId); const ins = staffById(s.instructorId);
                     const mine = s.instructorId === me.staffId;
                     const open = can('allRosters') || mine;
+                    const cls = cx('wc', mine && 'mine', !open && 'locked', s.status === 'cancelled' && 'cancelled');
                     const inner = (
                       <>
                         <span className="wc-time">{time(s.startsAt)}</span>
@@ -88,10 +93,10 @@ export function Schedule({ week }: { week?: string }) {
                       </>
                     );
                     return open
-                      ? <a key={s.id} href={`#/class/${s.id}`} className={cx('wc', s.status === 'cancelled' && 'cancelled')} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>{inner}</a>
-                      : <div key={s.id} className={cx('wc', 'locked', s.status === 'cancelled' && 'cancelled')} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>{inner}</div>;
+                      ? <a key={s.id} href={`#/class/${s.id}`} className={cls} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>{inner}</a>
+                      : <div key={s.id} className={cls} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>{inner}</div>;
                   })}
-                  {list.length === 0 && <span className="wk-none">No classes</span>}
+                  {list.length === 0 && <span className="wk-none">{mineOnly ? 'Not teaching' : 'No classes'}</span>}
                   {can('editClass') && !past && <button className="wk-add" onClick={() => setAdding(d)} aria-label={`Add class on ${dayShort(d + 'T02:00:00Z')}`}><Icon name="plus" size={16} /></button>}
                 </div>
               </section>
@@ -105,15 +110,16 @@ export function Schedule({ week }: { week?: string }) {
 }
 
 function AddSessionSheet({ date, onClose }: { date: string | null; onClose: () => void }) {
-  const { classTypes, staff, settings } = useStudio();
+  const { classTypes, staff, settings, usualInstructor } = useStudio();
   const types = classTypes.filter((t) => t.active);
   const teachers = staff.filter((s) => s.active);
+  const pickTeacher = (typeId?: string) => usualInstructor(typeId) ?? teachers[0]?.id ?? '';
   const [v, setV] = useState({ classTypeId: '', date: '', time: '09:30', instructorId: '', capacity: '', note: '' });
   const { busy, run } = useAction();
   useEffect(() => {
     if (!date) return;
     const t = types[0];
-    setV({ classTypeId: t?.id ?? '', date, time: '09:30', instructorId: teachers.find((s) => s.role === 'instructor')?.id ?? teachers[0]?.id ?? '', capacity: String(t?.defaultCapacity ?? settings.defaultCapacity), note: '' });
+    setV({ classTypeId: t?.id ?? '', date, time: '09:30', instructorId: pickTeacher(t?.id), capacity: String(t?.defaultCapacity ?? settings.defaultCapacity), note: '' });
   }, [date]);
   const ct = types.find((t) => t.id === v.classTypeId);
   const save = async () => {
@@ -129,7 +135,7 @@ function AddSessionSheet({ date, onClose }: { date: string | null; onClose: () =
       <SheetHead title={<>Add a <em>class</em></>} sub="A one-off class. For a weekly class, use the timetable." onClose={onClose} />
       <div className="form-grid">
         <label className="field span2"><span>Class</span>
-          <select className="select" value={v.classTypeId} onChange={(e) => { const t = types.find((x) => x.id === e.target.value); setV({ ...v, classTypeId: e.target.value, capacity: String(t?.defaultCapacity ?? v.capacity) }); }}>
+          <select className="select" value={v.classTypeId} onChange={(e) => { const t = types.find((x) => x.id === e.target.value); setV({ ...v, classTypeId: e.target.value, capacity: String(t?.defaultCapacity ?? v.capacity), instructorId: pickTeacher(e.target.value) }); }}>
             {types.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.durationMin} min){t.bookable ? '' : ' · coming soon'}</option>)}
           </select>
         </label>
@@ -201,7 +207,7 @@ export function Timetable() {
 }
 
 function TemplateSheet({ t, onClose, onDelete }: { t: Partial<ScheduleTemplate> | null; onClose: () => void; onDelete: (t: ScheduleTemplate) => void }) {
-  const { classTypes, staff, settings } = useStudio();
+  const { classTypes, staff, settings, usualInstructor } = useStudio();
   const toast = useToast();
   const types = classTypes.filter((x) => x.active);
   const teachers = staff.filter((x) => x.active);
@@ -209,7 +215,7 @@ function TemplateSheet({ t, onClose, onDelete }: { t: Partial<ScheduleTemplate> 
   const { busy, run } = useAction();
   useEffect(() => {
     if (!t) return;
-    setV({ classTypeId: types[0]?.id, instructorId: teachers.find((s) => s.role === 'instructor')?.id ?? teachers[0]?.id, ...t });
+    setV({ classTypeId: types[0]?.id, instructorId: usualInstructor(types[0]?.id) ?? teachers[0]?.id, ...t });
   }, [t]);
   const ct = types.find((x) => x.id === v.classTypeId);
   const save = async () => {

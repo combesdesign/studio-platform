@@ -66,8 +66,8 @@ export function Reports() {
           <div className="kpis">
             {showRevenue && <Kpi label="Revenue" value={money(r.revenueCents - r.refundsCents)} sub={r.refundsCents ? `after ${money(r.refundsCents)} refunds` : `${r.salesCount} sales`} hero />}
             {!showRevenue && <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} hero />}
-            <Kpi label="Classes run" value={r.classesRun} />
-            {showRevenue && <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} />}
+            <Kpi label="Classes run" value={r.classesRun} tone={showRevenue ? undefined : 'mist'} />
+            {showRevenue && <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} tone="mist" />}
             <Kpi label="Average fill" value={`${Math.round(r.avgFillPct)}%`} />
             <Kpi label="No-shows" value={r.noShows} />
             <Kpi label="Late cancels" value={r.lateCancels} />
@@ -88,18 +88,18 @@ export function Reports() {
                 </div>
               )}
             </section>}
-            <section className="card pad chart">
+            <section className="card pad chart tone-mist">
               <h3>Attendance by <em>class</em></h3>
               <Bars data={r.byClassType.map((c) => ({ label: c.name, value: c.attendees, note: `${c.classes} classes · ${Math.round(c.avgFillPct)}% full` }))} fmt={(v) => String(v)} empty="No classes run in this period." />
             </section>
-            <section className="card pad chart">
+            <section className="card pad chart tone-navy">
               <h3>Busiest <em>times</em></h3>
               <Bars data={r.topSlots.slice(0, 6).map((s) => ({ label: s.label, value: Math.round(s.avgAttendees * 10) / 10 }))} fmt={(v) => `${v} avg`} empty="Not enough classes yet." />
             </section>
           </div>
 
           <section className="card pad">
-            <div className="sec-head"><h3>Instructors</h3>{!showPay && <span className="faint small">Pay amounts are only shown to the owner</span>}</div>
+            <div className="sec-head"><h3>Your <em>instructors</em></h3>{!showPay && <span className="faint small">Pay amounts are only shown to the owner</span>}</div>
             <div className="table-wrap">
               <table className="tbl">
                 <thead><tr><th>Instructor</th><th className="num">Classes</th><th className="num">Attendees</th><th className="num">Avg / class</th>{showPay && <th className="num">Pay</th>}</tr></thead>
@@ -129,9 +129,9 @@ export function Reports() {
   );
 }
 
-function Kpi({ label, value, sub, hero }: { label: string; value: React.ReactNode; sub?: string; hero?: boolean }) {
+function Kpi({ label, value, sub, hero, tone }: { label: string; value: React.ReactNode; sub?: string; hero?: boolean; tone?: 'mist' }) {
   return (
-    <div className={cx('kpi', hero && 'hero')}>
+    <div className={cx('kpi', hero && 'hero', tone)}>
       <span className="kpi-l">{label}</span>
       <span className="kpi-v">{value}</span>
       {sub && <span className="kpi-s">{sub}</span>}

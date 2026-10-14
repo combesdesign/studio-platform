@@ -1,6 +1,6 @@
 /** Studio app: small UI kit, permissions and app context. */
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import type { AuthUser, ClassType, Staff, StaffRole, StudioSettings } from '../shared/types';
+import type { AuthUser, ClassType, ScheduleTemplate, Staff, StaffRole, StudioSettings } from '../shared/types';
 import { dayLong as _dayLong, dayShort as _dayShort, initials, time } from '../shared/format';
 
 /** 'Tue 14 Oct' (Intl adds a comma in en-AU; RULES.md wants none). */
@@ -9,6 +9,7 @@ export const dayLong = (iso: string | Date) => _dayLong(iso).replace(',', '');
 /** '6:00am Tue 14 Oct' */
 export const dateTime = (iso: string | Date) => `${time(iso)} ${dayShort(iso)}`;
 import { Sheet } from '../shared/react';
+import { Flower } from '../shared/brand';
 import { can, type StaffAction } from '../domain';
 
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ');
@@ -47,6 +48,10 @@ const PERM_MAP = {
 export type Perm = keyof typeof PERM_MAP;
 export const roleCan = (role: StaffRole, p: Perm) => can(role, PERM_MAP[p]);
 export const ROLE_LABEL: Record<StaffRole, string> = { owner: 'Owner', manager: 'Manager', front_desk: 'Front desk', instructor: 'Instructor' };
+/** Like the website's team cards: 'Owner + instructor', 'Front desk + instructor'. Teaching is about the timetable, not the role. */
+export const roleLabel = (role: StaffRole, teaches: boolean) => (teaches && role !== 'instructor' ? `${ROLE_LABEL[role]} + instructor` : ROLE_LABEL[role]);
+/** Staff ids that teach a weekly class on the timetable. */
+export const teacherIds = (templates: { instructorId: string; active: boolean }[]) => new Set(templates.filter((t) => t.active).map((t) => t.instructorId));
 
 // ------------------------------------------------------------------ app context
 export type StaffUser = Extract<AuthUser, { kind: 'staff' }>;
@@ -58,6 +63,12 @@ export interface StudioCtxValue {
   can: (p: Perm) => boolean;
   staffById: (id?: string) => Staff | undefined;
   typeById: (id?: string) => ClassType | undefined;
+  /** Weekly timetable (for who teaches what). */
+  templates: ScheduleTemplate[];
+  /** Does this staff member teach a weekly class? Based on instructorId, never on role. */
+  teaches: (staffId?: string) => boolean;
+  /** Usual instructor for a class type (most weekly slots), for new-class defaults. */
+  usualInstructor: (classTypeId?: string) => string | undefined;
 }
 export const StudioCtx = createContext<StudioCtxValue>(null as unknown as StudioCtxValue);
 export const useStudio = () => useContext(StudioCtx);
@@ -119,10 +130,12 @@ export function Icon({ name, size = 22, className }: { name: string; size?: numb
 // ------------------------------------------------------------------ bits
 const TINTS = ['t1', 't2', 't3', 't4', 't5'];
 function hash(s: string) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+/** Circular avatar. Photos (staff) get the website's mist ring, like the team section. */
 export function Avatar({ name, photo, size = 44, className }: { name: string; photo?: string; size?: number; className?: string }) {
   const src = asset(photo);
+  const ring = src ? Math.max(2, Math.round(size * 0.055)) : 0;
   return (
-    <span className={cx('av', TINTS[hash(name) % TINTS.length], className)} style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}>
+    <span className={cx('av', TINTS[hash(name) % TINTS.length], src && 'ph', className)} style={{ width: size, height: size, fontSize: Math.round(size * 0.36), ['--ring' as string]: ring + 'px' }}>
       {src ? <img src={src} alt="" loading="lazy" /> : initials(name)}
     </span>
   );
@@ -140,7 +153,7 @@ export function PageHead({ eyebrow, title, sub, actions, back }: { eyebrow?: Rea
     <header className="page-head">
       <div className="ph-text">
         {back && <a className="back" href={back.href}><Icon name="left" size={18} />{back.label}</a>}
-        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        {eyebrow && <div className="eyebrow"><Flower size={12} className="eb-fl" />{eyebrow}</div>}
         <h1>{title}</h1>
         {sub && <div className="ph-sub">{sub}</div>}
       </div>
@@ -183,15 +196,15 @@ export function Seg<T extends string>({ value, options, onChange, className }: {
 export function Empty({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="empty">
-      <img src="../brand/flower.svg" alt="" />
-      <p className="serif" style={{ fontSize: 24, color: 'var(--ink)' }}>{title}</p>
+      <Flower size={40} className="empty-fl" />
+      <p className="serif" style={{ fontSize: 26, color: 'var(--ink)' }}>{title}</p>
       {children && <div className="muted" style={{ marginTop: 6 }}>{children}</div>}
     </div>
   );
 }
 
 export function Loading() {
-  return <div className="loading" aria-label="Loading"><span /><span /><span /></div>;
+  return <div className="loading" role="status" aria-label="Loading"><Flower size={14} /><Flower size={14} /><Flower size={14} /></div>;
 }
 
 /** Confirm sheet. */
@@ -251,5 +264,8 @@ export function downloadText(name: string, text: string, type = 'text/csv') {
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** A tiny flower used as a separator, like the website's marquee. */
+export const Sep = () => <Flower size={8} className="sep-fl" />;
 
 export const fullName = (c: { firstName: string; lastName: string }) => `${c.firstName} ${c.lastName}`.trim();

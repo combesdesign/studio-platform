@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { money } from '../shared/format';
 import type { ClassType, Product, Staff, StaffRole, StudioSettings } from '../shared/types';
-import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, toCents, toDollars, useStudio, type Perm } from './ui';
+import { Flower } from '../shared/brand';
+import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
 
 const TABS: { key: string; label: string; perm?: Perm }[] = [
@@ -198,36 +199,84 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
   );
 }
 
-// ------------------------------------------------------------------ products
+// ------------------------------------------------------------------ products (mirrors the website's "Find what's best for you")
+const perClass = (p: Product) => {
+  if (p.kind === 'membership') return p.credits == null ? 'Unlimited classes' : `${money(Math.round(p.priceCents / p.credits), { cents: true })} per class`;
+  if (p.kind === 'intro') return `Unlimited for ${p.validityDays ?? 14} days`;
+  if (p.kind === 'dropin' || (p.credits ?? 1) === 1) return 'Per class';
+  return `${money(Math.round(p.priceCents / (p.credits ?? 1)), { cents: true })} per class`;
+};
+
+function PlanCard({ p, onEdit, ghostBadge }: { p: Product; onEdit: () => void; ghostBadge?: boolean }) {
+  const pick = !!p.highlight && p.active;
+  return (
+    <button className={cx('plan', pick && 'pick', !p.active && 'off')} onClick={onEdit} aria-label={`Edit ${p.name}`}>
+      {p.highlight ? <span className="badge">{p.highlight}</span> : !p.active ? <span className="badge">Hidden</span> : ghostBadge ? <span className="badge ghost" aria-hidden="true">–</span> : null}
+      <span className="pname">{p.name}</span>
+      <span className="amt">{money(p.priceCents)}{p.kind === 'membership' && <small>/{p.billingInterval ?? 'week'}</small>}</span>
+      <span className="per">{perClass(p)}</span>
+      <hr />
+      <span className="pdesc">{p.description || prodSummary(p)}</span>
+      <span className="pmeta">{prodSummary(p)}</span>
+      <span className={cx('btn sm', pick ? 'white' : 'soft', 'plan-edit')}><Icon name="edit" size={16} />Edit</span>
+    </button>
+  );
+}
+
 function ProductsTab() {
   const res = useData(() => store.listProducts({ includeInactive: true }), []);
   const [edit, setEdit] = useState<Partial<Product> | null>(null);
-  const kinds: Product['kind'][] = ['membership', 'pack', 'intro', 'dropin', 'retail'];
   if (!res.data) return <Loading />;
+  const by = (...k: Product['kind'][]) => res.data!.filter((p) => k.includes(p.kind)).sort((a, b) => a.sortOrder - b.sortOrder);
+  const members = by('membership'), packs = by('dropin', 'pack'), intro = by('intro'), retail = by('retail');
+  const anyBadge = members.some((p) => p.highlight);
   return (
-    <div>
-      <div className="tab-head"><p className="muted">Prices include GST.</p><button className="btn" onClick={() => setEdit({ kind: 'pack', active: true, sortOrder: 50, credits: 4, validityDays: 61 })}><Icon name="plus" size={20} />New product</button></div>
-      <div className="stack lg">
-        {kinds.map((k) => {
-          const list = res.data!.filter((p) => p.kind === k).sort((a, b) => a.sortOrder - b.sortOrder);
-          if (!list.length) return null;
-          return (
-            <section key={k} className="card">
-              <div className="prod-head">{productKindLabel(k)}</div>
-              <div className="list">
-                {list.map((p) => (
-                  <button key={p.id} className={cx('prod-row', !p.active && 'off')} onClick={() => setEdit(p)}>
-                    <span className="grow"><strong>{p.name}</strong>{p.highlight && <span className="chip navy" style={{ marginLeft: 8 }}>{p.highlight}</span>}{!p.active && <span className="chip" style={{ marginLeft: 8 }}>Hidden</span>}
-                      <span className="faint small block">{prodSummary(p)}</span></span>
-                    <span className="prod-price">{money(p.priceCents)}{p.kind === 'membership' ? <span className="faint small">/{p.billingInterval ?? 'week'}</span> : null}</span>
-                    <Icon name="right" size={18} className="faint" />
-                  </button>
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+    <div className="products">
+      <div className="tab-head"><p className="muted">Prices include GST. This is what clients see in the shop, same as the website.</p><button className="btn" onClick={() => setEdit({ kind: 'pack', active: true, sortOrder: 50, credits: 4, validityDays: 61 })}><Icon name="plus" size={20} />New product</button></div>
+
+      {members.length > 0 && (
+        <section className="plan-sec">
+          <div className="sec-head"><h2>Member<em>ships</em></h2><span className="muted small">Activate from first use · billed by weekly direct debit</span></div>
+          <div className="plans">{members.map((p) => <PlanCard key={p.id} p={p} onEdit={() => setEdit(p)} ghostBadge={anyBadge} />)}</div>
+        </section>
+      )}
+
+      {intro.map((p) => (
+        <button key={p.id} className={cx('offer-card', !p.active && 'off')} onClick={() => setEdit(p)} aria-label={`Edit ${p.name}`}>
+          <span className="oc-copy">
+            <span className="oc-price"><sup>$</sup>{toDollars(p.priceCents)}</span>
+            <span className="oc-name">{p.name}{!p.active && ' · hidden'}</span>
+            <span className="oc-desc">{p.description || prodSummary(p)}</span>
+            <span className="oc-fine">New clients only<Flower size={9} color="var(--cream)" />{p.validityDays ?? 14} days unlimited from first booking</span>
+            <span className="btn sm white plan-edit"><Icon name="edit" size={16} />Edit</span>
+          </span>
+          <span className="oc-img"><img src="../img/square.webp" alt="" loading="lazy" /></span>
+        </button>
+      ))}
+
+      {packs.length > 0 && (
+        <section className="plan-sec">
+          <div className="sec-head"><h2>Class <em>packs</em></h2><span className="muted small">Expiry starts at the first booking</span></div>
+          <div className="plans packs">{packs.map((p) => <PlanCard key={p.id} p={p} onEdit={() => setEdit(p)} />)}</div>
+        </section>
+      )}
+
+      {retail.length > 0 && (
+        <section className="plan-sec">
+          <div className="sec-head"><h2><em>Retail</em></h2></div>
+          <div className="card list">
+            {retail.map((p) => (
+              <button key={p.id} className={cx('prod-row', !p.active && 'off')} onClick={() => setEdit(p)}>
+                <Flower size={14} className="pr-fl" />
+                <span className="grow"><strong>{p.name}</strong>{!p.active && <span className="chip" style={{ marginLeft: 8 }}>Hidden</span>}
+                  <span className="faint small block">{prodSummary(p)}</span></span>
+                <span className="prod-price">{money(p.priceCents)}</span>
+                <Icon name="right" size={18} className="faint" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <ProductSheet p={edit} onClose={() => setEdit(null)} />
     </div>
   );
@@ -295,9 +344,10 @@ function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () 
 
 // ------------------------------------------------------------------ staff
 function StaffTab() {
-  const { staff, can, me } = useStudio();
+  const { staff, can, me, teaches, templates, typeById } = useStudio();
   const [edit, setEdit] = useState<Partial<Staff> | null>(null);
   const showPay = can('pay');
+  const teachesWhat = (id: string) => [...new Set(templates.filter((t) => t.active && t.instructorId === id).map((t) => typeById(t.classTypeId)?.name).filter(Boolean))].join(', ');
   return (
     <div>
       <div className="tab-head"><p className="muted">Who can sign in to the studio app, and what they can do.</p><button className="btn" onClick={() => setEdit({ role: 'instructor', active: true })}><Icon name="userPlus" size={20} />Add staff</button></div>
@@ -307,7 +357,8 @@ function StaffTab() {
             <Avatar name={s.name} photo={s.photoUrl} size={64} />
             <span className="sc-t">
               <strong>{s.name}{s.id === me.staffId && <span className="faint small"> (you)</span>}</strong>
-              <span className="chip">{ROLE_LABEL[s.role]}</span>
+              <span className="sc-role">{roleLabel(s.role, teaches(s.id))}</span>
+              {teaches(s.id) && <span className="faint small">Teaches {teachesWhat(s.id)}</span>}
               <span className="faint small">{s.email}</span>
               {showPay && s.payPerClassCents != null && <span className="small muted">{money(s.payPerClassCents)} per class</span>}
               {!s.active && <span className="chip">Inactive</span>}
@@ -322,6 +373,7 @@ function StaffTab() {
           <dt>Manager</dt><dd>Everything except staff pay rates and the ABN / payment settings.</dd>
           <dt>Front desk</dt><dd>Schedule, rosters, check-in, clients, point of sale and refunds. Attendance reports only: no revenue, pay or settings.</dd>
           <dt>Instructor</dt><dd>Rosters and check-in for their own classes, client profiles (no staff notes) and sales. No refunds, revenue, pay or settings.</dd>
+          <dt>Teaching</dt><dd>Anyone can teach, whatever their role. Put them on a class and it shows under “My classes” for them.</dd>
         </dl>
       </div>
       <StaffSheet s={edit} onClose={() => setEdit(null)} />

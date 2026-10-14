@@ -4,7 +4,8 @@ import type { CreditSummary, PurchaseResult } from '../shared/store';
 import type { Pass, Product, Sale } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet } from '../shared/react';
 import { addDays, gstOf, money, studioDate } from '../shared/format';
-import { Accent, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SheetHead, Skeleton, useApp } from './ui';
+import { Accent, Arrow, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
+import { Marquee } from '../shared/brand';
 import { daysLeft, dateOnlyShort, dateShortNoDay, expiryLabel, perClass, productWhat, queryOf, validityWords, when } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -21,6 +22,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
   const products = useData(() => store.listProducts(), []);
   const intro = useData(() => store.isIntroEligible(cid), [cid]);
   const [buy, setBuy] = useState<Product | null>(null);
+  const [shopTab, setShopTab] = useState<'memberships' | 'packs'>('memberships');
 
   useEffect(() => {
     if (paid) {
@@ -58,7 +60,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
         !passes.data ? <CardSkeletons n={1} h={170} /> :
           myPasses.length === 0 ? (
             <div className="no-pass">
-              <Flower size={36} />
+              <span className="no-pass-mark"><Flower size={30} /></span>
               <div>
                 <strong>No active passes</strong>
                 <p className="muted">Choose one below to start booking.</p>
@@ -70,55 +72,54 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
             </div>
           )}
 
-      <div className="shop-head">
-        <div className="kicker">Shop</div>
-        <h2>Find what’s<br />best for <em>you</em></h2>
-      </div>
+      <section className="shop">
+        <Marquee phrases={['Feel your best', 'Designed for every body', 'Good energy', 'Strong from the inside out', "Movement isn't a chore"]} />
 
-      {products.error && !products.data ? <ErrorBlock error={products.error} onRetry={products.reload} /> :
-        !products.data || intro.loading && intro.data === undefined ? <CardSkeletons n={3} h={120} /> : (
-          <div className="stack xl">
-            {intro.data && groups.intro.map((p) => <IntroCard key={p.id} p={p} onBuy={() => setBuy(p)} />)}
+        {products.error && !products.data ? <div className="shop-pad"><ErrorBlock error={products.error} onRetry={products.reload} /></div> :
+          !products.data || intro.loading && intro.data === undefined ? <div className="shop-pad"><CardSkeletons n={3} h={120} /></div> : (
+            <>
+              {intro.data && groups.intro.map((p) => <IntroCard key={p.id} p={p} onBuy={() => setBuy(p)} />)}
 
-            {groups.memberships.length > 0 && (
-              <section className="stack">
-                <div className="group-head">
-                  <h3>Memberships</h3>
-                  <p className="muted">Billed weekly by direct debit. Starts from your first booking – pause or cancel any time.</p>
-                </div>
-                {groups.memberships.map((p) => <ProductCard key={p.id} p={p} onBuy={() => setBuy(p)} />)}
-              </section>
-            )}
+              {(groups.memberships.length > 0 || groups.packs.length > 0) && (
+                <section className="pricing">
+                  <SectionHead kicker={intro.data ? 'Or keep going with' : undefined} title={<>Find what’s <em>best</em> for you</>} />
+                  {groups.memberships.length > 0 && groups.packs.length > 0 && (
+                    <div className="pricing-seg">
+                      <Segmented value={shopTab} onChange={setShopTab} options={[
+                        { value: 'memberships', label: 'Memberships' },
+                        { value: 'packs', label: 'Class packs' },
+                      ]} />
+                    </div>
+                  )}
+                  <div className="plans">
+                    {(shopTab === 'packs' || groups.memberships.length === 0 ? groups.packs : groups.memberships).map((p) => <PlanCard key={p.id} p={p} onBuy={() => setBuy(p)} />)}
+                  </div>
+                  <p className="fine muted plans-note">
+                    {shopTab === 'packs' || groups.memberships.length === 0
+                      ? 'No commitment. The clock starts at your first booking, not when you buy.'
+                      : 'Memberships activate from first use and are billed by weekly direct debit. Pause or cancel any time.'}
+                  </p>
+                </section>
+              )}
 
-            {groups.packs.length > 0 && (
-              <section className="stack">
-                <div className="group-head">
-                  <h3>Class packs</h3>
-                  <p className="muted">No commitment. The clock starts at your first booking, not when you buy.</p>
-                </div>
-                {groups.packs.map((p) => <ProductCard key={p.id} p={p} onBuy={() => setBuy(p)} />)}
-              </section>
-            )}
-
-            {groups.retail.length > 0 && (
-              <section className="stack">
-                <div className="group-head">
-                  <h3>Studio extras</h3>
-                  <p className="muted">Pay now and pick up at the front desk.</p>
-                </div>
-                <div className="retail-grid">
-                  {groups.retail.map((p) => (
-                    <button key={p.id} className="retail" onClick={() => setBuy(p)} disabled={p.stock === 0}>
-                      <span className="retail-name">{p.name}</span>
-                      <span className="retail-price serif">{money(p.priceCents)}</span>
-                      {p.stock === 0 && <span className="tag muted-tag">Sold out</span>}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        )}
+              {groups.retail.length > 0 && (
+                <section className="extras">
+                  <SectionHead title={<>Studio <em>extras</em></>} sub="Pay now and pick up at the front desk." />
+                  <div className="retail-grid">
+                    {groups.retail.map((p) => (
+                      <button key={p.id} className="retail" onClick={() => setBuy(p)} disabled={p.stock === 0}>
+                        <Flower size={22} />
+                        <span className="retail-name">{p.name}</span>
+                        <span className="retail-price serif">{money(p.priceCents)}</span>
+                        {p.stock === 0 ? <span className="tag muted-tag">Sold out</span> : <span className="retail-cta">Add <Arrow size={14} /></span>}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+      </section>
 
       <p className="fine muted center mt-28">All prices in AUD and include GST.</p>
 
@@ -241,36 +242,35 @@ function CancelMembershipSheet({ open, p, onClose }: { open: boolean; p: Pass; o
 
 // ------------------------------------------------------------------ catalogue
 function IntroCard({ p, onBuy }: { p: Product; onBuy: () => void }) {
+  const dollars = money(p.priceCents).replace(/^\$/, '');
   return (
-    <button className="intro" onClick={onBuy}>
-      <span className="intro-media">
-        <img src="img/wide.webp" alt="" className="intro-img" />
-        <span className="tag cream intro-tag">New clients only</span>
-      </span>
-      <span className="intro-body">
-        <span className="intro-price serif">{money(p.priceCents)}</span>
-        <span className="intro-title serif">{p.validityDays ? `${validityWords(p.validityDays)} of` : ''} unlimited <em>classes</em></span>
-        <span className="intro-sub">{p.description || 'Don’t be afraid to do something new – it might be the best thing you ever do.'}</span>
-        <span className="btn cream">Claim your intro offer <Icon name="chevron" size={18} /></span>
-      </span>
-    </button>
+    <section className="intro">
+      <div className="intro-media"><img src="img/square.webp" alt="" className="intro-img" /></div>
+      <div className="intro-body">
+        <span className="intro-price serif"><sup>$</sup>{dollars}</span>
+        <h2 className="intro-title">Feel stronger, more confident and <em>enjoy movement</em></h2>
+        <p className="intro-sub">{p.validityDays ? `Enjoy ${validityWords(p.validityDays)} of unlimited classes, from your first booking.` : 'Enjoy unlimited classes.'} Don’t be afraid to do something new – it might be the best thing you ever do!</p>
+        <button className="btn white" onClick={onBuy}>Claim your intro offer <Arrow /></button>
+        <span className="intro-fine">New clients only.</span>
+      </div>
+    </section>
   );
 }
 
-function ProductCard({ p, onBuy }: { p: Product; onBuy: () => void }) {
+function PlanCard({ p, onBuy }: { p: Product; onBuy: () => void }) {
   const pc = perClass(p);
   const unit = p.kind === 'membership' ? `/${p.billingInterval === 'month' ? 'month' : 'week'}` : '';
+  const pick = !!p.highlight;
   return (
-    <button className={'product' + (p.highlight ? ' hl' : '')} onClick={onBuy}>
-      {p.highlight && <span className="product-badge">{p.highlight}</span>}
-      <span className="product-top">
-        <span className="product-name">{p.name}</span>
-        <span className="product-price"><span className="serif">{money(p.priceCents)}</span><span className="muted">{unit}</span></span>
-      </span>
-      {pc && <span className="product-pc">{pc}</span>}
-      {p.description && <span className="product-desc muted">{p.description}</span>}
-      <span className="product-cta">{p.kind === 'membership' ? 'Join' : 'Buy'}<Icon name="chevron" size={16} /></span>
-    </button>
+    <article className={'plan' + (pick ? ' pick' : '')}>
+      {p.highlight && <span className="badge">{p.highlight}</span>}
+      <span className="pname">{p.name}</span>
+      <span className="amt serif">{money(p.priceCents)}{unit && <small>{unit}</small>}</span>
+      {pc && <span className="per">{pc}</span>}
+      <hr />
+      {p.description && <p>{p.description}</p>}
+      <button className={'btn block ' + (pick ? 'white' : 'soft')} onClick={onBuy}>{p.kind === 'membership' ? 'Join today' : 'Buy now'}</button>
+    </article>
   );
 }
 
@@ -371,14 +371,14 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel }: { p: Product; onClos
       </div>
       {p.description && <p>{p.description}</p>}
       <ul className="ticks">
-        <li><Icon name="check" size={18} />{productWhat(p)}</li>
-        {isClassProduct && <li><Icon name="check" size={18} />Book any {p.classTypeIds?.length ? 'eligible' : ''} class in the app</li>}
-        {isMember && <li><Icon name="check" size={18} />Billed weekly by direct debit, from your first booking</li>}
-        {isMember && <li><Icon name="check" size={18} />Pause or cancel any time in the app</li>}
-        {p.kind !== 'membership' && isClassProduct && <li><Icon name="check" size={18} />Cancel up to {app.settings.cancelWindowHours} hours before class and the credit comes back</li>}
+        <li><Flower size={14} />{productWhat(p)}</li>
+        {isClassProduct && <li><Flower size={14} />Book any {p.classTypeIds?.length ? 'eligible' : ''} class in the app</li>}
+        {isMember && <li><Flower size={14} />Billed weekly by direct debit, from your first booking</li>}
+        {isMember && <li><Flower size={14} />Pause or cancel any time in the app</li>}
+        {p.kind !== 'membership' && isClassProduct && <li><Flower size={14} />Cancel up to {app.settings.cancelWindowHours} hours before class and the credit comes back</li>}
       </ul>
       {forLabel && <p className="panel-soft">After paying we’ll take you back to <strong>{forLabel}</strong>.</p>}
-      <button className="btn block big" disabled={!!busy} onClick={toPayment}>{busy ? 'One moment…' : 'Continue to payment'}</button>
+      <button className="btn block big" disabled={!!busy} onClick={toPayment}>{busy ? 'One moment…' : <>Continue to payment <Arrow /></>}</button>
     </div>
   );
 }

@@ -1,14 +1,17 @@
 /** Signed-out screens: welcome, sign in, sign up, forgot password. */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { AuthUser } from '../shared/types';
 import { store, useData, errorMessage, useToast } from '../shared/react';
-import { Avatar, Flower, Icon, Logo } from './ui';
-import { pathOnly } from './lib';
+import { Arrow, Avatar, Flower, Icon, Logo } from './ui';
+import { markLaunched, pathOnly } from './lib';
+import { FlowerStars, Marquee } from '../shared/brand';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
 export function AuthScreens({ path, nav, onSignedIn }: { path: string; nav: Nav; onSignedIn: () => void }) {
   const p = pathOnly(path);
+  // The welcome hero is the launch moment for signed-out visitors; don't replay it after they sign in.
+  useEffect(() => { markLaunched(); }, []);
   if (p === '/signin') return <SignIn nav={nav} onSignedIn={onSignedIn} />;
   if (p === '/signup') return <SignUp nav={nav} onSignedIn={onSignedIn} />;
   if (p === '/forgot') return <Forgot nav={nav} />;
@@ -18,19 +21,25 @@ export function AuthScreens({ path, nav, onSignedIn }: { path: string; nav: Nav;
 function Welcome({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
   return (
     <div className="welcome">
-      <div className="welcome-hero">
-        <img src="img/portrait.webp" alt="" className="welcome-img" />
+      <section className="welcome-hero">
+        <img src="img/wide.webp" alt="" className="welcome-img" />
         <div className="welcome-shade" />
-        <div className="welcome-logo"><Logo white width={112} /></div>
-      </div>
-      <div className="welcome-body">
-        <div className="kicker">Mat Pilates · Cooma</div>
-        <h1>Movement isn’t a <em>chore</em></h1>
-        <p className="lede">Book classes, manage your passes and keep your health info up to date – all in one calm little place.</p>
-        <div className="stack">
-          <button className="btn block" onClick={() => nav('/signup')}>Join the club</button>
-          <button className="btn ghost block" onClick={() => nav('/signin')}>I already have an account</button>
+        <div className="welcome-copy">
+          <Logo animate white width={252} />
+          <h1>Join the newest club to hit <em>Cooma!</em></h1>
+          <p className="lede">Movement isn’t a chore. Book classes, manage your passes and keep your health info up to date, all in one calm little place.</p>
+          <div className="welcome-actions">
+            <button className="btn white" onClick={() => nav('/signup')}>Join the club <Arrow /></button>
+            <button className="btn glass" onClick={() => nav('/signin')}>Sign in</button>
+          </div>
         </div>
+      </section>
+      <Marquee />
+      <div className="welcome-body">
+        <figure className="pull">
+          <blockquote>“I loved it. Snowy Pilates Club is a masterclass in form, balance. My mind feels clear and my core feels amazing.”</blockquote>
+          <figcaption><FlowerStars /> Reena S., Google review</figcaption>
+        </figure>
         {store.mode === 'demo' && <DemoPersonas onSignedIn={onSignedIn} />}
       </div>
     </div>
@@ -56,19 +65,19 @@ function DemoPersonas({ onSignedIn }: { onSignedIn: () => void }) {
   };
   return (
     <section className="demo-box">
-      <div className="demo-box-head">
+      <header className="sec-head">
         <span className="tag cream">Demo</span>
-        <p>Try the demo as…</p>
-      </div>
+        <h2>Try it <em>as…</em></h2>
+      </header>
       <div className="list-card">
         {clients.map(({ u, hint }) => (
           <button key={u.email} className="list-row" onClick={() => go(u)} disabled={!!busy}>
-            <Avatar name={u.name} size={40} />
+            <Avatar name={u.name} size={42} className="ringed" />
             <span className="list-row-main">
               <span className="list-row-title">{u.name}</span>
               <span className="list-row-sub">{hint}</span>
             </span>
-            {busy === u.email ? <Flower size={20} spin /> : <Icon name="chevron" size={18} className="faint" />}
+            {busy === u.email ? <Flower size={20} spin /> : <Arrow size={18} />}
           </button>
         ))}
         {clients.length === 0 && <p className="muted pad-16">No demo clients yet.</p>}
@@ -83,7 +92,7 @@ function AuthFrame({ title, sub, children, nav, back = '/' }: { title: React.Rea
     <div className="auth">
       <div className="auth-top">
         <button className="icon-btn" aria-label="Back" onClick={() => nav(back)}><Icon name="back" /></button>
-        <Logo width={84} />
+        <Logo width={96} />
         <span style={{ width: 44 }} />
       </div>
       <div className="auth-body">
@@ -174,7 +183,7 @@ function Forgot({ nav }: { nav: Nav }) {
     return (
       <AuthFrame title={<>Check your <em>inbox</em></>} nav={nav} back="/signin">
         <div className="panel-soft stack">
-          <Icon name="mail" size={28} className="navy" />
+          <Flower size={28} />
           <p>If there’s an account for <strong>{email}</strong>, we’ve sent a link to reset your password. It can take a minute or two – and check your junk folder just in case.</p>
         </div>
         <button className="btn block" onClick={() => nav('/signin')}>Back to sign in</button>

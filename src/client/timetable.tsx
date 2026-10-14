@@ -4,7 +4,7 @@ import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import type { ClassType, SessionWithCounts } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet } from '../shared/react';
 import { addDays, dayLong, money, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
-import { Accent, Avatar, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Logo, ScreenHead, Skeleton, useApp } from './ui';
+import { Accent, Arrow, Avatar, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Logo, ScreenHead, Skeleton, classPhoto, useApp } from './ui';
 import {
   WEEKDAYS, classTypeFor, dayLabel, firstName, freeCancelUntil, hoursUntil, icsDataUrl, icsFileName,
   isLateCancel, sessionState, staffRole, timeRange, when,
@@ -54,7 +54,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
   return (
     <div className="screen tt">
       <div className="topbar">
-        <Logo width={78} />
+        <Logo width={84} />
         <CreditPill credits={credits.data} loading={credits.loading && !credits.data} onClick={() => nav('/passes')} />
       </div>
       <ScreenHead eyebrow={greeting(firstName(app.client.firstName))} title={<>Book a <em>class</em></>} />
@@ -168,7 +168,7 @@ function SessionCard({ s, ct, mine, onOpen, i }: { s: SessionWithCounts; ct?: Cl
       <span className="cls-main">
         <span className={'cls-name' + (st === 'cancelled' ? ' strike' : '')}>{ct?.name ?? 'Class'}</span>
         <span className="cls-meta">
-          {inst && <Avatar name={inst.name} src={inst.photoUrl} size={22} />}
+          {inst && <Avatar name={inst.name} src={inst.photoUrl} size={24} className="ringed" />}
           <span>{inst ? firstName(inst.name) : 'TBC'}</span><span className="dotsep" />{dur} min
         </span>
       </span>
@@ -182,14 +182,15 @@ function ComingSoon({ types }: { types: ClassType[] }) {
   const [open, setOpen] = useState<ClassType | null>(null);
   return (
     <section className="soon">
-      <div className="kicker">Coming soon</div>
       {types.map((t) => (
-        <button key={t.id} className="soon-card" onClick={() => setOpen(t)} style={{ ['--c' as any]: t.color }}>
-          <span>
+        <button key={t.id} className="soon-card" onClick={() => setOpen(t)}>
+          <span className="soon-img"><img src={classPhoto(t.name)} alt="" loading="lazy" /></span>
+          <span className="soon-body">
+            <span className="soon-top"><span className="soon-dur">{t.durationMin} min</span><span className="tag glass-tag">Coming soon</span></span>
             <span className="soon-name serif"><Accent text={t.name} /></span>
-            <span className="muted soon-desc">{t.durationMin} min · coming soon</span>
+            {t.description && <span className="soon-desc">{t.description}</span>}
+            <span className="btn white sm soon-cta">Register interest <Arrow /></span>
           </span>
-          <span className="tag cream">Register interest</span>
         </button>
       ))}
       <InterestSheet ct={open} onClose={() => setOpen(null)} />
@@ -389,15 +390,19 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
   // ---------- details
   return (
     <div className="cs">
-      <div className="cs-top" style={{ ['--c' as any]: ct?.color || 'var(--sky)' }}>
+      <div className="cs-media">
+        <img src={classPhoto(ct?.name)} alt="" />
+        <button className="icon-btn glass" aria-label="Close" onClick={onClose}><Icon name="close" size={20} /></button>
+      </div>
+      <div className="cs-top">
         <div className="row spread">
-          <span className="kicker">{dayLong(s.startsAt)}</span>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="close" size={20} /></button>
+          <span className="cs-idx serif">{String(Math.max(0, app.classTypes.findIndex((t) => t.id === s.classTypeId)) + 1).padStart(2, '0')}</span>
+          {ct?.level && <span className="tag">{ct.level === 'All levels' ? 'All levels welcome' : ct.level}</span>}
         </div>
         <h2 className="cs-title"><Accent text={ct?.name ?? 'Class'} /></h2>
         <div className="cs-facts">
+          <span><Icon name="calendar" size={18} />{dayLong(s.startsAt)}</span>
           <span><Icon name="clock" size={18} />{timeRange(s)}</span>
-          {ct?.level && <span><Icon name="sparkle" size={18} />{ct.level}</span>}
           <span><Icon name="pin" size={18} />{app.settings.address.split(',')[0]}</span>
         </div>
       </div>
@@ -428,15 +433,13 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
       {ct?.description && <p className="cs-desc">{ct.description}</p>}
 
       {inst && (
-        <div className="inst">
-          <Avatar name={inst.name} src={inst.photoUrl} size={64} className="inst-photo" />
-          <div>
-            <div className="kicker">Your instructor</div>
-            <div className="inst-name serif">{inst.name}</div>
-            <div className="muted">{staffRole(inst)}</div>
-          </div>
+        <figure className="inst">
+          <div className="kicker">Your instructor</div>
+          <div className="inst-pic"><Avatar name={inst.name} src={inst.photoUrl} size={128} /></div>
+          <h3 className="inst-name">{inst.name}</h3>
+          <span className="inst-role">{staffRole(inst)}</span>
           {inst.bio && <p className="inst-bio">{inst.bio}</p>}
-        </div>
+        </figure>
       )}
 
       {st === 'open' && bookable && !booked && !waitlisted && (
@@ -484,7 +487,7 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
             ) : (
               <p className="policy-line"><Icon name="check" size={17} />Free cancellation until {when(freeCancelUntil(s, app.settings))}.</p>
             )}
-            <button className="btn block big" disabled={busy} onClick={book}>{busy ? 'Booking…' : 'Book this class'}</button>
+            <button className="btn block big" disabled={busy} onClick={book}>{busy ? 'Booking…' : <>Book this class <Arrow /></>}</button>
           </>
         )}
       </div>

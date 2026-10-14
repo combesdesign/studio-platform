@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import type { BookingWithDetails } from '../shared/store';
 import { store, useData } from '../shared/react';
 import { studioDate, time } from '../shared/format';
-import { CardSkeletons, Empty, ErrorBlock, Icon, ScreenHead, Segmented, useApp } from './ui';
+import { CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, useApp } from './ui';
 import { ClassSheet } from './timetable';
 import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, timeRange, when } from './lib';
 import { weekday } from '../shared/format';
@@ -76,7 +76,8 @@ export function Bookings({ nav }: { nav: Nav }) {
                   {attended > 0 && (
                     <div className="stat-card">
                       <span className="stat-num serif">{attended}</span>
-                      <span><strong>{attended === 1 ? 'class' : 'classes'} done</strong><br /><span className="muted">Strong from the inside out.</span></span>
+                      <span><strong>{attended === 1 ? 'class' : 'classes'} done</strong><br /><span className="stat-sub">Strong from the inside out.</span></span>
+                      <Flower size={120} white className="stat-flower" />
                     </div>
                   )}
                   <div className="list-card">
@@ -149,15 +150,16 @@ export function Policies() {
   const { settings } = useApp();
   const [open, setOpen] = useState<string | null>(null);
   const items = [
-    { k: 'cancel', title: 'Cancellation policy', icon: 'clock', text: settings.cancellationPolicyText || `Cancel at least ${settings.cancelWindowHours} hours before class to get your credit back.` },
-    { k: 'wait', title: 'How the waitlist works', icon: 'users', text: settings.waitlistPolicyText || `If a spot opens we’ll book you in automatically, up to ${settings.waitlistCutoffHours} hour before class.` },
+    { k: 'wait', q: 'How does the waitlist work?', title: 'Waitlists', text: settings.waitlistPolicyText || `If a spot opens we’ll book you in automatically, up to ${settings.waitlistCutoffHours} hour before class.` },
+    { k: 'cancel', q: 'What is the cancellation policy?', title: 'Cancellations', text: settings.cancellationPolicyText || `Cancel at least ${settings.cancelWindowHours} hours before class to get your credit back.` },
   ];
   return (
     <section className="policies">
       {items.map((it) => (
         <div key={it.k} className={'acc' + (open === it.k ? ' open' : '')}>
           <button className="acc-head" aria-expanded={open === it.k} onClick={() => setOpen(open === it.k ? null : it.k)}>
-            <Icon name={it.icon} size={20} /><span>{it.title}</span><Icon name="chevron" size={18} className="acc-chev" />
+            <span className="acc-text"><span className="acc-q">{it.q}</span><span className="acc-title serif">{it.title}</span></span>
+            <span className="acc-plus" aria-hidden="true"><Icon name="plus" size={18} /></span>
           </button>
           {open === it.k && <div className="acc-body"><p>{it.text}</p></div>}
         </div>
