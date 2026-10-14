@@ -24,6 +24,8 @@ import {
 import { addDays, startOfStudioDay } from '../../shared/format';
 import { clientsCsv, salesCsv } from '../../domain/report';
 import { comparePassPriority, isPassCurrent } from '../../domain/rules';
+import { can, type StaffAction } from '../../domain/permissions';
+import { studioDay } from '../../domain/time';
 
 // ---------------------------------------------------------------------------------------------- loose client typing
 
@@ -111,7 +113,8 @@ function toClient(r: Row, staffNotes?: string): Client {
   const notes = staffNotes ?? optStr(r.staff_notes);
   return clean({
     id: str(r.id), firstName: str(r.first_name), lastName: str(r.last_name), email: str(r.email), phone: optStr(r.phone),
-    birthday: optDate(r.birthday), createdAt: iso(r.created_at), staffNotes: notes || undefined, injuries: optStr(r.injuries),
+    birthday: optDate(r.birthday), photoUrl: optStr(r.photo_url), createdAt: iso(r.created_at), staffNotes: notes || undefined,
+    injuries: optStr(r.injuries),
     emergencyContactName: optStr(r.emergency_contact_name), emergencyContactPhone: optStr(r.emergency_contact_phone),
     waiverSignedAt: optIso(r.waiver_signed_at), healthForm, marketingOptIn: bool(r.marketing_opt_in),
     source: optStr(r.source) as Client['source'], archived: bool(r.archived),
@@ -249,7 +252,10 @@ export function toStoreError(e: unknown): StoreError {
     case '42501': return new StoreError('NOT_ALLOWED', NO_PERMISSION);
     case 'PGRST116': return new StoreError('NOT_FOUND', 'We couldn’t find that.');
     case '22P02': return new StoreError('NOT_FOUND', 'We couldn’t find that.');
-    case '23505': return new StoreError('ALREADY_EXISTS', 'That already exists.');
+    case '23505':
+      if (/email/i.test(`${msg} ${str(err.details)}`)) return new StoreError('EMAIL_TAKEN', 'That email is already in use.');
+      return new StoreError('ALREADY_EXISTS', 'That already exists.');
+    case '23514': return new StoreError('INVALID', 'Some of those details aren’t valid. Please check and try again.');
     case '23503': return new StoreError('NOT_ALLOWED', 'That’s still in use, so it can’t be removed.');
     default: break;
   }
@@ -261,25 +267,64 @@ export function toStoreError(e: unknown): StoreError {
 
 // ---------------------------------------------------------------------------------------------- the store
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AVATARS = 'avatars';
+const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+/** Optional text from a form: '' and undefined both clear the column. */
+const textOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+
+/** Which app is running: the client app at / and the studio app at /studio/ keep separate logins (like the demo). */
+function currentApp(): 'client' | 'studio' {
+  return typeof location !== 'undefined' && location.pathname.includes('/studio') ? 'studio' : 'client';
+}
+
+/** The object path inside the avatars bucket for one of our public URLs, if it is one. */
+export function avatarPath(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const i = url.indexOf(`/object/public/${AVATARS}/`);
+  return i < 0 ? null : decodeURIComponent(url.slice(i + `/object/public/${AVATARS}/`.length).split('?')[0] ?? '');
+}
+
+/** 'data:image/jpeg;base64,...' -> bytes + type. Only images. */
+export function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; type: string; ext: string } {
+  const m = /^data:(image\/(jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl);
+  if (!m || !m[3]) throw new StoreError('INVALID', 'That photo couldn’t be read. Please try another one.');
+  const bin = atob(m[3].replace(/\s+/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  if (bytes.length > 1_000_000) throw new StoreError('INVALID', 'That photo is too big. Please pick a smaller one.');
+  const type = m[1] === 'image/jpg' ? 'image/jpeg' : (m[1] as string);
+  return { bytes, type, ext: type === 'image/jpeg' ? 'jpg' : type.slice(6) };
+}
+
 class SupabaseStore implements DataStore {
   readonly mode = 'live' as const;
   private sb: Loose;
+  private app = currentApp();
   private listeners = new Set<() => void>();
   private channel: Loose = null;
   private authSub: Loose = null;
   private notifyTimer: ReturnType<typeof setTimeout> | null = null;
   private me: Promise<AuthUser | null> | null = null;
+  /** Date ranges we've already asked the database to fill from the weekly timetable (this session). */
+  private ensured = new Set<string>();
+  private recoveryHandler: (() => void) | null = null;
 
   constructor(url: string, anonKey: string) {
+    // Invite and password-reset links land here with '#...type=invite|recovery'. Note it before
+    // supabase-js reads (and clears) the tokens from the address.
+    const linkType = typeof location !== 'undefined' ? /[#&?]type=(invite|recovery)\b/.exec(location.hash)?.[1] : undefined;
     const make = createClient as unknown as (u: string, k: string, o?: object) => Loose;
     this.sb = make(url, anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: `spc-live-auth-${this.app}` },
     });
     // Sign in/out (any tab) or a password-reset link invalidates who-am-I.
     const { data } = this.sb.auth.onAuthStateChange((event: string) => {
       if (event === 'TOKEN_REFRESHED') return;
       this.me = null;
+      this.ensured.clear();
       this.emit();
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && linkType)) setTimeout(() => this.askForNewPassword(), 300);
     });
     this.authSub = data?.subscription ?? null;
   }
@@ -295,11 +340,11 @@ class SupabaseStore implements DataStore {
   private async rows(q: PromiseLike<DbResult>): Promise<Row[]> {
     return arr(await this.run(q)).map(obj);
   }
-  /** First row or NOT_FOUND. RLS-filtered updates come back empty, so the message can say why. */
-  private async one(q: PromiseLike<DbResult>, notFound = 'We couldn’t find that.'): Promise<Row> {
+  /** First row, or `code` (RLS-filtered updates come back empty, so the message can say why). */
+  private async one(q: PromiseLike<DbResult>, notFound = 'We couldn’t find that.', code = 'NOT_FOUND'): Promise<Row> {
     const d = await this.run(q);
     const r = Array.isArray(d) ? d[0] : d;
-    if (!r || typeof r !== 'object') throw new StoreError('NOT_FOUND', notFound);
+    if (!r || typeof r !== 'object') throw new StoreError(code, notFound);
     return r as Row;
   }
   private rpc(fn: string, args: Row = {}): Promise<unknown> {
@@ -382,31 +427,62 @@ class SupabaseStore implements DataStore {
   private async meOrNull(): Promise<AuthUser | null> {
     try { return await this.currentUser(); } catch { return null; }
   }
+  private async requireMe(): Promise<AuthUser> {
+    const u = await this.meOrNull();
+    if (!u) throw new StoreError('AUTH_REQUIRED', 'Please sign in first.');
+    return u;
+  }
   private async isStaff(): Promise<boolean> {
     return (await this.meOrNull())?.kind === 'staff';
   }
+  /** Signed-in staff member whose role can do `action` (src/domain/permissions.ts); the database checks again. */
+  private async requireStaff(action: StaffAction): Promise<Extract<AuthUser, { kind: 'staff' }>> {
+    const u = await this.requireMe();
+    if (u.kind !== 'staff') throw new StoreError('NOT_ALLOWED', 'Only studio staff can do that.');
+    if (!can(u.role, action)) throw new StoreError('NOT_ALLOWED', 'Your role doesn’t have access to that.');
+    return u;
+  }
 
   async signIn(email: string, password: string): Promise<AuthUser> {
+    if (!email?.trim() || !password) throw new StoreError('INVALID_LOGIN', 'Enter your email and password.');
     const { error } = await this.sb.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
     if (error) {
       const m = str(obj(error).message);
       if (/confirm/i.test(m)) throw new StoreError('CONFIRM_EMAIL', 'Please confirm your email first. Check your inbox for the link.');
+      if (/fetch|network/i.test(m)) throw toStoreError(error);
       throw new StoreError('INVALID_LOGIN', 'That email and password don’t match. Try again or reset your password.');
     }
     this.me = null;
     const u = await this.currentUser();
-    if (!u) throw new StoreError('NOT_FOUND', 'Your login worked, but your account isn’t set up yet. Please contact the studio.');
+    if (!u) {
+      await this.sb.auth.signOut();
+      this.me = null;
+      throw new StoreError('NOT_FOUND', 'Your login worked, but your account isn’t set up yet. Please contact the studio.');
+    }
+    // Same rule as the demo: the studio app is for staff, the client app for clients.
+    if (this.app === 'studio' && u.kind !== 'staff') {
+      await this.signOut();
+      throw new StoreError('NOT_ALLOWED', 'This sign-in is for studio staff. Clients can use the Snowy Pilates Club app.');
+    }
+    if (this.app === 'client' && u.kind === 'staff') {
+      await this.signOut();
+      throw new StoreError('NOT_ALLOWED', 'Staff accounts sign in to the studio app.');
+    }
     this.emit();
     return u;
   }
 
   async signUpClient(input: { firstName: string; lastName: string; email: string; phone?: string; password: string; marketingOptIn?: boolean }): Promise<AuthUser> {
+    const email = (input.email ?? '').trim().toLowerCase();
+    if (!input.firstName?.trim()) throw new StoreError('INVALID', 'Please enter your first name.');
+    if (!EMAIL_RE.test(email)) throw new StoreError('INVALID', 'Please enter a valid email address.');
+    if (!input.password || input.password.length < 8) throw new StoreError('INVALID', 'Please choose a password with at least 8 characters.');
     const redirect = typeof location !== 'undefined' ? location.href.split('#')[0] : undefined;
     const { data, error } = await this.sb.auth.signUp({
-      email: input.email.trim().toLowerCase(),
+      email,
       password: input.password,
       options: {
-        data: { first_name: input.firstName.trim(), last_name: input.lastName.trim(), phone: input.phone?.trim() ?? '', marketing_opt_in: !!input.marketingOptIn },
+        data: { first_name: input.firstName.trim(), last_name: (input.lastName ?? '').trim(), phone: input.phone?.trim() ?? '', marketing_opt_in: !!input.marketingOptIn },
         ...(redirect ? { emailRedirectTo: redirect } : {}),
       },
     });
@@ -418,7 +494,7 @@ class SupabaseStore implements DataStore {
     }
     // With "Confirm email" on (recommended) there's no session until they tap the link.
     if (!data?.session) {
-      throw new StoreError('CONFIRM_EMAIL', `Almost there! We’ve emailed ${input.email.trim()}. Tap the link to confirm, then sign in.`);
+      throw new StoreError('CONFIRM_EMAIL', `Almost there! We’ve emailed ${email}. Tap the link to confirm, then sign in.`);
     }
     this.me = null;
     const u = await this.currentUser();
@@ -430,13 +506,42 @@ class SupabaseStore implements DataStore {
   async signOut(): Promise<void> {
     await this.sb.auth.signOut();
     this.me = null;
+    this.ensured.clear();
     this.emit();
   }
 
   async requestPasswordReset(email: string): Promise<void> {
+    const e = (email ?? '').trim().toLowerCase();
+    if (!EMAIL_RE.test(e)) throw new StoreError('INVALID', 'Please enter a valid email address.');
     const redirect = typeof location !== 'undefined' ? location.href.split('#')[0] : undefined;
-    const { error } = await this.sb.auth.resetPasswordForEmail(email.trim().toLowerCase(), redirect ? { redirectTo: redirect } : {});
+    const { error } = await this.sb.auth.resetPasswordForEmail(e, redirect ? { redirectTo: redirect } : {});
     if (error) throw toStoreError(error);
+  }
+
+  /**
+   * Extra (not in DataStore): set a new password after opening a reset or invite link.
+   * The UI can show its own screen by registering onPasswordRecovery(); otherwise a simple prompt is used.
+   */
+  async setNewPassword(password: string): Promise<void> {
+    if (!password || password.length < 8) throw new StoreError('INVALID', 'Please choose a password with at least 8 characters.');
+    const { error } = await this.sb.auth.updateUser({ password });
+    if (error) throw toStoreError(error);
+  }
+  /** Extra: let the UI take over the "choose a new password" step after a reset/invite link. */
+  onPasswordRecovery(handler: () => void): Unsubscribe {
+    this.recoveryHandler = handler;
+    return () => { if (this.recoveryHandler === handler) this.recoveryHandler = null; };
+  }
+  private async askForNewPassword(): Promise<void> {
+    if (this.recoveryHandler) { this.recoveryHandler(); return; }
+    const g = globalThis as { prompt?: (msg: string) => string | null; alert?: (msg: string) => void };
+    if (typeof g.prompt !== 'function') return;
+    for (let i = 0; i < 3; i++) {
+      const pw = g.prompt('Choose a new password for Snowy Pilates Club (at least 8 characters)');
+      if (pw === null) return;
+      try { await this.setNewPassword(pw); g.alert?.('All set. Your new password is saved.'); return; }
+      catch (e) { g.alert?.(e instanceof StoreError ? e.message : GENERIC); }
+    }
   }
 
   async demoPersonas(): Promise<AuthUser[]> { return []; }
@@ -449,13 +554,18 @@ class SupabaseStore implements DataStore {
 
   async updateSettings(patch: Partial<StudioSettings>): Promise<StudioSettings> {
     return this.write(async () => {
+      await this.requireStaff('settings');
+      for (const k of ['cancelWindowHours', 'waitlistCutoffHours', 'lateCancelFeeCents', 'noShowFeeCents', 'bookingWindowDays', 'defaultCapacity'] as const) {
+        const v = patch[k];
+        if (v !== undefined && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) throw new StoreError('INVALID', `${k} must be zero or more.`);
+      }
       const row: Row = {};
       for (const [k, v] of Object.entries(patch) as [keyof StudioSettings, unknown][]) {
         const col = SETTINGS_COLS[k];
         if (col && v !== undefined) row[col] = v === '' && (k === 'phone' || k === 'abn') ? null : v;
       }
       const r = await this.one(this.sb.from('studio_settings').update(row).eq('id', 1).select('*'),
-        'You don’t have permission to change settings.');
+        'You don’t have permission to change settings.', 'NOT_ALLOWED');
       return toSettings(r);
     });
   }
@@ -467,7 +577,7 @@ class SupabaseStore implements DataStore {
     if (await this.isStaff()) {
       const [rows, pay] = await Promise.all([
         this.rows(this.sb.from('staff').select('*')),
-        this.rows(this.sb.from('staff_pay').select('*')), // owner only (RLS): empty for everyone else
+        this.rows(this.sb.from('staff_pay').select('*')), // owner + manager only (RLS): empty for everyone else
       ]);
       const payBy = new Map(pay.map((p) => [str(p.staff_id), num(p.pay_per_class_cents)]));
       list = rows.map((r) => toStaff(r, payBy.get(str(r.id))));
@@ -481,20 +591,31 @@ class SupabaseStore implements DataStore {
 
   async upsertStaff(staff: Omit<Staff, 'id'> & { id?: ID }): Promise<Staff> {
     return this.write(async () => {
+      const me = await this.requireStaff('staff');
+      if (!staff.name?.trim()) throw new StoreError('INVALID', 'Please enter a name.');
+      const email = (staff.email ?? '').trim().toLowerCase();
+      if (!EMAIL_RE.test(email)) throw new StoreError('INVALID', 'Please enter a valid email address.');
+      const all = await this.listStaff({ includeInactive: true });
+      const existing = staff.id ? all.find((s) => s.id === staff.id) : undefined;
+      if (all.some((s) => s.id !== existing?.id && s.email.toLowerCase() === email)) throw new StoreError('EMAIL_TAKEN', 'That email is already in use.');
+      const payChanged = has(staff, 'payPerClassCents') && (staff.payPerClassCents ?? undefined) !== (existing?.payPerClassCents ?? undefined);
+      if (payChanged && !can(me.role, 'staff_pay')) throw new StoreError('NOT_ALLOWED', 'Only the owner can change pay rates.');
+      const owners = all.filter((s) => s.role === 'owner' && s.active && s.id !== existing?.id).length + (staff.role === 'owner' && staff.active ? 1 : 0);
+      if (owners === 0) throw new StoreError('INVALID', 'The studio needs at least one active owner.');
       const row = patchRow([
-        ['name', staff.name], ['email', staff.email?.trim() ? staff.email.trim().toLowerCase() : null], ['phone', staff.phone ?? null],
-        ['role', staff.role], ['bio', staff.bio ?? null], ['photo_url', staff.photoUrl ?? null], ['active', staff.active],
+        ['name', staff.name.trim()], ['email', email], ['phone', has(staff, 'phone') ? textOrNull(staff.phone) : undefined],
+        ['role', staff.role], ['bio', has(staff, 'bio') ? textOrNull(staff.bio) : undefined],
+        ['photo_url', has(staff, 'photoUrl') ? textOrNull(staff.photoUrl) : undefined], ['active', staff.active],
       ]);
       const r = staff.id
-        ? await this.one(this.sb.from('staff').update(row).eq('id', staff.id).select('*'), 'You don’t have permission to edit staff.')
+        ? await this.one(this.sb.from('staff').update(row).eq('id', staff.id).select('*'), 'You don’t have permission to edit staff.', 'NOT_ALLOWED')
         : await this.one(this.sb.from('staff').insert(row).select('*'));
-      let pay: number | undefined;
-      const me = await this.meOrNull();
-      if (staff.payPerClassCents !== undefined && me?.kind === 'staff' && me.role === 'owner') {
-        await this.run(this.sb.from('staff_pay').upsert({ staff_id: str(r.id), pay_per_class_cents: staff.payPerClassCents, updated_at: new Date().toISOString() }));
+      let pay = existing?.payPerClassCents;
+      if (payChanged) {
+        await this.run(this.sb.from('staff_pay').upsert({ staff_id: str(r.id), pay_per_class_cents: staff.payPerClassCents ?? 0, updated_at: new Date().toISOString() }));
         pay = staff.payPerClassCents;
       }
-      return toStaff(r, pay);
+      return toStaff(r, can(me.role, 'reports_pay') ? pay : undefined);
     });
   }
 
@@ -507,13 +628,16 @@ class SupabaseStore implements DataStore {
 
   async upsertClassType(ct: Omit<ClassType, 'id'> & { id?: ID }): Promise<ClassType> {
     return this.write(async () => {
+      await this.requireStaff('schedule');
+      if (!ct.name?.trim()) throw new StoreError('INVALID', 'Please enter a name.');
+      if (!(ct.durationMin > 0)) throw new StoreError('INVALID', 'Duration must be more than 0 minutes.');
       const row = patchRow([
-        ['name', ct.name], ['description', ct.description ?? ''], ['duration_min', ct.durationMin], ['color', ct.color],
-        ['default_capacity', ct.defaultCapacity], ['level', ct.level ?? null], ['booking_note', ct.bookingNote ?? null],
+        ['name', ct.name.trim()], ['description', ct.description ?? ''], ['duration_min', ct.durationMin], ['color', ct.color],
+        ['default_capacity', ct.defaultCapacity], ['level', textOrNull(ct.level)], ['booking_note', textOrNull(ct.bookingNote)],
         ['bookable', ct.bookable], ['active', ct.active],
       ]);
       const r = ct.id
-        ? await this.one(this.sb.from('class_types').update(row).eq('id', ct.id).select('*'), 'You don’t have permission to edit classes.')
+        ? await this.one(this.sb.from('class_types').update(row).eq('id', ct.id).select('*'), 'You don’t have permission to edit classes.', 'NOT_ALLOWED')
         : await this.one(this.sb.from('class_types').insert(row).select('*'));
       return toClassType(r);
     });
@@ -526,21 +650,28 @@ class SupabaseStore implements DataStore {
 
   async upsertTemplate(t: Omit<ScheduleTemplate, 'id'> & { id?: ID }): Promise<ScheduleTemplate> {
     return this.write(async () => {
+      await this.requireStaff('schedule');
+      if (!(Number.isInteger(t.weekday) && t.weekday >= 0 && t.weekday <= 6)) throw new StoreError('INVALID', 'Choose a day of the week.');
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t.startTime)) throw new StoreError('INVALID', 'Start time must be HH:mm.');
       const row = patchRow([
         ['class_type_id', t.classTypeId], ['weekday', t.weekday], ['start_time', t.startTime], ['instructor_id', t.instructorId],
         ['capacity', t.capacity ?? null], ['starts_on', t.startsOn], ['ends_on', t.endsOn ?? null], ['active', t.active],
       ]);
       const r = t.id
-        ? await this.one(this.sb.from('schedule_templates').update(row).eq('id', t.id).select('*'), 'You don’t have permission to edit the timetable.')
+        ? await this.one(this.sb.from('schedule_templates').update(row).eq('id', t.id).select('*'), 'You don’t have permission to edit the timetable.', 'NOT_ALLOWED')
         : await this.one(this.sb.from('schedule_templates').insert(row).select('*'));
+      // Unbooked future classes from this slot are remade with the new details (booked ones keep theirs).
+      await this.rpc('refresh_template_sessions', { p_template_id: str(r.id) });
+      this.ensured.clear();
       return toTemplate(r);
     });
   }
 
   async deleteTemplate(id: ID): Promise<void> {
     await this.write(async () => {
-      // Classes already generated stay (their template_id becomes null); only future generation stops.
-      await this.run(this.sb.from('schedule_templates').delete().eq('id', id));
+      // Future classes nobody booked go; classes with bookings stay as one-offs.
+      await this.rpc('delete_template', { p_template_id: id });
+      this.ensured.clear();
     });
   }
 
@@ -548,9 +679,20 @@ class SupabaseStore implements DataStore {
     return this.write(async () => num(await this.rpc('generate_sessions', { p_from: from, p_to: to })));
   }
 
+  /** Like the demo: make classes from the weekly timetable for the dates being looked at (best effort). */
+  private async ensureSessions(from: ISODate, to: ISODate): Promise<void> {
+    const key = `${from}|${to}`;
+    if (this.ensured.has(key) || !(await this.meOrNull())) return;
+    this.ensured.add(key);
+    try { await this.rpc('ensure_sessions', { p_from: from, p_to: to }); } catch { this.ensured.delete(key); }
+  }
+
   async listSessions(range: { from: ISODateTime; to: ISODateTime; includeCancelled?: boolean }): Promise<SessionWithCounts[]> {
+    if (Number.isNaN(Date.parse(range.from)) || Number.isNaN(Date.parse(range.to))) throw new StoreError('INVALID', 'Invalid date range.');
+    await this.ensureSessions(studioDay(range.from), studioDay(range.to));
     let q = this.sb.from('sessions_with_counts').select('*').lt('starts_at', range.to).gt('ends_at', range.from).order('starts_at');
-    if (!range.includeCancelled) q = q.eq('status', 'scheduled');
+    // DataStore: cancelled classes are included unless the caller excludes them.
+    if (range.includeCancelled === false) q = q.eq('status', 'scheduled');
     return (await this.rows(q)).map(toSession);
   }
 
@@ -560,14 +702,16 @@ class SupabaseStore implements DataStore {
 
   async upsertSession(s: Omit<ClassSession, 'id' | 'status'> & { id?: ID; status?: ClassSession['status'] }): Promise<SessionWithCounts> {
     return this.write(async () => {
+      await this.requireStaff('schedule');
+      if (!(Date.parse(s.endsAt) > Date.parse(s.startsAt))) throw new StoreError('INVALID', 'The class needs to end after it starts.');
       const row = patchRow([
         ['class_type_id', s.classTypeId], ['template_id', s.templateId], ['starts_at', s.startsAt], ['ends_at', s.endsAt],
-        ['instructor_id', s.instructorId], ['capacity', s.capacity], ['note', s.note ?? null],
+        ['instructor_id', s.instructorId], ['capacity', s.capacity], ['note', textOrNull(s.note)],
       ]);
       let id = s.id;
       if (id) {
         const current = await this.getSession(id);
-        await this.one(this.sb.from('class_sessions').update(row).eq('id', id).select('id'), 'You don’t have permission to edit classes.');
+        await this.one(this.sb.from('class_sessions').update(row).eq('id', id).select('id'), 'You don’t have permission to edit classes.', 'NOT_ALLOWED');
         // Cancelling goes through cancel_session so bookings are refunded and people are told.
         if (s.status === 'cancelled' && current.status !== 'cancelled') {
           await this.rpc('cancel_session', { p_session_id: id, p_reason: s.cancelReason ?? null });
@@ -595,7 +739,8 @@ class SupabaseStore implements DataStore {
 
   async bookClass(clientId: ID, sessionId: ID, opts: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean } = {}): Promise<BookResult> {
     return this.write(async () => {
-      const asStaff = opts.asStaff ?? (await this.isStaff());
+      // Who's signed in decides (like the demo). A client passing staff options gets NOT_ALLOWED from the database.
+      const asStaff = (await this.isStaff()) || !!opts.asStaff;
       const r = await this.rpc('book_class', {
         p_session_id: sessionId, p_pass_id: opts.passId ?? null, p_client_id: clientId, p_as_staff: asStaff,
         p_allow_over_capacity: !!opts.allowOverCapacity, p_skip_credit: !!opts.skipCredit,
@@ -606,7 +751,7 @@ class SupabaseStore implements DataStore {
 
   async cancelBooking(bookingId: ID, opts: { asStaff?: boolean; waivePenalty?: boolean } = {}): Promise<CancelResult> {
     return this.write(async () => {
-      const asStaff = opts.asStaff ?? (await this.isStaff());
+      const asStaff = (await this.isStaff()) || !!opts.asStaff;
       const o = obj(await this.rpc('cancel_booking', { p_booking_id: bookingId, p_waive_penalty: !!opts.waivePenalty, p_as_staff: asStaff }));
       const res: CancelResult = { booking: toBooking(obj(o.booking)), creditReturned: bool(o.creditReturned), lateCancel: bool(o.lateCancel) };
       if (o.promoted && typeof o.promoted === 'object') res.promoted = toBooking(o.promoted as Row);
@@ -653,14 +798,16 @@ class SupabaseStore implements DataStore {
   // ------------------------------------------------------------------ clients
 
   private async notesFor(clientId?: ID): Promise<Map<string, string>> {
-    if (!(await this.isStaff())) return new Map();
-    let q = this.sb.from('client_notes').select('client_id, notes'); // RLS: empty for instructors
+    const me = await this.meOrNull();
+    if (me?.kind !== 'staff' || !can(me.role, 'client_staff_notes')) return new Map();
+    let q = this.sb.from('client_notes').select('client_id, notes'); // RLS: owner, manager, front desk
     if (clientId) q = q.eq('client_id', clientId);
     const rows = await this.rows(q);
     return new Map(rows.map((r) => [str(r.client_id), str(r.notes)]));
   }
 
   async listClients(opts: { search?: string; includeArchived?: boolean } = {}): Promise<Client[]> {
+    await this.requireStaff('clients_view');
     let q = this.sb.from('clients').select('*').order('first_name').order('last_name');
     if (!opts.includeArchived) q = q.eq('archived', false);
     const [rows, notes] = await Promise.all([this.rows(q), this.notesFor()]);
@@ -680,36 +827,136 @@ class SupabaseStore implements DataStore {
     return toClient(r, notes.get(id));
   }
 
+  /** Upload a profile photo (data: URL from src/shared/photo.ts) to avatars/<clientId>/<timestamp>.jpg; returns its public URL. */
+  private async uploadPhoto(clientId: ID, dataUrl: string): Promise<string> {
+    const { bytes, type, ext } = decodeDataUrl(dataUrl);
+    const path = `${clientId}/${Date.now()}.${ext}`;
+    const bucket = this.sb.storage.from(AVATARS);
+    await this.run(bucket.upload(path, new Blob([bytes.buffer as ArrayBuffer], { type }), { contentType: type, cacheControl: '31536000', upsert: false }));
+    const url = str(obj(obj(bucket.getPublicUrl(path)).data).publicUrl);
+    if (!url) throw new StoreError('ERROR', 'Your photo uploaded but we couldn’t link it. Please try again.');
+    return url;
+  }
+  /** Best effort: tidy away a replaced photo. */
+  private async removePhoto(url: string | null | undefined): Promise<void> {
+    const path = avatarPath(url);
+    if (!path) return;
+    try { await this.sb.storage.from(AVATARS).remove([path]); } catch { /* leave it */ }
+  }
+  /** photo_url to save for c.photoUrl: data: URL -> upload; '' / undefined -> null (remove); a URL -> as is. */
+  private async photoColumn(clientId: ID, photoUrl: string | undefined): Promise<string | null> {
+    if (!photoUrl) return null;
+    if (photoUrl.startsWith('data:')) return this.uploadPhoto(clientId, photoUrl);
+    return photoUrl;
+  }
+
+  /**
+   * Merge, never replace: only the fields present on `c` change (a present-but-undefined field is cleared,
+   * e.g. `{ ...client, photoUrl: undefined }` removes the photo). Clients can only change their own
+   * personal details; the database ignores their writes to email, waiver, health form, source, archived
+   * and staff notes. A client's new email goes through Supabase Auth (confirmation link), then syncs.
+   */
   async upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<Client> {
     return this.write(async () => {
-      const me = await this.meOrNull();
-      const pairs: [string, unknown][] = [
-        ['first_name', c.firstName], ['last_name', c.lastName], ['phone', c.phone ?? null], ['birthday', c.birthday ?? null],
-        ['injuries', c.injuries ?? null], ['emergency_contact_name', c.emergencyContactName ?? null],
-        ['emergency_contact_phone', c.emergencyContactPhone ?? null], ['marketing_opt_in', c.marketingOptIn],
+      const me = await this.requireMe();
+      if (has(c, 'firstName') && !c.firstName?.trim()) throw new StoreError('INVALID', 'Please enter a first name.');
+      const email = (c.email ?? '').trim().toLowerCase();
+      if (email && !EMAIL_RE.test(email)) throw new StoreError('INVALID', 'Please enter a valid email address.');
+
+      // Fields anyone (client or staff) may set, only when present.
+      const personal = (): [string, unknown][] => [
+        ['first_name', has(c, 'firstName') ? c.firstName.trim() : undefined],
+        ['last_name', has(c, 'lastName') ? (c.lastName ?? '').trim() : undefined],
+        ['phone', has(c, 'phone') ? textOrNull(c.phone) : undefined],
+        ['birthday', has(c, 'birthday') ? textOrNull(c.birthday) : undefined],
+        ['injuries', has(c, 'injuries') ? textOrNull(c.injuries) : undefined],
+        ['emergency_contact_name', has(c, 'emergencyContactName') ? textOrNull(c.emergencyContactName) : undefined],
+        ['emergency_contact_phone', has(c, 'emergencyContactPhone') ? textOrNull(c.emergencyContactPhone) : undefined],
+        ['marketing_opt_in', has(c, 'marketingOptIn') ? !!c.marketingOptIn : undefined],
       ];
-      if (me?.kind === 'staff') {
-        // Staff-only fields (the database ignores them for clients anyway).
-        pairs.push(['email', c.email?.trim().toLowerCase()], ['archived', c.archived ?? false],
-          ['waiver_signed_at', c.waiverSignedAt], ['health_form', c.healthForm]);
+
+      if (me.kind === 'client') {
+        if (!c.id || c.id !== me.clientId) throw new StoreError('NOT_ALLOWED', 'You can only edit your own details.');
+        const id = c.id;
+        const before = has(c, 'photoUrl') ? await this.getClient(id) : undefined;
+        const pairs = personal();
+        if (has(c, 'photoUrl')) pairs.push(['photo_url', await this.photoColumn(id, c.photoUrl)]);
+        const row = patchRow(pairs);
+        if (Object.keys(row).length) {
+          await this.one(this.sb.from('clients').update(row).eq('id', id).select('id'), 'You can only edit your own details.', 'NOT_ALLOWED');
+        }
+        if (before && before.photoUrl !== row.photo_url) await this.removePhoto(before.photoUrl);
+        if (email && email !== me.email.toLowerCase()) {
+          const { error } = await this.sb.auth.updateUser({ email });
+          if (error) throw toStoreError(error);
+          throw new StoreError('CONFIRM_EMAIL', `Saved. We’ve sent a link to ${email}. Tap it to confirm your new email address.`);
+        }
+        return this.getClient(id);
       }
-      const row = patchRow(pairs);
+
+      const st = await this.requireStaff('clients_edit');
+      if (email) {
+        const dup = await this.rows(this.sb.from('clients').select('id').ilike('email', email.replace(/([%_\\])/g, '\\$1')).limit(2));
+        if (dup.some((r) => str(r.id) !== c.id)) throw new StoreError('EMAIL_TAKEN', 'Another client already uses that email.');
+      }
+      const pairs = personal();
+      pairs.push(
+        ['email', has(c, 'email') ? email : undefined],
+        ['archived', has(c, 'archived') ? !!c.archived : undefined],
+        ['source', has(c, 'source') && c.source ? c.source : undefined],
+        ['waiver_signed_at', has(c, 'waiverSignedAt') ? c.waiverSignedAt ?? null : undefined],
+        ['health_form', has(c, 'healthForm') ? c.healthForm ?? null : undefined],
+      );
       let id = c.id;
+      let before: Client | undefined;
       if (id) {
-        await this.one(this.sb.from('clients').update(row).eq('id', id).select('id'), 'You don’t have permission to edit this client.');
+        before = has(c, 'photoUrl') ? await this.getClient(id) : undefined;
+        if (has(c, 'photoUrl')) pairs.push(['photo_url', await this.photoColumn(id, c.photoUrl)]);
+        const row = patchRow(pairs);
+        if (Object.keys(row).length) {
+          await this.one(this.sb.from('clients').update(row).eq('id', id).select('id'), 'You don’t have permission to edit this client.', 'NOT_ALLOWED');
+        }
       } else {
-        const r = await this.one(this.sb.from('clients').insert({ ...row, email: c.email.trim().toLowerCase(), source: c.source ?? 'staff' }).select('id'));
+        if (!has(c, 'firstName')) throw new StoreError('INVALID', 'Please enter a first name.');
+        const row = patchRow(pairs);
+        const r = await this.one(this.sb.from('clients').insert({
+          ...row, email, source: c.source ?? 'staff', ...(c.createdAt ? { created_at: c.createdAt } : {}),
+        }).select('id'));
         id = str(r.id);
+        if (c.photoUrl) {
+          await this.run(this.sb.from('clients').update({ photo_url: await this.photoColumn(id, c.photoUrl) }).eq('id', id));
+        }
       }
-      if (me?.kind === 'staff' && me.role !== 'instructor' && c.staffNotes !== undefined) {
-        await this.run(this.sb.from('client_notes').upsert({ client_id: id, notes: c.staffNotes, updated_at: new Date().toISOString(), updated_by: me.staffId }));
+      if (before && has(c, 'photoUrl')) {
+        const now = await this.getClient(id);
+        if (now.photoUrl !== before.photoUrl) await this.removePhoto(before.photoUrl);
+      }
+      // Staff notes live in their own table; only roles with client_staff_notes can write them (RLS agrees).
+      if (has(c, 'staffNotes') && can(st.role, 'client_staff_notes')) {
+        await this.run(this.sb.from('client_notes').upsert({ client_id: id, notes: c.staffNotes ?? '', updated_at: new Date().toISOString(), updated_by: st.staffId }));
       }
       return this.getClient(id);
     });
   }
 
   async submitWaiver(clientId: ID, health: Omit<HealthForm, 'submittedAt'>): Promise<Client> {
-    return this.write(async () => toClient(obj(await this.rpc('submit_waiver', { p_client_id: clientId, p_health: health }))));
+    return this.write(async () => {
+      await this.rpc('submit_waiver', { p_client_id: clientId, p_health: health });
+      return this.getClient(clientId);
+    });
+  }
+
+  /** Coming-soon classes: the client (or front desk for them) registers interest. Safe to repeat. */
+  async registerInterest(clientId: ID, classTypeId: ID): Promise<void> {
+    await this.write(() => this.rpc('register_interest', { p_class_type_id: classTypeId, p_client_id: clientId }));
+  }
+
+  /** Extra (not in DataStore): who registered interest, newest first. Staff only. */
+  async listClassInterest(classTypeId?: ID): Promise<{ clientId: ID; classTypeId: ID; at: ISODateTime; name: string; email: string; phone?: string }[]> {
+    return arr(await this.rpc('list_class_interest', { p_class_type_id: classTypeId ?? null })).map(obj).map((x) => clean({
+      clientId: str(x.client_id), classTypeId: str(x.class_type_id), at: iso(x.created_at),
+      name: `${str(x.first_name)} ${str(x.last_name)}`.trim(), email: str(x.email), phone: optStr(x.phone),
+    }));
   }
 
   // ------------------------------------------------------------------ products, passes, sales
@@ -723,14 +970,18 @@ class SupabaseStore implements DataStore {
 
   async upsertProduct(p: Omit<Product, 'id'> & { id?: ID }): Promise<Product> {
     return this.write(async () => {
+      await this.requireStaff('products');
+      if (!p.name?.trim()) throw new StoreError('INVALID', 'Please enter a name.');
+      if (!(p.priceCents >= 0)) throw new StoreError('INVALID', 'Price must be zero or more.');
       const row = patchRow([
-        ['kind', p.kind], ['name', p.name], ['description', p.description ?? ''], ['price_cents', p.priceCents], ['active', p.active],
-        ['highlight', p.highlight ?? null], ['sort_order', p.sortOrder], ['credits', p.credits ?? null], ['validity_days', p.validityDays ?? null],
+        ['kind', p.kind], ['name', p.name.trim()], ['description', p.description ?? ''], ['price_cents', p.priceCents], ['active', p.active],
+        ['highlight', textOrNull(p.highlight)], ['sort_order', p.sortOrder], ['credits', p.kind === 'retail' ? null : p.credits ?? null],
+        ['validity_days', p.kind === 'retail' ? null : p.validityDays ?? null],
         ['billing_interval', p.kind === 'membership' ? p.billingInterval ?? 'week' : null], ['new_clients_only', !!p.newClientsOnly],
         ['class_type_ids', p.classTypeIds && p.classTypeIds.length ? p.classTypeIds : null], ['stock', p.kind === 'retail' ? p.stock ?? null : null],
       ]);
       const r = p.id
-        ? await this.one(this.sb.from('products').update(row).eq('id', p.id).select('*'), 'You don’t have permission to edit products.')
+        ? await this.one(this.sb.from('products').update(row).eq('id', p.id).select('*'), 'You don’t have permission to edit products.', 'NOT_ALLOWED')
         : await this.one(this.sb.from('products').insert(row).select('*'));
       return toProduct(r);
     });
@@ -792,16 +1043,6 @@ class SupabaseStore implements DataStore {
     return { url };
   }
 
-  /** Extra (client app calls it if present): "Register interest" for a coming-soon class. */
-  async registerInterest(clientId: ID, classTypeId: ID): Promise<void> {
-    try {
-      await this.run(this.sb.from('class_interest').insert({ client_id: clientId, class_type_id: classTypeId }));
-    } catch (e) {
-      if (e instanceof StoreError && e.code === 'ALREADY_EXISTS') return; // already registered: fine
-      throw e;
-    }
-  }
-
   /**
    * Extra (not in DataStore yet): Stripe's hosted page for a client to update their card / see invoices.
    * Usage: `const r = await (store as { billingPortal?: (u: string) => Promise<{ url: string }> }).billingPortal?.(location.href)`.
@@ -855,15 +1096,20 @@ class SupabaseStore implements DataStore {
   }
 
   async listSales(range: ReportRange & { clientId?: ID }): Promise<Sale[]> {
+    const me = await this.requireMe();
+    if (me.kind === 'client' && range.clientId && range.clientId !== me.clientId) throw new StoreError('NOT_ALLOWED', 'You can only see your own purchases.');
+    if (me.kind === 'staff' && !can(me.role, 'sales_view')) throw new StoreError('NOT_ALLOWED', 'Your role doesn’t have access to that.');
     let q = this.sb.from('sales').select('*, sale_items(*)')
       .gte('created_at', startOfStudioDay(range.from)).lt('created_at', startOfStudioDay(addDays(range.to, 1)))
       .order('created_at', { ascending: false });
-    if (range.clientId) q = q.eq('client_id', range.clientId);
+    const clientId = me.kind === 'client' ? me.clientId : range.clientId;
+    if (clientId) q = q.eq('client_id', clientId);
     return (await this.rows(q)).map(toSale);
   }
 
   async refundSale(saleId: ID, opts: { amountCents?: number; cancelPass?: boolean; reason?: string } = {}): Promise<Sale> {
     return this.write(async () => {
+      await this.requireStaff('pos_refund');
       const s = await this.one(this.sb.from('sales').select('id, method, stripe_payment_intent_id').eq('id', saleId).limit(1), 'We couldn’t find that sale.');
       if (s.method === 'card_online' && s.stripe_payment_intent_id) {
         // Online card payments are refunded in Stripe first; the edge function records it here.
@@ -883,11 +1129,13 @@ class SupabaseStore implements DataStore {
   }
 
   async exportSalesCsv(range: ReportRange): Promise<string> {
+    await this.requireStaff('export_sales');
     const [sales, clients, staff] = await Promise.all([this.listSales(range), this.listClients({ includeArchived: true }), this.listStaff({ includeInactive: true })]);
     return salesCsv({ sales, clients, staff, range });
   }
 
   async exportClientsCsv(): Promise<string> {
+    await this.requireStaff('export_clients');
     return clientsCsv(await this.listClients({ includeArchived: true }));
   }
 
@@ -902,3 +1150,6 @@ class SupabaseStore implements DataStore {
 export function createSupabaseStore(url: string, anonKey: string): DataStore {
   return new SupabaseStore(url, anonKey);
 }
+
+/** Row mappers, exported for supabase/tests/live_store.test.mjs. */
+export const mappers = { toSettings, toStaff, toClient, toClassType, toTemplate, toSession, toProduct, toPass, toBooking, toSale, toReport };

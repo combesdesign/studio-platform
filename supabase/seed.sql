@@ -78,7 +78,7 @@ insert into public.staff (id, name, email, role, bio, photo_url, active) values
   ('5aff0000-0000-4000-8000-000000000003', 'Grace T', null, 'instructor',
    'Grace''s bright smile and easy going nature will put you at ease instantly, and her workouts will give you that signature Pilates burn you''ve been looking for.',
    'img/grace-t.webp', true),
-  ('5aff0000-0000-4000-8000-000000000004', 'Grace P', null, 'instructor',
+  ('5aff0000-0000-4000-8000-000000000004', 'Grace P', null, 'front_desk',
    'Nurse by day (and night) and Pilates queen by early morning (and evening). Grace knows her stuff and wants every session to be challenging yet rewarding.',
    'img/grace-p.webp', true)
 on conflict (id) do nothing;

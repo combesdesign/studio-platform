@@ -147,6 +147,12 @@ export interface DataStore {
   listClientBookings(clientId: ID, opts?: { when?: 'upcoming' | 'past' | 'all'; statuses?: BookingStatus[] }): Promise<BookingWithDetails[]>;
 
   // ------------------------------------------------------------ clients
+  /**
+   * Optional: client registers interest in a coming-soon class type (bookable: false). Safe to repeat.
+   * Clients can only register themselves; front desk / manager / owner can register any client.
+   */
+  registerInterest?(clientId: ID, classTypeId: ID): Promise<void>;
+
   listClients(opts?: { search?: string; includeArchived?: boolean }): Promise<Client[]>;
   getClient(id: ID): Promise<Client>;
   upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<Client>;

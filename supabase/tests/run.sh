@@ -35,7 +35,7 @@ step() { printf '\n== %s\n' "$1"; }
 
 step "shim + migrations + seed"
 "${PSQL[@]}" -f "$HERE/00_supabase_shim.sql"
-for f in "$SUPA"/migrations/*.sql; do echo "  applying $(basename "$f")"; "${PSQL[@]}" -f "$f"; done
+for f in "$SUPA"/migrations/*.sql; do echo "  applying $(basename "$f")"; PGOPTIONS='-c client_min_messages=warning' "${PSQL[@]}" -f "$f"; done
 "${PSQL[@]}" -f "$SUPA/seed.sql"
 "${PSQL[@]}" -f "$SUPA/seed.sql"   # seed must be re-runnable
 echo "  ok"
@@ -47,11 +47,14 @@ FAILED=0
 # pipefail (set above) makes a failing psql fail the pipeline even though sed succeeds.
 run_test() { "${PSQL[@]}" -f "$1" 2>&1 | sed -e 's/^psql:[^ ]* NOTICE:  /  /' -e 's/^NOTICE:  /  /' || FAILED=1; }
 
+# ONLY_LIVE=1 bash supabase/tests/run.sh  -> just the live store checks (quicker while working on src/data/supabase)
 for f in "$HERE"/[2-7]*_*.sql; do
+  [ -n "${ONLY_LIVE:-}" ] && break
   step "$(basename "$f")"
   run_test "$f"
 done
 
+if [ -z "${ONLY_LIVE:-}" ]; then
 step "concurrency: 10 clients race for 3 spots"
 "${PSQL[@]}" -f "$HERE/80_concurrency_setup.sql"
 pids=()
@@ -66,6 +69,15 @@ run_test "$HERE/81_concurrency_check.sql"
 
 step "import template"
 run_test "$HERE/90_import.sql"
+fi
+
+step "live store (src/data/supabase) against this database"
+PGHOST="$WORK" PGPORT="$PORT" PGUSER=postgres PGDATABASE=postgres SNOWY_WORK="$WORK" \
+  node "$HERE/live_store.test.mjs" || FAILED=1
+
+step "edge functions (run under Node: Deno shim, Stripe + Resend stubbed, this database)"
+PGHOST="$WORK" PGPORT="$PORT" PGUSER=postgres PGDATABASE=postgres SNOWY_WORK="$WORK" \
+  node "$HERE/functions.test.mjs" || FAILED=1
 
 echo
 if [ "$FAILED" = "0" ]; then echo "ALL DATABASE TESTS PASSED"; else echo "SOME DATABASE TESTS FAILED"; exit 1; fi

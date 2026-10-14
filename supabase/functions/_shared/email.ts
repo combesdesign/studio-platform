@@ -57,8 +57,8 @@ export function render(n: Notification): { subject: string; html: string; text: 
     case 'class_reminder':
       return {
         subject: `See you soon: ${p.class_name} at ${String(p.when ?? '').split(' ')[0]}`,
-        html: layout('See you soon', `<p>${hi}</p><p>Just a reminder about your class today.</p>${classBox(p)}${note}<p style="font-size:13px;color:#4b5563">Can’t make it? Please cancel in the app so someone on the waitlist can take your spot.</p>`, p),
-        text: `${hi}\n\nReminder: ${p.class_name}, ${p.when}. Can't make it? Please cancel in the app so someone else can take your spot.`,
+        html: layout('See you soon', `<p>${hi}</p><p>Just a reminder about your class today.</p>${classBox(p)}${note}<p style="font-size:13px;color:#4b5563">Can’t make it? Please cancel in the app so someone on the waitlist can take your spot.</p>${policy}`, p),
+        text: `${hi}\n\nReminder: ${p.class_name}, ${p.when}. Can't make it? Please cancel in the app so someone else can take your spot.\n\nCancellation policy: ${p.cancellation_policy ?? ''}`,
       };
     case 'receipt': {
       const items = (Array.isArray(p.items) ? p.items : []) as Payload[];

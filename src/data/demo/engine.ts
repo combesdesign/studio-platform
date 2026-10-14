@@ -46,6 +46,8 @@ export interface DemoState {
   passSale: Record<ID, ID>;
   /** Notifications the live app would send (email/push). Demo only, newest last. */
   outbox: OutboxMessage[];
+  /** "Register interest" for coming-soon class types (one row per client + class type). Staff can see it. */
+  interest?: { clientId: ID; classTypeId: ID; at: ISODateTime }[];
 }
 
 export type Actor = { kind: 'client'; clientId: ID } | { kind: 'staff'; staffId: ID } | { kind: 'system' };

@@ -578,6 +578,27 @@ class DemoStore implements DataStore {
     });
   }
 
+  // ---------------------------------------------------------------- register interest
+  async registerInterest(clientId: ID, classTypeId: ID): Promise<void> {
+    await this.write(() => {
+      const u = this.me();
+      if (u.kind === 'client') { if (u.clientId !== clientId) throw err('NOT_ALLOWED', 'You can only register interest for yourself.'); }
+      else this.requireStaff('clients_edit');
+      this.engine.client(clientId);
+      this.engine.classType(classTypeId);
+      const list = (this.state.interest ??= []);
+      if (!list.some((x) => x.clientId === clientId && x.classTypeId === classTypeId)) list.push({ clientId, classTypeId, at: this.now().toISOString() });
+    });
+  }
+
+  /** Extra (not in DataStore): who registered interest, newest first. Staff only. */
+  async listClassInterest(classTypeId?: ID): Promise<{ clientId: ID; classTypeId: ID; at: ISODateTime }[]> {
+    return this.read(() => {
+      this.requireStaff('clients_view');
+      return (this.state.interest ?? []).filter((x) => !classTypeId || x.classTypeId === classTypeId).sort((a, b) => b.at.localeCompare(a.at));
+    });
+  }
+
   // ---------------------------------------------------------------- clients
   async listClients(opts: { search?: string; includeArchived?: boolean } = {}): Promise<Client[]> {
     return this.read(() => {

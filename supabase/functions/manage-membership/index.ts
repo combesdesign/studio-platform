@@ -8,7 +8,7 @@
 //
 // Pause = Stripe pause_collection { behavior: 'void' } until the day after paused_until (Sydney),
 // so no weekly charges while paused. Cancel = cancel_at_period_end (keeps working until then).
-import { adminClient, type Db, must, userClient } from '../_shared/db.ts';
+import { adminClient, must, userClient, whoami } from '../_shared/db.ts';
 import { HttpError, json, readJson, requireCronSecret, serve } from '../_shared/http.ts';
 import { stripe, sydneyMidnightUnix, sydneyToday } from '../_shared/stripe.ts';
 
@@ -35,14 +35,14 @@ serve(async (req) => {
     return json({ synced, failed });
   }
 
-  // Single pass: the caller must be able to see it (RLS: their own, or owner/manager/front desk).
+  // Single pass: the client who owns it, or staff who manage passes (passes_manage: owner, manager, front desk).
   const passId = String(body.passId ?? '');
-  const user: Db = userClient(req);
-  const visible = must(await user.from('passes').select('id').eq('id', passId).maybeSingle());
-  if (!visible) throw new HttpError(404, 'NOT_FOUND', 'We couldn’t find that membership.');
+  const me = await whoami(userClient(req));
   const p = must(await admin.from('passes')
-    .select('id, status, kind, stripe_subscription_id, cancel_at_period_end, paused_from, paused_until, next_billing_at')
-    .eq('id', passId).single()) as PassRow;
+    .select('id, client_id, status, kind, stripe_subscription_id, cancel_at_period_end, paused_from, paused_until, next_billing_at')
+    .eq('id', passId).maybeSingle()) as (PassRow & { client_id: string }) | null;
+  const allowed = !!p && (me.kind === 'client' ? me.client_id === p.client_id : ['owner', 'manager', 'front_desk'].includes(me.role ?? ''));
+  if (!p || !allowed) throw new HttpError(404, 'NOT_FOUND', 'We couldn’t find that membership.');
   if (!p.stripe_subscription_id) return json({ synced: false, reason: 'no subscription' });
   await sync(p);
   return json({ synced: true });

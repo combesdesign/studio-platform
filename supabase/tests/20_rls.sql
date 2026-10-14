@@ -82,7 +82,8 @@ select test.eq((select count(*) from public.sales)::int, 0, 'instructor cannot r
 select test.eq((select count(*) from public.sale_items)::int, 0, 'instructor cannot read sale items');
 select test.eq((select count(*) from public.staff_pay)::int, 0, 'instructor cannot read pay rates');
 select test.eq((select count(*) from public.client_notes)::int, 0, 'instructor cannot read staff notes');
-select test.eq((select count(*) from public.passes)::int, 0, 'instructor cannot read pass/payment details directly');
+select test.ok((select count(*) from public.passes) > 0, 'instructor can read passes (client profiles show them: clients_view)');
+select test.throws($$insert into public.client_notes (client_id, notes) values (test.id('bob_client'), 'sneaky')$$, '42501', 'instructor cannot write staff notes');
 select test.ok((select (j ->> 'revenue_cents')::int = 0 and j -> 'revenue_by_method' = '{}'::jsonb and (j ->> 'sales_count')::int = 0
                   from (select public.report('2026-10-01', '2026-10-31') j) x), 'instructor report has no revenue figures');
 select test.throws($$select public.refund_sale((select id from public.sales limit 1))$$, 'NOT_ALLOWED', 'instructor cannot refund');
@@ -118,10 +119,11 @@ select test.admin();
 
 -- ---------------------------------------------------------------- manager vs owner
 select test.login('mia');
-select test.eq((select count(*) from public.staff_pay)::int, 0, 'manager cannot read pay rates');
+select test.eq((select count(*) from public.staff_pay)::int, 3, 'manager can see pay rates (reports_pay)');
+select test.throws($$insert into public.staff_pay (staff_id, pay_per_class_cents) values (test.id('fran_staff'), 9000)$$, '42501', 'manager cannot set pay rates (owner only)');
+update public.staff_pay set pay_per_class_cents = 1 where staff_id = test.id('julia_staff');
 select test.eq(jsonb_typeof(public.report('2026-10-01', '2026-10-31')), 'object', 'manager can run reports');
-select test.ok(not exists (select 1 from jsonb_array_elements(public.report('2026-10-01', '2026-10-31') -> 'by_instructor') x where (x ->> 'pay_cents')::int <> 0),
-               'manager report hides pay');
+select test.throws($$update public.studio_settings set gst_registered = false$$, 'NOT_ALLOWED', 'manager cannot change GST registration');
 select test.throws($$update public.studio_settings set abn = '12 345 678 901'$$, 'NOT_ALLOWED', 'manager cannot change the ABN');
 update public.studio_settings set cancel_window_hours = 3, phone = '02 6452 0000';
 select test.throws($$insert into public.staff (name, email, role) values ('Sneaky', 'sneaky@example.test', 'owner')$$, 'NOT_ALLOWED', 'manager cannot create an owner');
@@ -129,6 +131,7 @@ select test.throws($$update public.staff set role = 'manager' where role = 'owne
 insert into public.staff (name, email, role) values ('New Teacher', 'newt@example.test', 'instructor');
 select test.admin();
 select test.eq((select phone from public.studio_settings), '02 6452 0000', 'manager can change normal settings');
+select test.eq((select pay_per_class_cents from public.staff_pay where staff_id = test.id('julia_staff')), 6000, 'manager''s pay change was ignored');
 select test.ok(exists (select 1 from public.staff where email = 'newt@example.test'), 'manager can add instructors');
 
 select test.login('libby');

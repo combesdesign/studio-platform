@@ -65,7 +65,8 @@ serve(async (req) => {
     allow_promotion_codes: 'true',
     ...(isMembership
       ? { subscription_data: { metadata, description: product.name } }
-      : { payment_intent_data: { metadata, description: product.name, receipt_email: client.email } }),
+      // No receipt_email: the app sends its own receipt (with the ABN and GST line), so clients don't get two.
+      : { payment_intent_data: { metadata, description: product.name } }),
   });
 
   return json({ url: session.url });
