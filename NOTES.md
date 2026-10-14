@@ -118,3 +118,7 @@ Other seeded cases worth testing against:
 ## studio
 
 ## backend
+
+## lead
+- Paused 14 Oct ~4:20pm for the usage limit, which resets at 8:40pm. The engine is done. Client, studio and backend were cut off part-way.
+- Agent ids that can be continued: client app = aaf3687f799f69c26, backend = ab7b1b3a902feb432. The resume reminder has these two swapped, so go by this note. Studio has no id and needs a fresh agent to finish it from the code in src/studio.
