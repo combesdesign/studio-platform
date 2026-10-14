@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"], "typeRoots": ["./node_modules/@types"] },
+  "include": ["src/shared/types.ts", "src/shared/store.ts", "src/shared/format.ts", "src/domain", "src/data", "tests", "scripts"]
+}

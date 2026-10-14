@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", "lib": ["ES2022", "DOM", "DOM.Iterable"], "module": "ESNext", "moduleResolution": "Bundler",
+    "jsx": "react-jsx", "strict": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true, "noEmit": true,
+    "isolatedModules": true, "esModuleInterop": true, "types": [],
+    "paths": { "@supabase/supabase-js": ["./scripts/supabase-stub.ts"] }
+  },
+  "include": ["src", "tests", "scripts"]
+}
