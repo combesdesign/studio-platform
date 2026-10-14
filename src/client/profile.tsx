@@ -5,6 +5,7 @@ import { store, useData, useToast, errorMessage, Sheet, useBackHandler } from '.
 import { money, studioDate } from '../shared/format';
 import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useApp } from './ui';
 import { Receipt, ReceiptSkeleton } from './passes';
+import { squarePhoto } from '../shared/photo';
 import { Policies } from './bookings';
 import { dateShortNoDay, goFlow, isIOS, isNative, isStandalone, mapsUrl, saveClient, staffRole } from './lib';
 
@@ -47,7 +48,7 @@ export function Profile({ nav }: { nav: Nav }) {
   return (
     <div className="screen">
       <header className="me">
-        <Avatar name={`${c.firstName} ${c.lastName}`} size={92} className="me-avatar" />
+        <PhotoPicker />
         <h1>Hi, <em>{c.firstName}</em></h1>
         <p className="muted">Member since {since}</p>
       </header>
@@ -245,3 +246,50 @@ function HistorySheet({ open, onClose, sales }: { open: boolean; onClose: () => 
 }
 
 
+
+/** Tap your avatar to add or change your profile photo (shown to the studio at check-in). */
+function PhotoPicker() {
+  const app = useApp();
+  const toast = useToast();
+  const c = app.client;
+  const input = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const pick = () => { setMenu(false); input.current?.click(); };
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    try {
+      const photoUrl = await squarePhoto(file);
+      await saveClient(c, { photoUrl });
+      app.refreshAuth();
+      toast('Looking good! Photo saved');
+    } catch (x) { toast(errorMessage(x)); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    setMenu(false); setBusy(true);
+    try { await saveClient(c, { photoUrl: undefined }); app.refreshAuth(); toast('Photo removed'); }
+    catch (x) { toast(errorMessage(x)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="me-photo">
+      <button type="button" className={'me-photo-btn' + (busy ? ' busy' : '')} onClick={() => (c.photoUrl ? setMenu(true) : pick())}
+        aria-label={c.photoUrl ? 'Change your photo' : 'Add a photo'} disabled={busy}>
+        <Avatar name={`${c.firstName} ${c.lastName}`} src={c.photoUrl} size={92} className="me-avatar" />
+        <span className="me-photo-badge" aria-hidden="true"><Icon name="camera" size={16} /></span>
+      </button>
+      {!c.photoUrl && <button type="button" className="me-photo-add" onClick={pick} disabled={busy}>{busy ? 'Saving…' : 'Add a photo'}</button>}
+      <input ref={input} type="file" accept="image/*" hidden onChange={onFile} />
+      <Sheet open={menu} onClose={() => setMenu(false)} label="Your photo">
+        <SheetHead title={<>Your <em>photo</em></>} onClose={() => setMenu(false)} />
+        <div className="stack lg">
+          <p className="muted">Your photo helps the team say hi by name when you check in. Only the studio sees it.</p>
+          <button className="btn block" onClick={pick}>Choose a new photo</button>
+          <button className="btn block ghost" onClick={remove}>Remove photo</button>
+        </div>
+      </Sheet>
+    </div>
+  );
+}

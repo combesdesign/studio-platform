@@ -160,7 +160,7 @@ export function Roster({ id }: { id: string }) {
                   <div key={e.id} className="rrow wl">
                     <button className="rr-who" onClick={() => setDetail(e)}>
                       <span className="wl-pos">{i + 1}</span>
-                      <Avatar name={fullName(e.client)} size={44} />
+                      <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={44} />
                       <span className="rr-t"><strong>{fullName(e.client)}</strong><span>Joined {time(e.createdAt)}</span></span>
                     </button>
                     <button className="btn sm soft" onClick={() => setDetail(e)}>Options</button>
@@ -177,7 +177,7 @@ export function Roster({ id }: { id: string }) {
                 {notComing.map((e) => (
                   <div key={e.id} className="rrow muted-row">
                     <a className="rr-who" href={`#/clients/${e.clientId}`}>
-                      <Avatar name={fullName(e.client)} size={40} />
+                      <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={40} />
                       <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{passLabel(e)}</span></span>
                     </a>
                     <span className={cx('chip', e.status === 'cancelled' || e.status === 'removed' ? '' : 'warn')}>{STATUS_LABEL[e.status] ?? e.status}</span>
@@ -224,7 +224,7 @@ function RosterRow({ e, onToggle, onOpen, onInjury, onWaiver, disabled }: { e: R
   return (
     <div className={cx('rrow', inn && 'in')}>
       <button className="rr-who" onClick={onOpen} aria-label={`${fullName(e.client)} options`}>
-        <Avatar name={fullName(e.client)} size={52} />
+        <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={52} />
         <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{passLabel(e)}</span></span>
       </button>
       <div className="rr-flags">

@@ -43,7 +43,7 @@ export function Clients() {
         <div className="card clist">
           {list.map((c) => (
             <a key={c.id} href={`#/clients/${c.id}`} className="crow">
-              <Avatar name={fullName(c)} size={44} />
+              <Avatar name={fullName(c)} photo={c.photoUrl} size={44} />
               <span className="cr-name"><strong>{fullName(c)}</strong><span className="cr-sub">{c.email}</span></span>
               <span className="cr-phone">{c.phone ?? <span className="faint">No phone</span>}</span>
               <span className="cr-flags">
@@ -101,7 +101,7 @@ export function ClientProfile({ id }: { id: string }) {
     <div className="profile">
       <BackLink {...back} className="ph-back" />
       <header className="pf-head">
-        <Avatar name={fullName(c)} size={84} className="pf-av" />
+        <Avatar name={fullName(c)} photo={c.photoUrl} size={84} className="pf-av" />
         <div className="pf-text">
           <h1>{c.firstName} <em>{c.lastName}</em></h1>
           <div className="pf-chips">

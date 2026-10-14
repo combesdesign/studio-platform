@@ -110,7 +110,7 @@ export function Pos({ clientId }: { clientId?: string }) {
             <div className="pc-client">
               {client ? (
                 <div className="pc-who">
-                  <Avatar name={fullName(client)} size={44} />
+                  <Avatar name={fullName(client)} photo={client.photoUrl} size={44} />
                   <div className="grow"><strong>{fullName(client)}</strong><div className="muted small">{client.email}</div></div>
                   <button className="btn sm ghost" onClick={() => setClient(null)}>Change</button>
                 </div>

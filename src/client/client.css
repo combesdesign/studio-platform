@@ -555,3 +555,11 @@ h1, h2, h3 { letter-spacing: -.025em; line-height: .98; text-wrap: balance; }
 .screen-back { margin: -4px 0 14px; }
 .flow-top .back-pill { max-width: 52%; }
 .cs-media { margin-top: 2px; }
+
+/* profile photo */
+.me-photo { display: grid; justify-items: center; gap: 6px; margin-bottom: 6px; }
+.me-photo-btn { position: relative; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; }
+.me-photo-btn .me-avatar { margin-bottom: 0; }
+.me-photo-btn.busy { opacity: .6; }
+.me-photo-badge { position: absolute; right: -2px; bottom: -2px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--navy); color: #fff; box-shadow: 0 0 0 3px var(--bg); }
+.me-photo-add { border: 0; background: none; color: var(--navy); font-size: 14.5px; min-height: 44px; padding: 0 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }

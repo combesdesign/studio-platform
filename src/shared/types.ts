@@ -74,6 +74,8 @@ export interface Client {
   email: string;
   phone?: string;
   birthday?: ISODate;
+  /** Profile photo the client adds themselves. Demo: small JPEG data URL. Live: Supabase Storage public URL. */
+  photoUrl?: string;
   createdAt: ISODateTime;
   /** Staff-only notes. Never shown to the client. */
   staffNotes?: string;

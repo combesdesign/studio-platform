@@ -36,6 +36,7 @@ const P: Record<string, React.ReactNode> = {
   chevron: <path d="M9.5 6l6 6-6 6" />,
   back: <path d="M14.5 6l-6 6 6 6" />,
   close: <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
+  camera: <><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.4-2h5.8l1.4 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z" /><circle cx="12" cy="12.8" r="3.4" /></>,
   info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5M12 7.8v.2" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   calplus: <><rect x="3.5" y="5" width="17" height="15.5" rx="3" /><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5" /></>,

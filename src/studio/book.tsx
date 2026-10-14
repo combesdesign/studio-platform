@@ -19,7 +19,7 @@ export function ClientSearch({ onPick, autoFocus, exclude, placeholder = 'Search
       <div className="cs-results list">
         {list.map((c) => (
           <button key={c.id} className="cs-row" onClick={() => onPick(c)} type="button">
-            <Avatar name={fullName(c)} size={38} />
+            <Avatar name={fullName(c)} photo={c.photoUrl} size={38} />
             <span className="cs-t"><strong>{fullName(c)}</strong><span>{c.email}{c.phone ? ` · ${c.phone}` : ''}</span></span>
             {!c.waiverSignedAt && <span className="chip danger">No waiver</span>}
             <Icon name="right" size={18} />
@@ -142,7 +142,7 @@ export function BookOptions({ client, session, onDone, onBack }: { client: Clien
   return (
     <div className="bookopts">
       <div className="bo-who">
-        <Avatar name={fullName(client)} size={52} />
+        <Avatar name={fullName(client)} photo={client.photoUrl} size={52} />
         <div><strong>{fullName(client)}</strong><div className="muted small">{ct?.name} · {time(session.startsAt)} {dayShort(session.startsAt)}</div></div>
         {onBack && <button className="btn sm ghost push" onClick={onBack} type="button">Change</button>}
       </div>

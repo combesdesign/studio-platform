@@ -271,3 +271,7 @@ Same work as the client app (see "Back navigation" under client): the shared `Sh
 ## lead
 - Paused 14 Oct ~4:20pm for the usage limit, which resets at 8:40pm. The engine is done. Client, studio and backend were cut off part-way.
 - Agent ids that can be continued: client app = aaf3687f799f69c26, backend = ab7b1b3a902feb432. The resume reminder has these two swapped, so go by this note. Studio has no id and needs a fresh agent to finish it from the code in src/studio.
+
+## lead (15 Oct)
+- **Client profile photos:** the client app's Profile → tap the avatar → pick a photo. It's centre-cropped to a 320px JPEG (`src/shared/photo.ts`) and saved as `Client.photoUrl`. The studio shows it on rosters, the client list and profile, POS, booking sheets and Today.
+  - **Live backend TODO:** upload to a Supabase Storage `avatars` bucket (owner-only write, staff read) and store the public URL. Don't keep data URLs in Postgres.

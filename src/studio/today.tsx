@@ -184,7 +184,7 @@ export function Today() {
                     <div className="ag-head danger"><Icon name="doc" size={18} />No waiver yet <span className="count">{noWaiver.length}</span></div>
                     {noWaiver.map(({ e, s }) => (
                       <a key={e.id} className="alert-row" href={`#/clients/${e.clientId}`}>
-                        <Avatar name={fullName(e.client)} size={32} /><span className="ar-t"><strong>{fullName(e.client)}</strong><span>{time(s.startsAt)} {typeById(s.classTypeId)?.name}</span></span><Icon name="right" size={16} />
+                        <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={32} /><span className="ar-t"><strong>{fullName(e.client)}</strong><span>{time(s.startsAt)} {typeById(s.classTypeId)?.name}</span></span><Icon name="right" size={16} />
                       </a>
                     ))}
                   </div>
@@ -194,7 +194,7 @@ export function Today() {
                     <div className="ag-head cream"><Icon name="cake" size={18} />Birthday this week</div>
                     {birthdays.map(({ e, s }) => (
                       <a key={e.id} className="alert-row" href={`#/clients/${e.clientId}`}>
-                        <Avatar name={fullName(e.client)} size={32} /><span className="ar-t"><strong>{fullName(e.client)}</strong><span>In {time(s.startsAt)} {typeById(s.classTypeId)?.name}</span></span><Icon name="right" size={16} />
+                        <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={32} /><span className="ar-t"><strong>{fullName(e.client)}</strong><span>In {time(s.startsAt)} {typeById(s.classTypeId)?.name}</span></span><Icon name="right" size={16} />
                       </a>
                     ))}
                   </div>
@@ -204,7 +204,7 @@ export function Today() {
                     <div className="ag-head warn"><Icon name="clock" size={18} />Passes expiring this week <span className="count">{expiring.data!.length}</span></div>
                     {expiring.data!.slice(0, 8).map(({ client, pass }) => (
                       <a key={pass.id} className="alert-row" href={`#/clients/${client.id}`}>
-                        <Avatar name={fullName(client)} size={32} />
+                        <Avatar name={fullName(client)} photo={client.photoUrl} size={32} />
                         <span className="ar-t"><strong>{fullName(client)}</strong><span>{pass.name}{pass.credits != null ? ` · ${Math.max(0, pass.credits - pass.creditsUsed)} left` : ''} · {dayShort(pass.expiresAt!)}</span></span>
                         <Icon name="right" size={16} />
                       </a>
