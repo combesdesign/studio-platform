@@ -3,13 +3,37 @@ import { errorMessage, store, useData } from '../shared/react';
 import type { AuthUser } from '../shared/types';
 import { Flower, Logo, Marquee } from '../shared/brand';
 import { Avatar, Icon, roleLabel, teacherIds } from './ui';
+import { demoOpenPasswordLink, setLinkOrigin } from './password';
 
-export function SignIn({ notStaff, onDone }: { notStaff?: boolean; onDone?: () => void }) {
-  const [email, setEmail] = useState('');
+/** The photo half of the sign-in (website hero): also used by the "Choose a new password" screen. */
+export function SignInArt() {
+  return (
+    <section className="si-art">
+      <img className="si-photo" src="../img/wide.webp" alt="" />
+      <div className="si-art-inner">
+        <Logo animate className="si-logo" letters="var(--cream)" flower="var(--sky)" />
+        <div className="si-copy">
+          <p className="si-quote">Behind the scenes at the newest club in <em>Cooma.</em></p>
+          <p className="si-addr">Studio app<Flower size={9} />57 Vale Street, Cooma</p>
+        </div>
+      </div>
+      <Marquee tone="navy" speed={60} />
+    </section>
+  );
+}
+
+// Kept while the app is open, so backing out of the demo reset link returns to "a reset link is on its way".
+const kept = { email: '', backToSent: false };
+/** The new password is saved: next time sign-in opens fresh. */
+export function clearResetNote() { kept.backToSent = false; }
+
+export function SignIn({ notStaff, onDone, linkProblem }: { notStaff?: boolean; onDone?: () => void; linkProblem?: string | null }) {
+  const [email, setEmail] = useState(kept.email);
   const [password, setPassword] = useState('');
-  const [err, setErr] = useState<string | null>(notStaff ? 'That account is a client account. Sign in with your staff email.' : null);
+  const [err, setErr] = useState<string | null>(notStaff ? 'That account is a client account. Sign in with your staff email.' : linkProblem ?? null);
   const [busy, setBusy] = useState(false);
-  const [resetSent, setResetSent] = useState(false);
+  const [resetSent, setResetSent] = useState(() => { const v = kept.backToSent && !linkProblem && !!kept.email; kept.backToSent = false; return v; });
+  React.useEffect(() => { kept.email = email; }, [email]);
   const personas = useData(async () => {
     if (store.mode !== 'demo') return [];
     const list = (await store.demoPersonas()).filter((p) => p.kind === 'staff');
@@ -38,20 +62,19 @@ export function SignIn({ notStaff, onDone }: { notStaff?: boolean; onDone?: () =
     if (!email.trim()) { setErr('Enter your email first, then tap "Forgot password".'); return; }
     try { await store.requestPasswordReset(email.trim()); setResetSent(true); setErr(null); } catch (x) { setErr(errorMessage(x)); }
   };
+  // Demo: no real emails, so open the link here (the store fires the "Choose a new password" screen).
+  const openLink = async (kind: 'recovery' | 'invite') => {
+    setErr(null); setBusy(true);
+    setLinkOrigin(true);
+    kept.backToSent = kind === 'recovery';
+    try { if (!(await demoOpenPasswordLink(kind, kind === 'recovery' ? email.trim() : undefined))) { setLinkOrigin(false); kept.backToSent = false; setErr('The link isn’t available right now.'); } }
+    catch (x) { setLinkOrigin(false); kept.backToSent = false; setErr(errorMessage(x)); }
+    finally { setBusy(false); }
+  };
 
   return (
     <div className="signin">
-      <section className="si-art">
-        <img className="si-photo" src="../img/wide.webp" alt="" />
-        <div className="si-art-inner">
-          <Logo animate className="si-logo" letters="var(--cream)" flower="var(--sky)" />
-          <div className="si-copy">
-            <p className="si-quote">Behind the scenes at the newest club in <em>Cooma.</em></p>
-            <p className="si-addr">Studio app<Flower size={9} />57 Vale Street, Cooma</p>
-          </div>
-        </div>
-        <Marquee tone="navy" speed={60} />
-      </section>
+      <SignInArt />
       <section className="si-form">
         <div className="si-box">
           <div className="eyebrow"><Flower size={12} className="eb-fl" />Staff only</div>
@@ -67,6 +90,13 @@ export function SignIn({ notStaff, onDone }: { notStaff?: boolean; onDone?: () =
             </label>
             {err && <p className="form-err" role="alert">{err}</p>}
             {resetSent && <p className="form-ok">If that email has a staff account, a reset link is on its way.</p>}
+            {resetSent && store.mode === 'demo' && (
+              <div className="si-demo-link">
+                <span className="chip cream">Demo</span>
+                <p className="small">The demo doesn’t send real emails. Open the link here to see what staff get.</p>
+                <button type="button" className="btn soft block" onClick={() => openLink('recovery')} disabled={busy}>Demo: open the reset link<Icon name="right" size={18} /></button>
+              </div>
+            )}
             <button className="btn block" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
             <button type="button" className="linkish" onClick={reset}>Forgot password?</button>
           </form>
@@ -83,6 +113,7 @@ export function SignIn({ notStaff, onDone }: { notStaff?: boolean; onDone?: () =
                   </button>
                 ))}
               </div>
+              <button type="button" className="linkish si-invite" onClick={() => openLink('invite')} disabled={busy}><Flower size={12} />New to the team? Open a staff invite link</button>
             </div>
           )}
           <a className="si-client" href="../"><Icon name="external" size={18} />Looking to book a class? Open the client app</a>

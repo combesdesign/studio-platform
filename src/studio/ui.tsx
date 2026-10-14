@@ -88,6 +88,8 @@ const P: Record<string, React.ReactNode> = {
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   x: <path d="M6 6l12 12M18 6 6 18" />,
   left: <path d="m14.5 6-6 6 6 6" />,
+  eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>,
+  eyeoff: <><path d="M4 4l16 16" /><path d="M9.8 5.8c.7-.2 1.4-.3 2.2-.3 6 0 9.5 6.5 9.5 6.5a16.7 16.7 0 0 1-3 3.7M6.6 7.1C4 8.9 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,
   right: <path d="m9.5 6 6 6-6 6" />,
   down: <path d="m6 9.5 6 6 6-6" />,
   more: <><circle cx="5.5" cy="12" r="1.3" fill="currentColor" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /><circle cx="18.5" cy="12" r="1.3" fill="currentColor" /></>,

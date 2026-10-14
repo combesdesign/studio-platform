@@ -238,6 +238,21 @@ function patchRow(pairs: [string, unknown][]): Row {
 // ---------------------------------------------------------------------------------------------- errors
 
 const GENERIC = 'Something went wrong. Please try again.';
+
+/** Which kind of emailed link signed the user in: an invite (new staff, imported clients) or forgot password. */
+export type PasswordLinkKind = 'invite' | 'recovery';
+/** '#access_token=…&type=invite' -> 'invite'. Other link types (signup confirm, magic link, email change) -> null. */
+export function passwordLinkKind(hash: string | undefined | null): PasswordLinkKind | null {
+  const m = /(?:^|[#&?])type=(invite|recovery)(?:&|$)/.exec(hash ?? '');
+  return m ? (m[1] as PasswordLinkKind) : null;
+}
+/** How long a link waits for the app to register its "Choose a new password" screen before the prompt fallback. */
+export const PASSWORD_HANDLER_GRACE_MS = 1500;
+/**
+ * upsertClient's result. pendingEmail is set when a client changed their own email: everything else is saved,
+ * and a confirm link went to the new address (the email itself changes once they tap it). Not an error.
+ */
+export type ClientSaveResult = Client & { pendingEmail?: string };
 const NO_PERMISSION = 'You don’t have permission to do that.';
 
 /** Turn a PostgREST / Postgres / Auth / Functions error into a StoreError. */
@@ -308,12 +323,16 @@ class SupabaseStore implements DataStore {
   private me: Promise<AuthUser | null> | null = null;
   /** Date ranges we've already asked the database to fill from the weekly timetable (this session). */
   private ensured = new Set<string>();
-  private recoveryHandler: (() => void) | null = null;
+  /** "Choose a new password" screen of the app (onPasswordRecovery). Gets 'invite' or 'recovery'. */
+  private recoveryHandler: ((kind?: PasswordLinkKind) => void) | null = null;
+  /** A reset/invite link arrived before the app registered its handler: handed over when it does. */
+  private pendingLink: PasswordLinkKind | null = null;
+  private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(url: string, anonKey: string) {
-    // Invite and password-reset links land here with '#...type=invite|recovery'. Note it before
-    // supabase-js reads (and clears) the tokens from the address.
-    const linkType = typeof location !== 'undefined' ? /[#&?]type=(invite|recovery)\b/.exec(location.hash)?.[1] : undefined;
+    // Invite and password-reset links land here with '#access_token=…&type=invite|recovery'. Note which
+    // before supabase-js reads (and clears) the tokens from the address.
+    let linkType: PasswordLinkKind | null = typeof location !== 'undefined' ? passwordLinkKind(location.hash) : null;
     const make = createClient as unknown as (u: string, k: string, o?: object) => Loose;
     this.sb = make(url, anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: `spc-live-auth-${this.app}` },
@@ -324,7 +343,14 @@ class SupabaseStore implements DataStore {
       this.me = null;
       this.ensured.clear();
       this.emit();
-      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && linkType)) setTimeout(() => this.askForNewPassword(), 300);
+      // Recovery links fire PASSWORD_RECOVERY; invite links just sign in. Only once per link: supabase-js
+      // also fires SIGNED_IN when the tab regains focus, and that mustn't reopen the screen.
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && linkType)) {
+        const kind: PasswordLinkKind = linkType ?? 'recovery';
+        linkType = null;
+        // Out of supabase-js's callback first (it warns about auth calls made inside it).
+        setTimeout(() => this.passwordLinkArrived(kind), 0);
+      }
     });
     this.authSub = data?.subscription ?? null;
   }
@@ -519,28 +545,59 @@ class SupabaseStore implements DataStore {
   }
 
   /**
-   * Extra (not in DataStore): set a new password after opening a reset or invite link.
-   * The UI can show its own screen by registering onPasswordRecovery(); otherwise a simple prompt is used.
+   * Set a new password after opening a reset or invite link (the link signed them in).
+   * DataStore optional method; the apps' "Choose a new password" screens call it.
    */
   async setNewPassword(password: string): Promise<void> {
     if (!password || password.length < 8) throw new StoreError('INVALID', 'Please choose a password with at least 8 characters.');
     const { error } = await this.sb.auth.updateUser({ password });
-    if (error) throw toStoreError(error);
+    if (error) {
+      const e = obj(error);
+      const m = `${str(e.code)} ${str(e.message)}`;
+      if (/same_password|different from the old/i.test(m)) throw new StoreError('INVALID', 'That’s the password you already have. Please choose a new one.');
+      if (/weak_password|password should|at least/i.test(m)) throw new StoreError('INVALID', 'Please choose a stronger password (at least 8 characters, not too easy to guess).');
+      if (/session|jwt|expired|not authenticated|missing/i.test(m)) throw new StoreError('LINK_EXPIRED', 'That link has expired. Please ask for a new one from the sign-in screen.');
+      throw toStoreError(error);
+    }
+    this.emit();
   }
-  /** Extra: let the UI take over the "choose a new password" step after a reset/invite link. */
-  onPasswordRecovery(handler: () => void): Unsubscribe {
+  /**
+   * DataStore optional method: the app's "Choose a new password" screen takes over from here. The handler gets
+   * 'invite' (an invite link: new staff, imported clients) or 'recovery' (forgot password). A link that arrived
+   * before the handler was registered is handed over straight away.
+   */
+  onPasswordRecovery(handler: (kind?: PasswordLinkKind) => void): Unsubscribe {
     this.recoveryHandler = handler;
+    if (this.pendingLink) {
+      const kind = this.pendingLink;
+      this.pendingLink = null;
+      if (this.fallbackTimer) { clearTimeout(this.fallbackTimer); this.fallbackTimer = null; }
+      setTimeout(() => this.recoveryHandler?.(kind), 0);
+    }
     return () => { if (this.recoveryHandler === handler) this.recoveryHandler = null; };
   }
-  private async askForNewPassword(): Promise<void> {
-    if (this.recoveryHandler) { this.recoveryHandler(); return; }
+  private passwordLinkArrived(kind: PasswordLinkKind): void {
+    if (this.recoveryHandler) { this.recoveryHandler(kind); return; }
+    // No screen registered (yet). Give the app a moment to register one; only then fall back to a prompt.
+    this.pendingLink = kind;
+    if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
+    this.fallbackTimer = setTimeout(() => {
+      this.fallbackTimer = null;
+      if (this.recoveryHandler || !this.pendingLink) return;
+      this.pendingLink = null;
+      void this.promptForNewPassword();
+    }, PASSWORD_HANDLER_GRACE_MS);
+  }
+  /** Last resort when no app screen is registered (blocked in Capacitor and sandboxed frames, so the apps register one). */
+  private async promptForNewPassword(): Promise<void> {
     const g = globalThis as { prompt?: (msg: string) => string | null; alert?: (msg: string) => void };
     if (typeof g.prompt !== 'function') return;
     for (let i = 0; i < 3; i++) {
-      const pw = g.prompt('Choose a new password for Snowy Pilates Club (at least 8 characters)');
+      let pw: string | null;
+      try { pw = g.prompt('Choose a new password for Snowy Pilates Club (at least 8 characters)'); } catch { return; }
       if (pw === null) return;
       try { await this.setNewPassword(pw); g.alert?.('All set. Your new password is saved.'); return; }
-      catch (e) { g.alert?.(e instanceof StoreError ? e.message : GENERIC); }
+      catch (e) { try { g.alert?.(e instanceof StoreError ? e.message : GENERIC); } catch { return; } }
     }
   }
 
@@ -854,9 +911,10 @@ class SupabaseStore implements DataStore {
    * Merge, never replace: only the fields present on `c` change (a present-but-undefined field is cleared,
    * e.g. `{ ...client, photoUrl: undefined }` removes the photo). Clients can only change their own
    * personal details; the database ignores their writes to email, waiver, health form, source, archived
-   * and staff notes. A client's new email goes through Supabase Auth (confirmation link), then syncs.
+   * and staff notes. A client's new email goes through Supabase Auth (confirmation link), then syncs: the call
+   * still resolves, with `pendingEmail` set on the result so the app can say "check your inbox".
    */
-  async upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<Client> {
+  async upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<ClientSaveResult> {
     return this.write(async () => {
       const me = await this.requireMe();
       if (has(c, 'firstName') && !c.firstName?.trim()) throw new StoreError('INVALID', 'Please enter a first name.');
@@ -888,8 +946,16 @@ class SupabaseStore implements DataStore {
         if (before && before.photoUrl !== row.photo_url) await this.removePhoto(before.photoUrl);
         if (email && email !== me.email.toLowerCase()) {
           const { error } = await this.sb.auth.updateUser({ email });
-          if (error) throw toStoreError(error);
-          throw new StoreError('CONFIRM_EMAIL', `Saved. We’ve sent a link to ${email}. Tap it to confirm your new email address.`);
+          if (error) {
+            const m = str(obj(error).message);
+            if (/already|registered|exists/i.test(m)) throw new StoreError('EMAIL_TAKEN', 'There’s already an account with that email.');
+            throw toStoreError(error);
+          }
+          // Not an error: the details are saved and Supabase has emailed a confirm link to the new address.
+          // The email changes (and syncs to the client record) once they tap it. The UI shows a friendly note.
+          const saved: ClientSaveResult = await this.getClient(id);
+          saved.pendingEmail = email;
+          return saved;
         }
         return this.getClient(id);
       }

@@ -163,6 +163,17 @@ Pete's feedback from his phone: "when I clicked on something I wanted to go back
 - **Style:** one `.back-pill` (theme.css) in both apps: white pill, navy chevron, 44px tall, previous screen's name in Questrial. Top bars respect `env(safe-area-inset-top)`.
 - **Checked:** Playwright at 390×844 (and the class sheet at 1024) with 0 console errors. Every sheet scrolled to the bottom keeps its back/close on screen and clickable; `page.goBack()` closes the open sheet and stays on the same route; the waiver steps; Chloe's NO_CREDITS → shop → buy → back to class → book (both via the waiver and directly); profile → health + waiver → sign → back. Screenshots `screenshots/back-nav/c01–c25`. Script (outside the repo): `/tmp/back-nav-e2e/run.mjs` (serve dist on 4195 first; args `client,studio390,studio1024`).
 
+
+### Password links (15 Oct)
+Launch blocker closed: reset and invite links now open an on-brand **Choose a new password** screen instead of the live store's `window.prompt`.
+- `#/new-password` uses the sign-in screens' `AuthFrame` (back pill + centred logo). It has a password field with a show/hide eye (which reveals both fields), a confirm field, an "At least 8 characters" hint that ticks over, and friendly errors ("That's only 5 characters…", "Type your new password once more…", "Those two don't quite match…"). The field is marked `aria-invalid` and the error clears as you type.
+- `lib.ts` registers `store.onPasswordRecovery?.()` at startup, before React renders, and queues a link that arrives early. `usePasswordLinkRoute` in `main.tsx` opens the screen: it's pushed from the demo button (so back returns there) and replaced on a real link. Leaving the route ends it, so forward doesn't reopen it, and a reload restores it via sessionStorage. While supabase-js signs a `#access_token…&type=…` link in, the app shows the navy splash rather than the welcome. An expired or used link (`#error…otp_expired`) goes to Forgot password, which explains.
+- **Invite vs recovery:** the live store tells them apart (it reads `type=invite|recovery` from the link) and passes the kind to the handler. Invites (imported clients) get "Welcome to the new Snowy Pilates *app*" / "Set a password to see your credits." and "Save password and see my credits".
+- After saving: a toast ("All set – your new password is saved" / "You're in! Your password is saved") and the timetable, signed in. If the store isn't signed in afterwards, you get "Sign in with your new password" and the sign-in screen.
+- **Demo:** Forgot password → "Check your inbox" now has a cream **Demo: open the reset link** box. Back from the new-password screen ("‹ Inbox") returns to it. The welcome screen's demo box has "Moving over from Momence? … open Margaret's invite link".
+- Also fixed: live sign-up's `CONFIRM_EMAIL` ("Almost there! We've emailed…") showed as a red error. It's now a "Check your inbox" screen. Profile › Your details shows "Saved. Check your inbox to confirm your new email" if the store flags `pendingEmail`. Email editing stays disabled ("flick the studio a message").
+- Checked: Playwright at 390×844 with 0 console errors and no dialogs. Screenshots `screenshots/password/c01–c11`. Script (outside the repo): `/tmp/claude-0/-home-claude-snowy-pilates-club/8b587a1f-22e3-5c98-b901-972725dc5d69/scratchpad/pw-e2e.mjs` (serve dist on 4196).
+
 ## studio
 
 **Status:** done. `node build.mjs` is clean, and `tsc -p tsconfig.core.json` plus `npm test` (27) still pass. The Playwright run-through passes with **0 console errors and 0 layout problems** at 1024×768, 768×1024 and 390×844, plus the permission passes. The script lives outside the repo at `/tmp/studio-e2e/run.mjs` (with `fonts.mjs`, which serves local Instrument Serif and a Questrial stand-in so screenshots aren't in fallback fonts; test-only). Serve dist on 4194 first. It pins the clock to 4:00pm Wed 14 Oct 2026 (Sydney) so the run is repeatable, and it checks every screen for horizontal overflow, clipped text and text under 12px. Screenshots are in `screenshots/studio/`: `NN-name-<width>.png` for each size, plus `50–55` for Grace T (instructor), `56–62` for Grace P (front desk who teaches) and `63` for reduced motion, at all three sizes. `src/studio/e2e.mjs` has been removed.
@@ -266,6 +277,13 @@ Same work as the client app (see "Back navigation" under client): the shared `Sh
 - **Checked:** Playwright at 390×844 and 1024×768, 0 console errors: roster ← Today / Schedule, roster → View profile → "‹ Roster" (and browser back) returns to the roster with no sheet, client → Sell → "‹ Hannah", timetable ← Schedule, every sheet above scrolled to the bottom with back/close still visible, `page.goBack()` closing sheets in place, More › Reports → back to Today. Screenshots `screenshots/back-nav/s01–s20`.
 - Removed the "Change" button from Book into class (it went back to the class list, next to the client's name); the header's "‹ Pick a class" does that now.
 
+
+### Password links (15 Oct)
+- `src/studio/password.tsx`: the same Choose a new password screen in the sign-in layout (the photo half is now `SignInArt`, shared with sign in). It has a "‹ Sign in" / "‹ Today" back pill, eyebrow "Password reset" / "Staff invite", and "Choose a new *password*" / "Welcome to the *team*". Password + show/hide, confirm, the 8+ hint and the same friendly errors. On phones the art shrinks to a short logo band so the form is on screen.
+- It registers `store.onPasswordRecovery?.()` at startup. After saving: a toast and Today, signed in. An expired link shows its message in the sign-in error box.
+- **Demo:** after "Forgot password?" the sign-in shows a **Demo: open the reset link** box (the email and that state survive going back). Under the personas there's "New to the team? Open a staff invite link".
+- Checked: Playwright at 390×844 and 1024×768 with 0 console errors. Screenshots `screenshots/password/s01–s07-<width>`.
+
 ## backend
 
 **Status:** done, as far as it can be checked without real Supabase, Stripe and Deno. `npx tsc -p tsconfig.core.json` passes, `npm test` is 27/27, and `node build.mjs` builds both the demo and a live-env build (with the supabase-js stub). `bash supabase/tests/run.sh` is all green:
@@ -342,8 +360,8 @@ ALL DATABASE TESTS PASSED          (381 checks)
 - GO-LIVE part 11 is the real end-to-end check. Do it in Stripe test mode first.
 
 ### Risks / decisions for the lead
-- **No "set a new password" screen in the client or studio apps.** For reset links, the live store falls back to `window.prompt`, then `auth.updateUser`. It exposes `store.setNewPassword(pw)` and `store.onPasswordRecovery(handler)` (extras, not in DataStore) so a proper screen can take over. Because of this gap, imported clients are invited to `#/signup` with the same email rather than through Supabase invite links, and staff logins are made with a temporary password.
-- **A client changing their email:** the store saves the other fields, starts Supabase's confirm-new-email flow, then throws `CONFIRM_EMAIL` ("Saved. We've sent a link…"). The UI shows that as an error toast. A neutral message would be nicer.
+- ~~No "set a new password" screen~~ Done 15 Oct: both apps have one (see "Password links" below).
+- ~~A client changing their email throws `CONFIRM_EMAIL`~~ Done 15 Oct: it resolves with `pendingEmail`.
 - **Stripe memberships bill from the day of purchase,** not from first booking as RULES says for the demo. A cancelled Stripe membership runs to the paid-up date even if it was never used. This is documented in GO-LIVE.
 - **Resend's free plan is about 100 emails a day.** Launch week will exceed that, so GO-LIVE suggests batching invites or upgrading for a month.
 - `ensure_sessions` lets any signed-in user add classes from the timetable for dates they look at. It's idempotent and only ever inserts template classes, but it is a write on read.
@@ -352,6 +370,17 @@ ALL DATABASE TESTS PASSED          (381 checks)
   - added optional `registerInterest?(clientId, classTypeId)` to `DataStore` (`src/shared/store.ts`)
   - added `registerInterest` + `listClassInterest` and an optional `interest` array to `DemoState` in the demo store
   - checked: the client app's "Register interest" now records in demo state, with 0 console errors apart from blocked Google Fonts
+
+
+### Password links + email change (15 Oct)
+- **No more prompt once the app has a screen.** `onPasswordRecovery(handler)` hands the link to the app. A link that arrives before the handler registers is held and handed over when it does. The `window.prompt` fallback only runs if no handler is registered within `PASSWORD_HANDLER_GRACE_MS` (1.5s). Both apps register at startup, so it never runs in them.
+- **Invite vs recovery:** the constructor reads `type=invite|recovery` from the address before supabase-js clears it (`passwordLinkKind()`). The handler gets `'invite'` or `'recovery'` (an optional argument; `store.ts` declares `() => void`). It fires once per link, because supabase-js re-fires SIGNED_IN when the tab regains focus.
+- `setNewPassword`: under 8 characters → `INVALID`. Same password, weak password and no session/expired get friendly messages; no session → `LINK_EXPIRED`.
+- **upsertClient email change no longer throws `CONFIRM_EMAIL`.** It saves, starts Supabase's confirm-new-email flow, and resolves with the client plus `pendingEmail` (`ClientSaveResult`). An email already in use → `EMAIL_TAKEN`.
+- **Demo store** (`src/data/demo`): `onPasswordRecovery`, `setNewPassword` (8+ characters, then signs in whoever's link was opened, like a live link) and the demo-only `demoOpenPasswordLink(kind, email?)`. An invite with no email picks the imported Momence client (Margaret) or the newest staff member. Test: `tests/password-link.test.ts`.
+- `tests/live_store.test.mjs` adds 4 checks: recovery → handler and no prompt, once only; invite kind plus an early link handed over; the prompt fallback with no handler; and `setNewPassword` rules. The email-change check now expects `pendingEmail`. `fake-supabase.mjs` records `updateUser` calls, refuses them with no session, and has a `__fireAuth(event)` test hook.
+- GO-LIVE mentions "Send invitation" as an option for staff and stuck imported clients. The bulk import email still goes to `#/signup`.
+- **For the lead:** consider widening `store.ts` to `onPasswordRecovery?(handler: (kind?: 'invite' | 'recovery') => void)` and adding an optional `pendingEmail?` to upsertClient's result, so the extras are in the contract. `demoOpenPasswordLink` is demo-only (the apps call it through a cast).
 
 ## lead
 - Paused 14 Oct ~4:20pm for the usage limit, which resets at 8:40pm. The engine is done. Client, studio and backend were cut off part-way.

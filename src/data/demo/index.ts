@@ -58,6 +58,9 @@ function defaultStorage(): StorageLike {
   }
 }
 
+/** Which emailed link the user opened: an invite (new staff, imported clients) or forgot password. */
+export type PasswordLinkKind = 'invite' | 'recovery';
+
 const clone = <T>(x: T): T => (x === undefined ? x : (JSON.parse(JSON.stringify(x)) as T));
 const err = (code: string, msg: string) => new StoreError(code, msg);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -79,6 +82,10 @@ class DemoStore implements DataStore {
   private engine!: Engine;
   private rev = '';
   private memAuth: string | null = null;
+  /** The app's "Choose a new password" screen (onPasswordRecovery). */
+  private recoveryHandler: ((kind?: PasswordLinkKind) => void) | null = null;
+  /** Whose reset / invite link was "opened" (demoOpenPasswordLink). setNewPassword signs them in, like a live link does. */
+  private linkEmail: string | null = null;
 
   constructor(opts: DemoStoreOptions) {
     this.storage = opts.storage ?? defaultStorage();
@@ -301,6 +308,62 @@ class DemoStore implements DataStore {
   async requestPasswordReset(email: string): Promise<void> {
     await this.delay();
     if (!EMAIL_RE.test((email ?? '').trim())) throw err('INVALID', 'Please enter a valid email address.');
+  }
+
+  /**
+   * Password links. Live, the reset/invite link signs the user in and the app shows its "Choose a new password"
+   * screen. Demo: the app's "Demo: open the reset link" button calls demoOpenPasswordLink(), which fires the
+   * handler; setNewPassword() then signs that person in (any password works in the demo anyway).
+   */
+  onPasswordRecovery(handler: (kind?: PasswordLinkKind) => void): Unsubscribe {
+    this.recoveryHandler = handler;
+    return () => { if (this.recoveryHandler === handler) this.recoveryHandler = null; };
+  }
+
+  async setNewPassword(password: string): Promise<void> {
+    await this.delay();
+    if (!password || password.length < 8) throw err('INVALID', 'Please choose a password with at least 8 characters.');
+    const e = this.linkEmail;
+    this.linkEmail = null;
+    if (!e || this.readAuth()) return;
+    this.prepare();
+    const u = this.accountFor(e);
+    if (u) { this.writeAuth(u); this.emit(); }
+  }
+
+  /**
+   * Demo only (not in DataStore): pretend the user tapped the emailed link. `email` is whose link it is; an invite
+   * with no email picks the imported Momence client (client app) or the newest staff member (studio app).
+   * Returns false if the app hasn't registered a screen.
+   */
+  async demoOpenPasswordLink(kind: PasswordLinkKind = 'recovery', email?: string): Promise<boolean> {
+    await this.delay();
+    this.prepare();
+    let e = (email ?? '').trim().toLowerCase();
+    if (!e && kind === 'invite') {
+      e = this.authKey === AUTH_KEYS.studio
+        ? (this.state.staff.filter((s) => s.active).at(-1)?.email ?? '')
+        : (() => {
+          // An imported Momence client who hasn't used the new app yet (no waiver signed in it) shows it best.
+          const imported = this.state.clients.filter((c) => c.source === 'import' && !c.archived);
+          return (imported.find((c) => !c.waiverSignedAt) ?? imported[0])?.email ?? '';
+        })();
+    }
+    this.linkEmail = e || null;
+    if (!this.recoveryHandler) return false;
+    this.recoveryHandler(kind);
+    return true;
+  }
+
+  /** The account this app would sign in for an email (staff in the studio app, clients in the client app). */
+  private accountFor(email: string): AuthUser | null {
+    const e = email.trim().toLowerCase();
+    if (this.authKey === AUTH_KEYS.studio) {
+      const st = this.state.staff.find((s) => s.active && s.email.toLowerCase() === e);
+      return st ? { kind: 'staff', staffId: st.id, email: st.email, name: st.name, role: st.role } : null;
+    }
+    const c = this.state.clients.find((x) => !x.archived && x.email.toLowerCase() === e);
+    return c ? { kind: 'client', clientId: c.id, email: c.email, name: `${c.firstName} ${c.lastName}`.trim() } : null;
   }
 
   async demoPersonas(): Promise<AuthUser[]> {

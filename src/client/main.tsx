@@ -4,8 +4,8 @@ import { createRoot } from 'react-dom/client';
 import '../shared/theme.css';
 import './client.css';
 import type { AuthUser } from '../shared/types';
-import { store, useData, useRoute, match, ToastProvider, DemoBadge } from '../shared/react';
-import { AuthScreens } from './auth';
+import { store, useData, useRoute, match, ToastProvider, DemoBadge, useToast } from '../shared/react';
+import { AuthScreens, NewPassword } from './auth';
 import { Timetable } from './timetable';
 import { Bookings } from './bookings';
 import { Passes } from './passes';
@@ -13,7 +13,10 @@ import { Profile, captureInstallPrompt } from './profile';
 import { Waiver } from './waiver';
 import { Ctx, ErrorBlock, Flower, Icon, Logo } from './ui';
 import type { AppCtx } from './ui';
-import { isNative, markLaunched, pathOnly, shouldLaunch } from './lib';
+import {
+  arrivingFromLink, dropFlow, endPasswordLink, goFlow, hasLinkProblem, isNative, markLaunched, onPasswordLink, passwordLinkKind, pathOnly, shouldLaunch,
+  takeLinkOrigin, type PasswordLinkKind,
+} from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -28,11 +31,37 @@ const AUTH_PATHS = ['/signin', '/signup', '/forgot', '/welcome'];
 function App() {
   const [path, nav] = useRoute();
   const auth = useData(() => store.currentUser(), []);
+  const toast = useToast();
+  const link = usePasswordLinkRoute(path, nav);
+  // Just signed in by saving a new password: show the timetable straight away while auth re-loads.
+  const [justIn, setJustIn] = useState<AuthUser | null>(null);
+  useEffect(() => { if (auth.data) setJustIn(null); }, [auth.data]);
 
-  if (auth.data === undefined && !auth.error) return <Splash tone="navy" />;
+  if (link.kind) {
+    const finish = async (kind: PasswordLinkKind) => {
+      const u = await store.currentUser().catch(() => null);
+      dropFlow('/new-password');
+      endPasswordLink();
+      if (u) {
+        setJustIn(u);
+        auth.reload();
+        toast(kind === 'invite' ? 'You’re in! Your password is saved' : 'All set – your new password is saved');
+        nav('/', { replace: true });
+      } else {
+        toast('Password saved. Sign in with your new password');
+        nav('/signin', { replace: true });
+      }
+    };
+    return (
+      <div className="app signed-out">
+        <NewPassword kind={link.kind} path={path} nav={nav} email={auth.data?.email} signedIn={!!auth.data} onSaved={finish} />
+      </div>
+    );
+  }
+  if (link.arriving || (auth.data === undefined && !auth.error)) return <Splash tone="navy" />;
   if (auth.error && auth.data === undefined) return <div className="app"><div className="screen"><ErrorBlock error={auth.error} onRetry={auth.reload} /></div></div>;
 
-  const user = auth.data ?? null;
+  const user = auth.data ?? justIn;
   if (!user) {
     return (
       <div className="app signed-out">
@@ -40,13 +69,40 @@ function App() {
       </div>
     );
   }
-  if (user.kind !== 'client') return <StaffNotice user={user} onSignOut={async () => { await store.signOut().catch(() => {}); auth.reload(); }} />;
+  if (user.kind !== 'client') return <StaffNotice user={user} onSignOut={async () => { await store.signOut().catch(() => {}); setJustIn(null); auth.reload(); }} />;
   return (
     <>
       <SignedIn user={user} path={path} nav={nav} refreshAuth={auth.reload} />
       <Launch />
     </>
   );
+}
+
+/**
+ * Reset and invite links: when the store says one arrived, open '#/new-password' (pushed from the demo button so
+ * back returns there; replacing the token address on a real link). Returns the link kind while that screen is up.
+ */
+function usePasswordLinkRoute(path: string, nav: Nav): { kind: PasswordLinkKind | null; arriving: boolean } {
+  const [kind, setKind] = useState<PasswordLinkKind | null>(passwordLinkKind);
+  const [arriving, setArriving] = useState(arrivingFromLink);
+  useEffect(() => {
+    const off = onPasswordLink((k) => {
+      setKind(k);
+      setArriving(false);
+      const from = takeLinkOrigin();
+      if (from) goFlow(nav, '/new-password', from);
+      else nav('/new-password', { replace: true });
+    });
+    // supabase-js normally signs the link in within a second; don't hold the splash forever if it can't.
+    const t = window.setTimeout(() => setArriving(false), 6000);
+    // An expired or already-used link: straight to "Forgot password", which explains.
+    if (hasLinkProblem()) nav('/forgot', { replace: true });
+    return () => { off(); window.clearTimeout(t); };
+  }, []);
+  // Leaving the screen (saved, back, or any other route) ends it; forward/back onto it again doesn't reopen it.
+  const onScreen = pathOnly(path) === '/new-password';
+  useEffect(() => { if (!onScreen && kind) setKind(null); }, [onScreen]);
+  return { kind: onScreen ? kind : null, arriving };
 }
 
 // ------------------------------------------------------------------ launch moment

@@ -152,10 +152,18 @@ export interface DataStore {
    * Clients can only register themselves; front desk / manager / owner can register any client.
    */
   registerInterest?(clientId: ID, classTypeId: ID): Promise<void>;
+  /**
+   * Password links (forgot password, staff/client invites). The live store calls the registered handler when the user
+   * arrives from a recovery or invite link; the UI then shows its own "Choose a new password" screen and calls setNewPassword.
+   * Demo store: optional; may simulate the flow.
+   */
+  setNewPassword?(password: string): Promise<void>;
+  onPasswordRecovery?(handler: (kind?: 'invite' | 'recovery') => void): Unsubscribe;
 
   listClients(opts?: { search?: string; includeArchived?: boolean }): Promise<Client[]>;
   getClient(id: ID): Promise<Client>;
-  upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<Client>;
+  /** Live: if the email changed, resolves with pendingEmail set (a confirmation email went to the new address). */
+  upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<Client & { pendingEmail?: string }>;
   /** Client signs waiver + health form (client app) or staff records it. */
   submitWaiver(clientId: ID, health: Omit<HealthForm, 'submittedAt'>): Promise<Client>;
 

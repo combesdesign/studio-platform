@@ -12,6 +12,7 @@ const state = (globalThis.__fake ??= {
   now: null,             // 'app.now' for SQL (ISO string) or null
   users: new Map(),      // storageKey -> auth user id (each app keeps its own session)
   invoked: [],           // functions.invoke calls
+  userUpdates: [],       // auth.updateUser attrs (password / email)
   invokeResult: {},      // name -> data to return
   log: [],               // SQL run (for debugging)
 });
@@ -225,6 +226,8 @@ select 'null'::json`));
       async signOut() { state.users.delete(key); fire('SIGNED_OUT'); return { error: null }; },
       async resetPasswordForEmail() { return { data: {}, error: null }; },
       async updateUser(attrs) {
+        state.userUpdates.push({ ...attrs, userId: userId() });
+        if (!userId()) return { data: { user: null }, error: { message: 'Auth session missing!' } };
         if (attrs.email) admin(`with w as (update auth.users set email = ${lit(attrs.email)} where id = ${lit(userId())} returning id) select to_json(count(*)) from w`);
         return { data: { user: { id: userId() } }, error: null };
       },
@@ -252,6 +255,8 @@ select 'null'::json`));
         return { data: state.invokeResult[name] ?? {}, error: null };
       },
     },
+    /** Test hook: fire an auth event at this client's onAuthStateChange listeners (e.g. PASSWORD_RECOVERY). */
+    __fireAuth(event) { fire(event); },
     channel() { const ch = { on: () => ch, subscribe: () => ch }; return ch; },
     removeChannel() {},
   };

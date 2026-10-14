@@ -97,7 +97,7 @@ In **Table Editor**:
    - Host `smtp.resend.com`, port `465`, username `resend`, password = your Resend API key
    - Sender email `hello@snowypilatesclub.com`, sender name `Snowy Pilates Club`
 4. **Authentication → Rate Limits**: raise "emails sent per hour" to about **100** for launch week, because lots of people will sign up at once.
-5. **Authentication → Emails → Templates**: optionally tweak the "Confirm signup" and "Reset password" wording so it sounds like the studio.
+5. **Authentication → Emails → Templates**: optionally tweak the "Confirm signup", "Reset password" and "Invite user" wording so it sounds like the studio. Reset and invite links open the app's own "Choose a new password" screen, then sign the person straight in.
 
 ## 5. Give the staff their logins
 
@@ -107,6 +107,7 @@ The simplest way is to make each login yourself with a temporary password.
 2. **Authentication → Users → Add user → Create new user**. Enter the **same email**, a temporary password, and tick **Auto Confirm User**.
 3. That's it. The login links itself to their staff profile. Send them the temporary password privately (a text is fine) and ask them to change it with "Forgot password" on the sign-in screen.
 4. Do this for Libby, Julia, Grace T and **Grace P** (front desk).
+   - Or, instead of a temporary password: **Add user → Send invitation**. They get an email, tap the link, see "Welcome to the team" and choose their own password. The link opens the Site URL (the client app), which then points staff to the studio app.
 5. Check it in the SQL Editor:
    ```
    select name, role, email, user_id is not null as linked from staff;
@@ -274,6 +275,7 @@ Pick a quiet day and do these in one sitting, so nobody buys a pass in Momence a
    > **We've moved to our own app!** Tap below, join with **the same email you used for Momence** and choose a password. Your passes and credits are already waiting for you. Members: please re-join your membership in the app this week. We'll cancel your Momence one so you're never charged twice.
    > **[Set up my account →]**
 3. When they confirm their email, their account links itself to their imported profile and history.
+   - For a handful of people (or anyone who's stuck), you can also use **Authentication → Users → Add user → Send invitation** with their Momence email. The link opens the app on "Welcome to the new Snowy Pilates app – set a password to see your credits", and once they save a password they're signed in with their passes waiting.
 4. Resend's free plan sends about 100 emails a day, and every sign-up sends a confirmation email. Either send the invite in batches of about 40 a day, or upgrade Resend for the launch month (**check current pricing**).
 
 ### Point everything at the new app

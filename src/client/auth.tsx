@@ -2,8 +2,12 @@
 import React, { useEffect, useState } from 'react';
 import type { AuthUser } from '../shared/types';
 import { store, useData, errorMessage, useToast } from '../shared/react';
-import { Arrow, Avatar, BackPill, Flower, Logo } from './ui';
-import { backOut, flowFrom, goFlow, markLaunched, pathOnly, swapFlow } from './lib';
+import { StoreError } from '../shared/store';
+import { Arrow, Avatar, BackPill, Flower, Icon, Logo } from './ui';
+import {
+  backOut, demoOpenPasswordLink, endPasswordLink, flowFrom, goFlow, markLaunched, pathOnly, setLinkOrigin, swapFlow, takeLinkProblem,
+  type PasswordLinkKind,
+} from './lib';
 import { FlowerStars, Marquee } from '../shared/brand';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -57,6 +61,13 @@ function DemoPersonas({ onSignedIn }: { onSignedIn: () => void }) {
   }, []);
   const clients = data ?? [];
   if (!data || !store.demoSignInAs) return null;
+  const openInvite = async () => {
+    setBusy('invite');
+    setLinkOrigin({ label: 'Welcome', where: '/' });
+    try { if (!(await demoOpenPasswordLink('invite'))) { setLinkOrigin(null); toast('The invite link isn’t available right now.'); } }
+    catch (e) { setLinkOrigin(null); toast(errorMessage(e)); }
+    finally { setBusy(null); }
+  };
   const go = async (u: AuthUser) => {
     setBusy(u.email);
     try { await store.demoSignInAs!(u); onSignedIn(); }
@@ -82,18 +93,23 @@ function DemoPersonas({ onSignedIn }: { onSignedIn: () => void }) {
         ))}
         {clients.length === 0 && <p className="muted pad-16">No demo clients yet.</p>}
       </div>
+      <button className="demo-invite" onClick={openInvite} disabled={!!busy}>
+        <Flower size={18} />
+        <span><strong>Moving over from Momence?</strong> See what imported clients get: open Margaret’s invite link</span>
+        <Arrow size={16} />
+      </button>
       <p className="muted fine center">Demo data lives in this browser only. No real bookings or payments.</p>
     </section>
   );
 }
 
 /** Signed-out page with a pinned "‹ Welcome" / "‹ Sign in" back pill (pops history when we know where it came from). */
-function AuthFrame({ title, sub, children, nav, path, back = '/', backLabel = 'Welcome' }: { title: React.ReactNode; sub?: string; children: React.ReactNode; nav: Nav; path: string; back?: string; backLabel?: string }) {
+function AuthFrame({ title, sub, children, nav, path, back = '/', backLabel = 'Welcome', onBack, className }: { title: React.ReactNode; sub?: React.ReactNode; children: React.ReactNode; nav: Nav; path: string; back?: string; backLabel?: string; onBack?: () => void; className?: string }) {
   const label = flowFrom(path)?.label ?? backLabel;
   return (
-    <div className="auth">
+    <div className={'auth' + (className ? ' ' + className : '')}>
       <div className="auth-top">
-        <BackPill label={label} onClick={() => backOut(nav, path, back)} />
+        <BackPill label={label} onClick={() => { onBack?.(); backOut(nav, path, back); }} />
         <Logo width={96} />
         <span className="auth-top-gap" />
       </div>
@@ -138,6 +154,7 @@ function SignIn({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; p
 function SignUp({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; path: string }) {
   const [f, setF] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '', marketingOptIn: true });
   const [err, setErr] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -148,9 +165,24 @@ function SignUp({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; p
     try {
       await store.signUpClient({ ...f, email: f.email.trim(), phone: f.phone.trim() || undefined });
       onSignedIn();
-    } catch (x) { setErr(errorMessage(x)); }
+    } catch (x) {
+      // Live with "Confirm email" on: the account is made and a link is on its way. That's good news, not an error.
+      if (x instanceof StoreError && x.code === 'CONFIRM_EMAIL') setConfirm(f.email.trim());
+      else setErr(errorMessage(x));
+    }
     finally { setBusy(false); }
   };
+  if (confirm) {
+    return (
+      <AuthFrame title={<>Check your <em>inbox</em></>} nav={nav} path={path}>
+        <div className="panel-soft stack">
+          <Flower size={28} />
+          <p>Almost there! We’ve sent a link to <strong>{confirm}</strong>. Tap it to confirm your email, then sign in. Check your junk folder if it’s not there in a minute or two.</p>
+        </div>
+        <button className="btn block" onClick={() => swapFlow(nav, path, '/signin')}>Go to sign in</button>
+      </AuthFrame>
+    );
+  }
   return (
     <AuthFrame title={<>Join the <em>club</em></>} sub="Create your account, then grab the intro offer – two weeks of unlimited classes for new clients." nav={nav} path={path}>
       <form className="stack lg" onSubmit={submit}>
@@ -170,15 +202,31 @@ function SignUp({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; p
   );
 }
 
+// Kept while the app is open, so coming back from the demo reset link returns to "Check your inbox".
+let forgotEmail = '';
+let backToSent = false;
+
 function Forgot({ nav, path }: { nav: Nav; path: string }) {
-  const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const toast = useToast();
+  const [email, setEmail] = useState(forgotEmail);
+  const [problem] = useState(takeLinkProblem);
+  const [sent, setSent] = useState(() => { const v = backToSent && !problem && !!forgotEmail; backToSent = false; return v; });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => { forgotEmail = email; }, [email]);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
     try { await store.requestPasswordReset(email.trim()); setSent(true); }
     catch (x) { setErr(errorMessage(x)); }
+    finally { setBusy(false); }
+  };
+  const openDemoLink = async () => {
+    setBusy(true);
+    setLinkOrigin({ label: 'Inbox', where: path });
+    backToSent = true;
+    const failed = (m: string) => { setLinkOrigin(null); backToSent = false; toast(m); };
+    try { if (!(await demoOpenPasswordLink('recovery', email.trim()))) failed('The reset link isn’t available right now.'); }
+    catch (x) { failed(errorMessage(x)); }
     finally { setBusy(false); }
   };
   if (sent) {
@@ -189,12 +237,20 @@ function Forgot({ nav, path }: { nav: Nav; path: string }) {
           <p>If there’s an account for <strong>{email}</strong>, we’ve sent a link to reset your password. It can take a minute or two – and check your junk folder just in case.</p>
         </div>
         <button className="btn block" onClick={() => backOut(nav, path, '/signin')}>Back to sign in</button>
+        {store.mode === 'demo' && (
+          <div className="demo-link">
+            <span className="tag cream">Demo</span>
+            <p>The demo doesn’t send real emails. Open the link here to see what happens next.</p>
+            <button className="btn soft block" onClick={openDemoLink} disabled={busy}>{busy ? 'Opening…' : 'Demo: open the reset link'} <Arrow /></button>
+          </div>
+        )}
       </AuthFrame>
     );
   }
   return (
     <AuthFrame title={<>Forgot your <em>password?</em></>} sub="No worries. Pop your email in and we’ll send you a reset link." nav={nav} path={path} back="/signin" backLabel="Sign in">
       <form className="stack lg" onSubmit={submit}>
+        {problem && <p className="form-note" role="status"><Icon name="info" size={20} />{problem}</p>}
         <label className="field"><span>Email</span>
           <input className="input" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
@@ -202,5 +258,84 @@ function Forgot({ nav, path }: { nav: Nav; path: string }) {
         <button className="btn block" disabled={busy}>{busy ? 'Sending…' : 'Send reset link'}</button>
       </form>
     </AuthFrame>
+  );
+}
+
+// ------------------------------------------------------------------ choose a new password (reset + invite links)
+/**
+ * Shown when someone lands from an emailed link (store.onPasswordRecovery). Live, the link has already signed
+ * them in; after saving they land on the timetable. Invites (imported Momence clients) get a welcome heading.
+ */
+export function NewPassword({ kind, path, nav, email, signedIn, onSaved }: {
+  kind: PasswordLinkKind; path: string; nav: Nav; email?: string; signedIn: boolean; onSaved: (kind: PasswordLinkKind) => Promise<void> | void;
+}) {
+  const invite = kind === 'invite';
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [show, setShow] = useState(false);
+  const [err, setErr] = useState<{ msg: string; field?: 'pw' | 'pw2' } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const long = pw.length >= 8;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!long) { setErr({ field: 'pw', msg: pw ? `That’s only ${pw.length} character${pw.length === 1 ? '' : 's'}. Make it at least 8 – a short phrase works well.` : 'Pop in a new password – at least 8 characters.' }); return; }
+    if (!pw2) { setErr({ field: 'pw2', msg: 'Type your new password once more to confirm it.' }); return; }
+    if (pw !== pw2) { setErr({ field: 'pw2', msg: 'Those two don’t quite match. Have another go.' }); return; }
+    setErr(null); setBusy(true);
+    try {
+      if (!store.setNewPassword) throw new Error('Setting a password isn’t available right now. Please contact the studio.');
+      await store.setNewPassword(pw);
+      backToSent = false;
+      await onSaved(kind);
+    } catch (x) {
+      setErr({ msg: x instanceof StoreError && x.code === 'LINK_EXPIRED' ? 'That link has expired. Go back and ask for a new one – it only takes a moment.' : errorMessage(x) });
+      setBusy(false);
+    }
+  };
+  const bad = (f: 'pw' | 'pw2') => (err?.field === f ? true : undefined);
+  return (
+    <AuthFrame
+      className="new-pw"
+      title={invite ? <>Welcome to the new Snowy Pilates <em>app</em></> : <>Choose a new <em>password</em></>}
+      sub={invite ? 'Set a password to see your credits.' : 'Make it something you’ll remember. You’ll use it to sign in from now on.'}
+      nav={nav} path={path} back={signedIn ? '/' : '/signin'} backLabel={signedIn ? 'Timetable' : 'Sign in'} onBack={endPasswordLink}>
+      {email && <p className="for-account"><Icon name="user" size={18} /><span>{email}</span></p>}
+      <form className="stack lg" onSubmit={submit} noValidate>
+        {email && <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />}
+        <div className="field">
+          <label htmlFor="new-pw">{invite ? 'Password' : 'New password'}</label>
+          <PasswordInput id="new-pw" value={pw} show={show} invalid={bad('pw')} autoFocus
+            onChange={(v) => { setPw(v); if (err?.field === 'pw') setErr(null); }} onToggle={() => setShow(!show)} />
+          <p className={'pw-hint' + (long ? ' ok' : '')} id="new-pw-hint">
+            {long ? <Icon name="check" size={18} /> : <Flower size={14} />}At least 8 characters
+          </p>
+        </div>
+        <div className="field">
+          <label htmlFor="new-pw2">Confirm password</label>
+          <PasswordInput id="new-pw2" value={pw2} show={show} invalid={bad('pw2')}
+            onChange={(v) => { setPw2(v); if (err?.field === 'pw2') setErr(null); }} />
+        </div>
+        {err && <p className="form-error" role="alert">{err.msg}</p>}
+        <button className="btn block big" disabled={busy}>{busy ? 'Saving…' : invite ? 'Save password and see my credits' : 'Save new password'}</button>
+      </form>
+    </AuthFrame>
+  );
+}
+
+function PasswordInput({ id, value, onChange, show, onToggle, invalid, autoFocus }: {
+  id: string; value: string; onChange: (v: string) => void; show: boolean; onToggle?: () => void; invalid?: boolean; autoFocus?: boolean;
+}) {
+  // Skip autofocus on phones: the keyboard would push the heading out of view.
+  const focus = autoFocus && typeof window !== 'undefined' && window.matchMedia?.('(min-width: 700px)').matches;
+  return (
+    <div className={'pw-wrap' + (onToggle ? ' has-eye' : '')}>
+      <input id={id} className="input" type={show ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+        value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={invalid} autoFocus={focus} aria-describedby={id === 'new-pw' ? 'new-pw-hint' : undefined} />
+      {onToggle && (
+        <button type="button" className="pw-eye" onClick={onToggle} aria-label={show ? 'Hide password' : 'Show password'} aria-pressed={show}>
+          <Icon name={show ? 'eyeoff' : 'eye'} size={22} />
+        </button>
+      )}
+    </div>
   );
 }

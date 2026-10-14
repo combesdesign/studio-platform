@@ -306,8 +306,13 @@ await t('client profile: merges (absent fields kept) and can\'t touch waiver, he
   assert.equal(sql(`select count(*) from public.client_notes where client_id = '${ALICE}'`), '0');
   assert.equal(await code(client.upsertClient({ ...before, id: BOB })), 'NOT_ALLOWED');
   assert.equal(await code(client.upsertClient({ ...after, firstName: '  ' })), 'INVALID');
-  assert.equal(await code(client.upsertClient({ ...after, email: 'alice.new@example.test' })), 'CONFIRM_EMAIL');
-  assert.equal(sql(`select email from public.clients where id = '${ALICE}'`), 'alice.new@example.test', 'email changes go through Supabase Auth, then sync');
+  // A new email isn't an error: everything saves, a confirm link goes out, and the result says so.
+  const changed = await client.upsertClient({ ...after, email: 'alice.new@example.test', phone: '0400 999 000' });
+  assert.equal(changed.pendingEmail, 'alice.new@example.test');
+  assert.equal(changed.phone, '0400 999 000');
+  assert.equal(fake.userUpdates.at(-1).email, 'alice.new@example.test', 'email changes go through Supabase Auth');
+  assert.equal(sql(`select email from public.clients where id = '${ALICE}'`), 'alice.new@example.test', 'then sync to the client record');
+  assert.equal((await client.upsertClient({ id: ALICE, firstName: 'Alicia' })).pendingEmail, undefined, 'no flag when the email is unchanged');
   sql(`update auth.users set email = 'alice@example.test' where email = 'alice.new@example.test'`);
 });
 
@@ -476,6 +481,76 @@ await t('memberships: pause / resume / cancel through the store (no Stripe call 
   assert.equal(cancelled.status, 'cancelled');
   assert.ok(cancelled.nextBillingAt);
   assert.equal(fake.invoked.filter((x) => x.name === 'manage-membership').length, 0);
+});
+
+// ---------------------------------------------------------------- password links (reset + invite)
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+function withPrompt(fn) {
+  const calls = [];
+  const had = { prompt: globalThis.prompt, alert: globalThis.alert };
+  globalThis.prompt = (m) => { calls.push(m); return null; };
+  globalThis.alert = () => {};
+  return fn(calls).finally(() => { globalThis.prompt = had.prompt; globalThis.alert = had.alert; });
+}
+function linkStore(app, hash) {
+  globalThis.location = { pathname: app === 'studio' ? '/studio/' : '/', hash, href: `https://app.example/${app === 'studio' ? 'studio/' : ''}${hash}`, search: '' };
+  return mod.createSupabaseStore(URL_BASE, 'anon-key');
+}
+
+await t('password links: recovery goes to the app\'s screen (no prompt), and only once', () => withPrompt(async (prompts) => {
+  const s = linkStore('client', '#access_token=x&expires_in=3600&refresh_token=y&token_type=bearer&type=recovery');
+  const got = [];
+  s.onPasswordRecovery((kind) => got.push(kind));
+  s.sb.__fireAuth('PASSWORD_RECOVERY');
+  await tick(5);
+  assert.deepEqual(got, ['recovery']);
+  s.sb.__fireAuth('SIGNED_IN'); // supabase-js re-fires this when the tab regains focus
+  await tick(5);
+  assert.deepEqual(got, ['recovery']);
+  await tick(mod.PASSWORD_HANDLER_GRACE_MS + 50);
+  assert.equal(prompts.length, 0, 'no window.prompt once a handler is registered');
+}));
+
+await t('password links: an invite link says "invite"; one that lands before the app registers is handed over', () => withPrompt(async (prompts) => {
+  const s = linkStore('client', '#access_token=x&type=invite');
+  s.sb.__fireAuth('SIGNED_IN');
+  await tick(20);
+  const got = [];
+  const off = s.onPasswordRecovery((kind) => got.push(kind));
+  await tick(5);
+  assert.deepEqual(got, ['invite']);
+  await tick(mod.PASSWORD_HANDLER_GRACE_MS + 50);
+  assert.equal(prompts.length, 0);
+  off();
+  // A plain sign-in (no link in the address) never opens the screen.
+  const plain = linkStore('client', '');
+  const none = [];
+  plain.onPasswordRecovery((kind) => none.push(kind));
+  plain.sb.__fireAuth('SIGNED_IN');
+  await tick(5);
+  assert.deepEqual(none, []);
+  assert.equal(mod.passwordLinkKind('#/timetable?type=recovery'), 'recovery');
+  assert.equal(mod.passwordLinkKind('#access_token=x&type=signup'), null);
+}));
+
+await t('password links: with no screen registered, the prompt fallback still works', () => withPrompt(async (prompts) => {
+  const s = linkStore('studio', '#access_token=x&type=recovery');
+  s.sb.__fireAuth('PASSWORD_RECOVERY');
+  await tick(mod.PASSWORD_HANDLER_GRACE_MS + 80);
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /at least 8 characters/);
+}));
+
+await t('setNewPassword: at least 8 characters, then auth.updateUser; no session = LINK_EXPIRED', async () => {
+  const s = linkStore('client', '');
+  assert.equal(await code(s.setNewPassword('short')), 'INVALID');
+  assert.equal(await code(s.setNewPassword('long enough')), 'LINK_EXPIRED');
+  await s.signIn('alice@example.test', 'pw');
+  const before = fake.userUpdates.length;
+  assert.equal(await code(s.setNewPassword('a brand new one')), 'OK');
+  assert.deepEqual(fake.userUpdates.slice(before).map((u) => u.password), ['a brand new one']);
+  await s.signOut();
+  globalThis.location = { pathname: '/', hash: '', href: 'https://app.example/', search: '' };
 });
 
 console.log(failed ? `\n  ${failed} live store check(s) FAILED` : '\n  live store: all checks passed');

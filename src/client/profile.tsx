@@ -178,12 +178,13 @@ function DetailsSheet({ open, onClose }: { open: boolean; onClose: () => void })
     e.preventDefault();
     setBusy(true);
     try {
-      await saveClient(c, {
+      const saved = await saveClient(c, {
         firstName: f.firstName.trim(), lastName: f.lastName.trim(), phone: f.phone.trim() || undefined, birthday: f.birthday || undefined,
         emergencyContactName: f.emergencyContactName.trim() || undefined, emergencyContactPhone: f.emergencyContactPhone.trim() || undefined,
       });
       app.refreshAuth();
-      toast('Details saved'); onClose();
+      // Live: a new email is confirmed by a link first (the store flags it; it's not an error).
+      toast((saved as { pendingEmail?: string }).pendingEmail ? 'Saved. Check your inbox to confirm your new email' : 'Details saved'); onClose();
     } catch (x) { toast(errorMessage(x)); } finally { setBusy(false); }
   };
   return (

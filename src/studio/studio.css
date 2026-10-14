@@ -194,6 +194,25 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .persona-t strong { font-weight: 400; }
 .persona-t span { font-size: 13px; color: var(--muted); }
 .persona .ic { color: var(--faint); }
+/* demo password links + the "Choose a new password" screen (same layout as sign in) */
+.si-demo-link { display: grid; gap: 10px; justify-items: start; padding: 16px; border-radius: 18px; background: var(--cream-2); }
+.si-demo-link p { color: var(--ink); line-height: 1.45; }
+.si-demo-link .btn { margin-top: 2px; }
+.si-invite { margin-top: 12px; min-height: 44px; }
+.si-invite .spc-flower { flex: none; }
+.si-back { margin-bottom: 26px; }
+.new-pw .field > label { font-size: 13.5px; color: var(--muted); }
+.for-account { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 36px; margin-top: 18px; padding: 0 14px 0 10px; border-radius: 999px; background: var(--mist); color: var(--ink); font-size: 14.5px; }
+.for-account .ic { color: var(--navy); flex: none; }
+.for-account span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-wrap { position: relative; }
+.pw-wrap .input { padding-right: 54px; }
+.pw-eye { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 10px; background: none; color: var(--muted); cursor: pointer; transition: color .2s; }
+.pw-eye:hover, .pw-eye[aria-pressed="true"] { color: var(--navy); }
+.pw-eye:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+.input[aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(181, 72, 72, .12); }
+.pw-hint { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 14px; color: var(--muted); transition: color .2s; }
+.pw-hint.ok { color: var(--ok); }
 .si-client { display: flex; align-items: center; gap: 8px; margin-top: 26px; color: var(--muted); font-size: 14.5px; text-decoration: none; min-height: 44px; }
 .si-client:hover { color: var(--navy); }
 
@@ -839,6 +858,12 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
   .si-art .spc-track span { font-size: 21px; gap: 24px; }
   .si-form { padding: 32px 20px 48px; place-items: start center; }
   .si-box h1 { font-size: 44px; }
+  .new-pw .si-art { min-height: 0; }
+  .new-pw .si-art-inner { padding: calc(56px + var(--safe-top)) 22px 22px; }
+  .new-pw .si-copy { display: none; }
+  .new-pw .si-logo { width: 58%; }
+  .new-pw .si-form { padding-top: 24px; }
+  .si-back { margin-bottom: 20px; }
   .sh-head h3 { font-size: 28px; }
   .sh-foot .btn { flex: 1; }
   .dl.roles { grid-template-columns: 1fr; gap: 2px; }

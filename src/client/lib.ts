@@ -234,3 +234,56 @@ export function saveClient(c: Client, patch: Partial<Client>) {
   const { staffNotes: _s, ...rest } = { ...c, ...patch };
   return store.upsertClient(rest);
 }
+
+/** Forget a flow's origin without navigating (the flow finished with a replace navigation). */
+export function dropFlow(path: string) {
+  const i = origins.findIndex((x) => x.path === pathOnly(path));
+  if (i >= 0) origins.splice(i);
+}
+
+// ------------------------------------------------------------------ password links (reset + invite)
+// The store calls onPasswordRecovery's handler when someone lands from an emailed link: 'recovery' (forgot
+// password) or 'invite' (imported clients, new staff). Live, that link has already signed them in. We register
+// at startup (this module loads before React renders) and hand the link to App via usePasswordLink.
+export type PasswordLinkKind = 'invite' | 'recovery';
+const LINK_KEY = 'spc.pwlink';
+const BOOT_HASH = typeof location !== 'undefined' ? location.hash : '';
+let linkKind: PasswordLinkKind | null = (() => { try { const v = sessionStorage.getItem(LINK_KEY); return v === 'invite' || v === 'recovery' ? v : null; } catch { return null; } })();
+let linkQueued: PasswordLinkKind | null = null;
+const linkListeners = new Set<(k: PasswordLinkKind) => void>();
+/** Where the demo "open the reset link" button was tapped, so back on the new-password screen returns there. */
+let linkOrigin: { label: string; where: string } | null = null;
+/** An expired / already-used link (Supabase sends '#error=…&error_code=otp_expired'). Shown once on the forgot screen. */
+let linkProblem: string | null = /[#&]error(_code)?=/.test(BOOT_HASH) && /otp_expired|access_denied|invalid/i.test(BOOT_HASH)
+  ? 'That link has expired or was already used. Pop your email in and we’ll send you a fresh one.' : null;
+
+store.onPasswordRecovery?.((kind?: PasswordLinkKind) => {
+  const k: PasswordLinkKind = kind === 'invite' ? 'invite' : 'recovery';
+  linkKind = k;
+  try { sessionStorage.setItem(LINK_KEY, k); } catch { /* private mode */ }
+  if (linkListeners.size) linkListeners.forEach((l) => l(k)); else linkQueued = k;
+});
+
+/** The page was opened from a reset/invite link and supabase-js is still signing in (show a splash, not the welcome). */
+export const arrivingFromLink = () => /access_token=/.test(BOOT_HASH) && /type=(invite|recovery)/.test(BOOT_HASH);
+export const passwordLinkKind = () => linkKind;
+export function onPasswordLink(fn: (k: PasswordLinkKind) => void): () => void {
+  linkListeners.add(fn);
+  if (linkQueued) { const k = linkQueued; linkQueued = null; fn(k); }
+  return () => { linkListeners.delete(fn); };
+}
+/** Leave the new-password screen (saved, or backed out). */
+export function endPasswordLink() {
+  linkKind = null;
+  try { sessionStorage.removeItem(LINK_KEY); } catch { /* private mode */ }
+}
+export function setLinkOrigin(o: { label: string; where: string } | null) { linkOrigin = o; }
+export function takeLinkOrigin() { const o = linkOrigin; linkOrigin = null; return o; }
+export function takeLinkProblem() { const p = linkProblem; linkProblem = null; return p; }
+export const hasLinkProblem = () => !!linkProblem;
+
+/** Demo only: the demo store's stand-in for tapping the emailed link (not part of DataStore). */
+export function demoOpenPasswordLink(kind: PasswordLinkKind, email?: string): Promise<boolean> {
+  const s = store as unknown as { demoOpenPasswordLink?: (k: PasswordLinkKind, e?: string) => Promise<boolean> };
+  return s.demoOpenPasswordLink ? s.demoOpenPasswordLink(kind, email) : Promise.resolve(false);
+}

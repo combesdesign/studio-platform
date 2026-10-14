@@ -3,11 +3,12 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../shared/theme.css';
 import './studio.css';
-import { DemoBadge, Sheet, ToastProvider, leaveSheets, match, store, useData, useRoute } from '../shared/react';
-import type { StaffRole } from '../shared/types';
+import { DemoBadge, Sheet, ToastProvider, leaveSheets, match, store, useData, useRoute, useToast } from '../shared/react';
+import type { AuthUser, StaffRole } from '../shared/types';
 import { Flower, Logo } from '../shared/brand';
 import { Avatar, Icon, Loading, SheetHead, SnackProvider, StudioCtx, cx, goFromSheet, roleCan, roleLabel, teacherIds, type Perm, type StaffUser, type StudioCtxValue } from './ui';
 import { SignIn } from './signin';
+import { LINK_PROBLEM, NewPassword, endPasswordLink, usePasswordLink, type PasswordLinkKind } from './password';
 import { Today } from './today';
 import { Roster } from './roster';
 import { Schedule, Timetable } from './schedule';
@@ -34,9 +35,27 @@ function section(path: string): string {
 
 function App() {
   const auth = useData(() => store.currentUser(), []);
-  const user = auth.data;
-  if (auth.loading && auth.data === undefined) return <div className="boot"><Loading /></div>;
-  if (!user || user.kind !== 'staff') return <SignIn notStaff={!!user && user.kind !== 'staff'} onDone={auth.reload} />;
+  const link = usePasswordLink();
+  const toast = useToast();
+  // Just signed in by saving a new password: go straight to Today while auth re-loads.
+  const [justIn, setJustIn] = useState<AuthUser | null>(null);
+  React.useEffect(() => { if (auth.data) setJustIn(null); }, [auth.data]);
+  if (link.kind) {
+    const finish = async (kind: PasswordLinkKind) => {
+      const u = await store.currentUser().catch(() => null);
+      endPasswordLink();
+      if (u && u.kind === 'staff') {
+        setJustIn(u);
+        auth.reload();
+        toast(kind === 'invite' ? 'Welcome aboard! Your password is saved' : 'All set – your new password is saved');
+      } else toast('Password saved. Sign in with your new password');
+      location.replace('#/');
+    };
+    return <NewPassword kind={link.kind} email={auth.data?.email} signedIn={auth.data?.kind === 'staff'} onSaved={finish} />;
+  }
+  const user = auth.data ?? justIn;
+  if (link.arriving || (auth.loading && auth.data === undefined)) return <div className="boot"><Loading /></div>;
+  if (!user || user.kind !== 'staff') return <SignIn notStaff={!!user && user.kind !== 'staff'} onDone={auth.reload} linkProblem={LINK_PROBLEM} />;
   return <Signed me={user} />;
 }
 
