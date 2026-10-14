@@ -143,4 +143,24 @@ p { margin: 0; }
 .empty { text-align: center; padding: 36px 16px; color: var(--muted); }
 .empty img { width: 40px; margin: 0 auto 12px; opacity: .6; }
 
+
+/* ---- brand pieces (src/shared/brand.tsx), same motion as snowypilatesclub.com ---- */
+.spc-logo { display: block; overflow: visible; }
+.spc-logo path { transform-box: fill-box; transform-origin: 50% 50%; }
+.spc-logo-anim .lt { animation: spcLetterUp 1s var(--ease) both; animation-delay: calc(.15s + var(--n) * 55ms); }
+.spc-logo-anim .lf { animation: spcFlowerIn 1.2s cubic-bezier(.3, 1.5, .5, 1) both; animation-delay: .85s; }
+@keyframes spcLetterUp { from { opacity: 0; transform: translateY(55%); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes spcFlowerIn { from { opacity: 0; transform: scale(0) rotate(-200deg); } to { opacity: 1; transform: none; } }
+.spc-flower { display: inline-block; flex: none; vertical-align: middle; }
+.spc-flower-spin { animation: spcSpin 14s linear infinite; }
+@keyframes spcSpin { to { transform: rotate(360deg); } }
+.spc-stars { display: inline-flex; gap: 3px; align-items: center; }
+.spc-marquee { overflow: hidden; padding-block: 18px; }
+.spc-marquee-navy { background: var(--navy); color: #fff; }
+.spc-marquee-mist { background: var(--mist); color: var(--ink); }
+.spc-marquee-cream { background: var(--cream); color: var(--ink); }
+.spc-track { display: flex; gap: 32px; width: max-content; animation: spcSlide 45s linear infinite; }
+.spc-track span { display: inline-flex; align-items: center; gap: 32px; font-family: var(--display); font-size: 26px; white-space: nowrap; }
+@keyframes spcSlide { to { transform: translateX(-50%); } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

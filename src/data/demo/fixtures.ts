@@ -53,7 +53,7 @@ export const STAFF: Staff[] = [
     bio: "A real life angel — Julia's style is the perfect mix of satisfying and challenging where you leave every class realising what you are capable of." },
   { id: 'st_gracet', name: 'Grace T', email: 'grace.t@snowypilatesclub.com', role: 'instructor', photoUrl: 'img/grace-t.webp', payPerClassCents: 6000, active: true,
     bio: "Grace's bright smile and easy going nature will put you at ease instantly and her workouts will give you that signature pilates burn you've been looking for." },
-  { id: 'st_gracep', name: 'Grace P', email: 'grace.p@snowypilatesclub.com', role: 'instructor', photoUrl: 'img/grace-p.webp', payPerClassCents: 5500, active: true,
+  { id: 'st_gracep', name: 'Grace P', email: 'grace.p@snowypilatesclub.com', role: 'front_desk', photoUrl: 'img/grace-p.webp', payPerClassCents: 5500, active: true,
     bio: "Grace P runs our Mums + Bubs classes and helps out on the front desk. Gentle, encouraging and all about rebuilding strength from the inside out." },
 ];
 

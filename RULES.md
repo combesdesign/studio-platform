@@ -73,6 +73,7 @@ These are Snowy Pilates Club's real policies, taken from snowypilatesclub.com. W
 - Billing in demo mode: `nextBillingAt = activatedAt + 7 days` (weekly). In live mode, Stripe subscriptions handle billing.
 
 ## Staff permissions
+- Grace P is set up as **front desk** (she also teaches Mums + Bubs). Any staff member can be the instructor on a class, whatever their role.
 - **Owner:** everything.
 - **Manager:** everything except staff pay rates and studio settings for the ABN, bank and Stripe.
 - **Front desk:** schedule, rosters, check-in, clients, POS. No reports revenue and no pay.
