@@ -2,12 +2,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import type { ClassType, SessionWithCounts } from '../shared/types';
-import { store, useData, useToast, errorMessage, Sheet } from '../shared/react';
+import { store, useData, useToast, errorMessage, Sheet, leaveSheets, useBackHandler } from '../shared/react';
 import { addDays, dayLong, money, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
-import { Accent, Arrow, Avatar, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Logo, ScreenHead, Skeleton, classPhoto, useApp } from './ui';
+import { Accent, Arrow, Avatar, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Logo, ScreenHead, SheetHead, Skeleton, classPhoto, useApp } from './ui';
 import {
-  WEEKDAYS, classTypeFor, dayLabel, firstName, freeCancelUntil, hoursUntil, icsDataUrl, icsFileName,
-  isLateCancel, sessionState, staffRole, timeRange, when,
+  WEEKDAYS, classTypeFor, dayLabel, firstName, freeCancelUntil, goFlow, hoursUntil, icsDataUrl, icsFileName,
+  isLateCancel, sessionState, staffRole, takePendingClass, timeRange, when,
 } from './lib';
 import { weekday } from '../shared/format';
 
@@ -23,13 +23,20 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
   const days = useMemo(() => Array.from({ length: windowDays }, (_, i) => addDays(today, i)), [today, windowDays]);
   const [day, setDayState] = useState<string>(rememberedDay && days.includes(rememberedDay) ? rememberedDay : today);
   const setDay = (d: string) => { rememberedDay = d; setDayState(d); };
-  const [sheet, setSheet] = useState<string | null>(openId ?? null);
+  // Coming back from the waiver or the shop reopens the class you were looking at.
+  const [sheet, setSheet] = useState<string | null>(() => openId ?? takePendingClass('/'));
 
-  useEffect(() => {
+  // '#/class/:id' (deep links, after the waiver or a Stripe return) becomes the timetable with that class
+  // open. The open sheet gets its own history entry, so back closes it and ✕ lands on the timetable.
+  useLayoutEffect(() => {
     if (!openId) return;
     setSheet(openId);
-    store.getSession(openId).then((s) => setDay(studioDate(s.startsAt))).catch(() => {});
+    nav('/', { replace: true });
   }, [openId]);
+  useEffect(() => {
+    if (!sheet) return;
+    store.getSession(sheet).then((s) => { if (studioDate(s.startsAt) !== day) setDay(studioDate(s.startsAt)); }).catch(() => {});
+  }, [sheet]);
 
   const sessions = useData(async () => ({
     day,
@@ -49,7 +56,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
   const list = fresh ? sessions.data!.list : [];
   const comingSoon = app.classTypes.filter((t) => t.active && !t.bookable);
 
-  const close = () => { setSheet(null); if (openId) nav('/', { replace: true }); };
+  const close = () => setSheet(null);
 
   return (
     <div className="screen tt">
@@ -82,7 +89,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
 
       {comingSoon.length > 0 && <ComingSoon types={comingSoon} />}
 
-      <ClassSheet sessionId={sheet} onClose={close} nav={nav} />
+      <ClassSheet sessionId={sheet} onClose={close} nav={nav} backLabel="Timetable" where="/" />
     </div>
   );
 }
@@ -220,7 +227,7 @@ function InterestSheet({ ct, onClose }: { ct: ClassType | null; onClose: () => v
   const mailto = `mailto:${app.settings.email}?subject=${encodeURIComponent(`Register interest: ${ct.name}`)}&body=${encodeURIComponent(`Hi! I'd love to hear when ${ct.name} starts.\n\n${app.client.firstName} ${app.client.lastName}`)}`;
   return (
     <Sheet open onClose={onClose} label={ct.name}>
-      <div className="sheet-x"><button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="close" size={20} /></button></div>
+      <SheetHead onClose={onClose} />
       <div className="stack lg">
         <div>
           <span className="tag cream">Coming soon</span>
@@ -245,15 +252,16 @@ function InterestSheet({ ct, onClose }: { ct: ClassType | null; onClose: () => v
 // ------------------------------------------------------------------ class sheet
 type Mode = 'view' | 'cancel' | 'booked' | 'waitlisted' | 'nocredits';
 
-export function ClassSheet({ sessionId, onClose, nav }: { sessionId: string | null; onClose: () => void; nav: Nav }) {
+/** Class detail, opened over the timetable or bookings. backLabel names that screen ("‹ Timetable"). */
+export function ClassSheet({ sessionId, onClose, nav, backLabel, where }: { sessionId: string | null; onClose: () => void; nav: Nav; backLabel: string; where: string }) {
   return (
     <Sheet open={!!sessionId} onClose={onClose} label="Class details">
-      {sessionId && <ClassSheetBody key={sessionId} id={sessionId} onClose={onClose} nav={nav} />}
+      {sessionId && <ClassSheetBody key={sessionId} id={sessionId} onClose={onClose} nav={nav} backLabel={backLabel} where={where} />}
     </Sheet>
   );
 }
 
-function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void; nav: Nav }) {
+function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; onClose: () => void; nav: Nav; backLabel: string; where: string }) {
   const app = useApp();
   const toast = useToast();
   const cid = app.client.id;
@@ -261,6 +269,9 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
   const [busy, setBusy] = useState(false);
   const [passId, setPassId] = useState<string | undefined>(undefined);
   const [lastCancel, setLastCancel] = useState<{ returned: boolean } | null>(null);
+  // the out-of-credits and cancel screens are a step inside the sheet: back returns to the details
+  useBackHandler(mode === 'nocredits' || mode === 'cancel', () => setMode('view'));
+  const back = { label: backLabel, onClick: onClose };
 
   const d = useData(async () => {
     const [s, bks, credits] = await Promise.all([
@@ -273,8 +284,8 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
     return { s, mine, credits };
   }, [id, cid]);
 
-  if (d.error && !d.data) return <ErrorBlock error={d.error} onRetry={d.reload} />;
-  if (!d.data) return <SheetSkeleton />;
+  if (d.error && !d.data) return <><SheetHead back={back} /><ErrorBlock error={d.error} onRetry={d.reload} /></>;
+  if (!d.data) return <><SheetHead back={back} /><SheetSkeleton /></>;
 
   const { s, mine, credits } = d.data;
   const ct = classTypeFor(app.classTypes, s.classTypeId);
@@ -285,6 +296,10 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
   const waitlisted = mine?.status === 'waitlisted';
   const full = s.spotsLeft <= 0;
   const bookable = ct?.bookable !== false;
+  const className = ct?.name ?? 'Class';
+  // Leave the sheet (popping its history entry first), then open a flow that knows how to bring us back.
+  const toFlow = (to: string) => leaveSheets(() => goFlow(nav, to, { label: className, where, reopen: id }));
+  const toShop = () => toFlow('/passes?for=' + encodeURIComponent(id));
 
   const book = async () => {
     setBusy(true);
@@ -293,7 +308,7 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
       setMode(r.outcome === 'booked' ? 'booked' : 'waitlisted');
       d.reload();
     } catch (e: any) {
-      if (e?.code === 'WAIVER_REQUIRED') { onClose(); nav('/waiver?then=' + encodeURIComponent(id)); }
+      if (e?.code === 'WAIVER_REQUIRED') toFlow('/waiver?then=' + encodeURIComponent(id));
       else if (e?.code === 'NO_CREDITS') setMode('nocredits');
       else toast(errorMessage(e));
     } finally { setBusy(false); }
@@ -323,6 +338,8 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
   // ---------- success states
   if (mode === 'booked' || mode === 'waitlisted') {
     return (
+      <>
+      <SheetHead onClose={onClose} />
       <div className="success">
         <div className="success-mark"><Flower size={64} className="bloom" /></div>
         <h2>{mode === 'booked' ? <>You’re <em>booked</em> in</> : <>You’re on the <em>waitlist</em></>}</h2>
@@ -337,19 +354,20 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
           <button className="btn block" onClick={onClose}>Done</button>
         </div>
       </div>
+      </>
     );
   }
 
   if (mode === 'nocredits') {
     return (
       <div className="stack lg">
-        <SheetTop onClose={onClose} onBack={() => setMode('view')} />
+        <SheetHead back={{ label: className, onClick: () => setMode('view') }} onClose={onClose} />
         <div className="center-col">
           <div className="empty-mark lg"><Icon name="ticket" size={30} /></div>
           <h2>You’re out of <em>credits</em></h2>
           <p className="muted">You’ll need a pass that covers {ct?.name ?? 'this class'} to book. Grab one and we’ll bring you straight back here.</p>
         </div>
-        <button className="btn block" onClick={() => { onClose(); nav('/passes?for=' + encodeURIComponent(id)); }}>See passes + memberships</button>
+        <button className="btn block" onClick={toShop}>See passes + memberships</button>
         <button className="btn ghost block" onClick={() => setMode('view')}>Not now</button>
       </div>
     );
@@ -358,7 +376,7 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
   if (mode === 'cancel' && mine) {
     return (
       <div className="stack lg">
-        <SheetTop onClose={onClose} onBack={() => setMode('view')} />
+        <SheetHead back={{ label: className, onClick: () => setMode('view') }} onClose={onClose} />
         <div className="center-col">
           <div className={'empty-mark lg' + (late ? ' warn' : '')}><Icon name={late ? 'clock' : 'calendar'} size={30} /></div>
           {late ? (
@@ -390,9 +408,9 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
   // ---------- details
   return (
     <div className="cs">
+      <SheetHead compact back={back} title={<>{time(s.startsAt)} · {className}</>} />
       <div className="cs-media">
         <img src={classPhoto(ct?.name)} alt="" />
-        <button className="icon-btn glass" aria-label="Close" onClick={onClose}><Icon name="close" size={20} /></button>
       </div>
       <div className="cs-top">
         <div className="row spread">
@@ -443,7 +461,7 @@ function ClassSheetBody({ id, onClose, nav }: { id: string; onClose: () => void;
       )}
 
       {st === 'open' && bookable && !booked && !waitlisted && (
-        <PassPicker credits={credits} passId={passId} setPassId={setPassId} full={full} nav={nav} onClose={onClose} sessionId={id} />
+        <PassPicker credits={credits} passId={passId} setPassId={setPassId} full={full} onShop={toShop} />
       )}
       {booked && mine?.passId && (
         <div className="using"><Icon name="ticket" size={20} /><span>Booked with <strong>{credits.find((c) => c.pass.id === mine.passId)?.pass.name ?? 'your pass'}</strong></span></div>
@@ -501,15 +519,6 @@ function formatIn(h: number): string {
   return r === 1 ? '1 hour' : `${r} hours`;
 }
 
-function SheetTop({ onClose, onBack }: { onClose: () => void; onBack: () => void }) {
-  return (
-    <div className="row spread">
-      <button className="icon-btn" aria-label="Back" onClick={onBack}><Icon name="back" size={20} /></button>
-      <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="close" size={20} /></button>
-    </div>
-  );
-}
-
 function SheetSkeleton() {
   return (
     <div className="stack lg" aria-busy="true">
@@ -537,8 +546,8 @@ function Mats({ s }: { s: SessionWithCounts }) {
   );
 }
 
-function PassPicker({ credits, passId, setPassId, full, nav, onClose, sessionId }: {
-  credits: CreditSummary[]; passId?: string; setPassId: (s?: string) => void; full: boolean; nav: Nav; onClose: () => void; sessionId: string;
+function PassPicker({ credits, passId, setPassId, full, onShop }: {
+  credits: CreditSummary[]; passId?: string; setPassId: (s?: string) => void; full: boolean; onShop: () => void;
 }) {
   if (credits.length === 0) {
     return (
@@ -547,7 +556,7 @@ function PassPicker({ credits, passId, setPassId, full, nav, onClose, sessionId 
           <strong>No pass for this class yet</strong>
           <p className="muted">{full ? 'You can still join the waitlist – you’ll need a credit if a spot opens.' : 'Grab a class pack, membership or the intro offer to book.'}</p>
         </div>
-        <button className="btn sm cream" onClick={() => { onClose(); nav('/passes?for=' + encodeURIComponent(sessionId)); }}>Shop</button>
+        <button className="btn sm cream" onClick={onShop}>Shop</button>
       </div>
     );
   }

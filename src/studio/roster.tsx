@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Sheet, store, useAction, useData, useToast } from '../shared/react';
+import { Sheet, match, store, useAction, useBackHandler, useData, useToast } from '../shared/react';
 import { studioDate, studioToUTC, time, weekStart } from '../shared/format';
 import type { Booking, Pass, SessionWithCounts } from '../shared/types';
 import type { RosterEntry } from '../shared/store';
 import { Flower } from '../shared/brand';
-import { Accent, Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Sep, SheetHead, cx, dayLong, fullName, useSnack, useStudio } from './ui';
+import { Accent, Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Sep, SheetHead, backFrom, cx, dayLong, fullName, goFromSheet, useSnack, useStudio } from './ui';
 import { AddClientSheet, SessionPicker, WaiverSheet, WalkInSheet } from './book';
 import { useNow } from './today';
 
@@ -64,7 +64,16 @@ export function Roster({ id }: { id: string }) {
   const ended = now >= new Date(s.endsAt).getTime();
   const cancelled = s.status === 'cancelled';
   const isToday = studioDate(s.startsAt) === studioDate();
-  const back = isToday ? { href: '#/', label: 'Today' } : { href: `#/schedule/${weekStart(studioDate(s.startsAt))}`, label: 'Schedule' };
+  // Back to wherever you opened the roster from (Today, the schedule, a client); else by the class date.
+  const back = backFrom((r) => {
+    if (r === '/') return 'Today';
+    if (r === '/schedule/timetable') return 'Timetable';
+    if (r.startsWith('/schedule')) return 'Schedule';
+    if (r === '/clients') return 'Clients';
+    const cm = match('/clients/:id', r);
+    if (cm) return entries.find((e) => e.clientId === cm.id)?.client.firstName ?? 'Client';
+    return null;
+  }, isToday ? { href: '#/', label: 'Today' } : { href: `#/schedule/${weekStart(studioDate(s.startsAt))}`, label: 'Schedule' });
 
   const toggle = async (e: RosterEntry) => {
     const name = e.client.firstName;
@@ -182,8 +191,8 @@ export function Roster({ id }: { id: string }) {
 
       <AddClientSheet open={sheet === 'add'} onClose={() => setSheet(null)} session={s} exclude={entries.filter((e) => ATTENDING.has(e.status) || e.status === 'waitlisted').map((e) => e.clientId)} />
       <WalkInSheet open={sheet === 'walkin'} onClose={() => setSheet(null)} session={s} />
-      <EditSessionSheet open={sheet === 'edit'} onClose={() => setSheet(null)} s={s} />
-      <CancelSessionSheet open={sheet === 'cancel'} onClose={() => setSheet(null)} s={s} count={attending.length + waitlist.length} />
+      <EditSessionSheet open={sheet === 'edit'} onClose={() => setSheet(null)} s={s} onBack={() => setSheet('menu')} />
+      <CancelSessionSheet open={sheet === 'cancel'} onClose={() => setSheet(null)} s={s} count={attending.length + waitlist.length} onBack={() => setSheet('menu')} />
       <Confirm open={sheet === 'noshow'} onClose={() => setSheet(null)} title={<>Mark rest as <em>no-show</em>?</>} busy={busy} confirmLabel={`Mark ${stillBooked.length} as no-show`} onConfirm={markRest}
         body={`${stillBooked.map((e) => e.client.firstName).join(', ')} didn't check in. They'll lose the credit for this class${settings.noShowFeeCents ? ' and be charged the no-show fee' : ''}.`} />
       <Sheet open={sheet === 'menu'} onClose={() => setSheet(null)} label="Class actions">
@@ -201,7 +210,7 @@ export function Roster({ id }: { id: string }) {
           <SheetHead title={<>{injury.client.firstName}'s <em>notes</em></>} onClose={() => setInjury(null)} />
           <div className="injury-box"><Icon name="injury" size={22} /><p>{injury.client.injuries || injury.client.healthForm?.injuries || 'No details recorded.'}</p></div>
           {injury.client.healthForm?.pregnantOrPostnatal && <p className="chip cream" style={{ marginTop: 12 }}>Pregnant or postnatal</p>}
-          <div className="sh-foot"><a className="btn soft" href={`#/clients/${injury.clientId}`}>View profile</a><button className="btn" onClick={() => setInjury(null)}>Got it</button></div>
+          <div className="sh-foot"><a className="btn soft" href={`#/clients/${injury.clientId}`} onClick={(ev) => goFromSheet(ev, `#/clients/${injury.clientId}`)}>View profile</a><button className="btn" onClick={() => setInjury(null)}>Got it</button></div>
         </>}
       </Sheet>
       {waiverFor && <WaiverSheet open onClose={() => setWaiverFor(null)} client={waiverFor.client} />}
@@ -244,6 +253,8 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
   const late = Date.now() > new Date(s.startsAt).getTime() - settings.cancelWindowHours * 3600e3;
   const name = e.client.firstName;
   const wl = e.status === 'waitlisted';
+  // cancel / move / book-in are steps inside the sheet: back (pill, button or gesture) returns to the options
+  useBackHandler(view !== 'main', () => setView('main'));
 
   const done = (msg: string) => { toast(msg); onClose(); };
   const noShow = async () => { if (await run(() => store.markNoShow(e.id))) done(`${name} marked as no-show`); };
@@ -271,7 +282,9 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
 
   return (
     <Sheet open onClose={onClose} label={fullName(e.client)}>
-      <SheetHead title={fullName(e.client)} sub={wl ? `Waitlist position ${e.waitlistPosition ?? ''}` : passLabel(e)} onClose={onClose} />
+      <SheetHead title={view === 'main' ? fullName(e.client) : view === 'cancel' ? <>Cancel <em>booking</em></> : view === 'move' ? <>Move <em>{name}</em></> : <>Book <em>{name}</em> in</>}
+        sub={view === 'main' ? (wl ? `Waitlist position ${e.waitlistPosition ?? ''}` : passLabel(e)) : fullName(e.client)}
+        back={view === 'main' ? undefined : { label: name, onClick: () => setView('main') }} onClose={onClose} />
       {view === 'main' && (
         <>
           {e.flags.length > 0 && (
@@ -298,7 +311,7 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
             {wl && <button onClick={() => setView('promote')}><Icon name="plus" /><span><strong>Book in now</strong><span>Squeeze them in ahead of the waitlist</span></span></button>}
             {wl && <button onClick={leave} disabled={busy}><Icon name="x" /><span><strong>Remove from waitlist</strong><span>No penalty</span></span></button>}
             {!e.client.waiverSignedAt && can('waiver') && <button onClick={onWaiver}><Icon name="doc" /><span><strong>Record waiver</strong><span>Signed in person today</span></span></button>}
-            <a href={`#/clients/${e.clientId}`} onClick={onClose}><Icon name="users" /><span><strong>View profile</strong><span>{e.client.email}</span></span></a>
+            <a href={`#/clients/${e.clientId}`} onClick={(ev) => goFromSheet(ev, `#/clients/${e.clientId}`)}><Icon name="users" /><span><strong>View profile</strong><span>{e.client.email}</span></span></a>
           </div>
         </>
       )}
@@ -333,7 +346,7 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
 }
 
 // ------------------------------------------------------------------ class edit / cancel
-export function EditSessionSheet({ open, onClose, s }: { open: boolean; onClose: () => void; s: SessionWithCounts }) {
+export function EditSessionSheet({ open, onClose, s, onBack }: { open: boolean; onClose: () => void; s: SessionWithCounts; onBack?: () => void }) {
   const { staff, typeById } = useStudio();
   const [date, setDate] = useState(''); const [hhmm, setHhmm] = useState('');
   const [instructorId, setIns] = useState(''); const [cap, setCap] = useState(''); const [note, setNote] = useState('');
@@ -356,7 +369,7 @@ export function EditSessionSheet({ open, onClose, s }: { open: boolean; onClose:
   const teachers = staff.filter((x) => x.active || x.id === s.instructorId);
   return (
     <Sheet open={open} onClose={onClose} label="Edit class">
-      <SheetHead title={<>Edit <em>class</em></>} sub={`${typeById(s.classTypeId)?.name}. Changes apply to this class only.`} onClose={onClose} />
+      <SheetHead title={<>Edit <em>class</em></>} sub={`${typeById(s.classTypeId)?.name}. Changes apply to this class only.`} onClose={onClose} back={onBack && { label: 'Class actions', onClick: onBack }} />
       <div className="form-grid">
         <label className="field"><span>Date</span><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <label className="field"><span>Start time</span><input className="input" type="time" value={hhmm} onChange={(e) => setHhmm(e.target.value)} /></label>
@@ -372,7 +385,7 @@ export function EditSessionSheet({ open, onClose, s }: { open: boolean; onClose:
   );
 }
 
-function CancelSessionSheet({ open, onClose, s, count }: { open: boolean; onClose: () => void; s: SessionWithCounts; count: number }) {
+function CancelSessionSheet({ open, onClose, s, count, onBack }: { open: boolean; onClose: () => void; s: SessionWithCounts; count: number; onBack?: () => void }) {
   const [reason, setReason] = useState('');
   const [sure, setSure] = useState(false);
   const { busy, run } = useAction();
@@ -383,7 +396,7 @@ function CancelSessionSheet({ open, onClose, s, count }: { open: boolean; onClos
   };
   return (
     <Sheet open={open} onClose={onClose} label="Cancel class">
-      <SheetHead title={<>Cancel this <em>class</em>?</>} sub={`${time(s.startsAt)} ${dayLong(s.startsAt)}`} onClose={onClose} />
+      <SheetHead title={<>Cancel this <em>class</em>?</>} sub={`${time(s.startsAt)} ${dayLong(s.startsAt)}`} onClose={onClose} back={onBack && { label: 'Class actions', onClick: onBack }} />
       <p className="muted">{count ? `${count} ${count === 1 ? 'person' : 'people'} will be removed, get their credit back and be told by email or push.` : 'No one is booked in yet.'}</p>
       <label className="field" style={{ marginTop: 16 }}><span>Reason (shown to clients)</span>
         <textarea className="textarea" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Instructor unwell, sorry!" />

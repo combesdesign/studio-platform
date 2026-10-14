@@ -1,8 +1,8 @@
 /** Waiver + health form. Required before a client's first booking (WAIVER_REQUIRED). */
 import React, { useMemo, useState } from 'react';
-import { store, useToast, errorMessage } from '../shared/react';
-import { Flower, Icon, useApp } from './ui';
-import { dateShortNoDay, queryOf, saveClient } from './lib';
+import { store, useToast, errorMessage, leaveSheets, useBackHandler } from '../shared/react';
+import { BackPill, Flower, Icon, useApp } from './ui';
+import { backOut, dateShortNoDay, flowFrom, queryOf, saveClient, swapFlow } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 type YN = 'Yes' | 'No' | '';
@@ -46,11 +46,17 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   const okSign = agree && sig.trim().length >= 2;
   const canNext = [okAbout, okHealth, okSign][step];
 
-  const back = () => {
-    if (step > 0) { setStep(step - 1); window.scrollTo(0, 0); return; }
-    if (history.length > 1) history.back(); else nav('/');
-  };
-  const next = () => { setStep(step + 1); window.scrollTo(0, 0); };
+  // Back goes one step at a time, then out to where the waiver was opened from (the class, or Profile).
+  // Each step after the first has its own history entry, so the phone back button does the same.
+  const origin = flowFrom(path);
+  const outTo = then ? '/class/' + encodeURIComponent(then) : edit ? '/profile' : '/';
+  const leaveFlow = () => backOut(nav, path, outTo);
+  const goStep = (n: number) => { setStep(n); window.scrollTo(0, 0); };
+  useBackHandler(step >= 1, () => goStep(0));
+  useBackHandler(step >= 2, () => goStep(1));
+  const back = () => { if (step > 0) goStep(step - 1); else leaveFlow(); };
+  const next = () => goStep(step + 1);
+  const backLabel = step > 0 ? steps[step - 1]! : origin?.label ?? (then ? 'Class' : edit ? 'Profile' : 'Timetable');
 
   const submit = async () => {
     setBusy(true);
@@ -66,18 +72,19 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
       qs.forEach((x) => { const a = answers[x]!; out[x] = a.yn === 'Yes' ? (a.detail.trim() ? `Yes: ${a.detail.trim()}` : 'Yes') : 'No'; });
       await store.submitWaiver(c.id, { answers: out, injuries: injuries.trim() || undefined, pregnantOrPostnatal: preg === 'Yes' });
       app.refreshAuth();
+      // Step off the step entries first (quietly), then leave the flow.
       if (then) {
         try {
           const r = await store.bookClass(c.id, then);
           toast(r.outcome === 'booked' ? 'All signed – and you’re booked in' : 'All signed – you’re on the waitlist');
-          nav('/class/' + encodeURIComponent(then), { replace: true });
+          leaveSheets(leaveFlow, { quiet: true });
         } catch (e: any) {
-          if (e?.code === 'NO_CREDITS') { toast('All signed. Now grab a pass to book'); nav('/passes?for=' + encodeURIComponent(then), { replace: true }); }
-          else { toast(errorMessage(e)); nav('/class/' + encodeURIComponent(then), { replace: true }); }
+          if (e?.code === 'NO_CREDITS') { toast('All signed. Now grab a pass to book'); leaveSheets(() => swapFlow(nav, path, '/passes?for=' + encodeURIComponent(then)), { quiet: true }); }
+          else { toast(errorMessage(e)); leaveSheets(leaveFlow, { quiet: true }); }
         }
       } else {
         toast(edit ? 'Health info updated – thank you' : 'All signed – thank you');
-        nav(edit ? '/profile' : '/', { replace: true });
+        leaveSheets(leaveFlow, { quiet: true });
       }
     } catch (e) { toast(errorMessage(e)); }
     finally { setBusy(false); }
@@ -88,7 +95,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   return (
     <div className="flow">
       <div className="flow-top">
-        <button className="icon-btn" aria-label="Back" onClick={back}><Icon name="back" /></button>
+        <BackPill label={backLabel} onClick={back} />
         <div className="flow-progress" aria-label={`Step ${step + 1} of ${steps.length}`}>
           {steps.map((s, i) => <span key={s} className={i <= step ? 'on' : ''} />)}
         </div>

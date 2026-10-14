@@ -3,7 +3,7 @@ import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { gstOf, money } from '../shared/format';
 import type { Client, Pass, PaymentMethod, Product, Sale } from '../shared/types';
 import { FlowerStars, Logo } from '../shared/brand';
-import { Avatar, Icon, Loading, PageHead, Seg, SheetHead, cx, dateTime, fullName, toCents, useStudio } from './ui';
+import { Avatar, BackLink, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dateTime, fullName, toCents, useStudio, type BackTo } from './ui';
 import { ClientSearch, MethodPicker, NewClientSheet, productKindLabel } from './book';
 import { METHOD_LABEL } from './clients';
 
@@ -16,7 +16,7 @@ export function Pos({ clientId }: { clientId?: string }) {
   const prods = useData(() => store.listProducts(), []);
   const [cart, setCart] = useState<Line[]>([]);
   const [client, setClient] = useState<Client | null>(null);
-  const [pick, setPick] = useState<null | 'search' | 'new'>(null);
+  const [pick, setPick] = useState<null | 'search' | 'new' | 'search-new'>(null); // search-new: New client opened from the search
   const [discType, setDiscType] = useState<'$' | '%'>('$');
   const [disc, setDisc] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('card_reader');
@@ -71,11 +71,15 @@ export function Pos({ clientId }: { clientId?: string }) {
     if (r) setReceipt({ ...r, client });
   };
 
-  if (receipt) return <Receipt r={receipt} onNew={reset} />;
+  // Opened for a client (from their profile): back to that client.
+  const who = preset.data?.firstName ?? 'Client';
+  const back: BackTo | undefined = clientId ? backFrom((r) => (r === `/clients/${clientId}` ? who : null), { href: `#/clients/${clientId}`, label: who }) : undefined;
+
+  if (receipt) return <Receipt r={receipt} onNew={reset} back={back} />;
 
   return (
     <div className="pos">
-      <PageHead eyebrow="Point of sale" title={<>Make a <em>sale</em></>} sub="Tap products to add them to the cart." />
+      <PageHead back={back} eyebrow="Point of sale" title={<>Make a <em>sale</em></>} sub="Tap products to add them to the cart." />
       {prods.loading && !prods.data ? <Loading /> : (
         <div className="pos-grid">
           <div className="pos-products">
@@ -169,9 +173,10 @@ export function Pos({ clientId }: { clientId?: string }) {
       <Sheet open={pick === 'search'} onClose={() => setPick(null)} label="Choose client">
         <SheetHead title={<>Choose a <em>client</em></>} onClose={() => setPick(null)} />
         <ClientSearch autoFocus onPick={(c) => { setClient(c); setPick(null); }} />
-        {can('editClients') && <div className="sh-foot"><button className="btn ghost" onClick={() => setPick('new')}><Icon name="userPlus" size={18} />New client</button></div>}
+        {can('editClients') && <div className="sh-foot"><button className="btn ghost" onClick={() => setPick('search-new')}><Icon name="userPlus" size={18} />New client</button></div>}
       </Sheet>
-      <NewClientSheet open={pick === 'new'} onClose={() => setPick(null)} onCreated={(c) => { setClient(c); setPick(null); }} />
+      <NewClientSheet open={pick === 'new' || pick === 'search-new'} onClose={() => setPick(null)} onCreated={(c) => { setClient(c); setPick(null); }}
+        onBack={pick === 'search-new' ? () => setPick('search') : undefined} backLabel="Choose a client" />
     </div>
   );
 }
@@ -184,13 +189,14 @@ function passBlurb(p: Product): string {
   return `${c} class${c === 1 ? '' : 'es'}${v}`;
 }
 
-function Receipt({ r, onNew }: { r: { sale: Sale; passes: Pass[]; client: Client | null }; onNew: () => void }) {
+function Receipt({ r, onNew, back }: { r: { sale: Sale; passes: Pass[]; client: Client | null }; onNew: () => void; back?: BackTo }) {
   const { settings } = useStudio();
   const s = r.sale;
   const sub = s.items.reduce((n, i) => n + i.unitCents * i.qty, 0);
   const disc = sub - s.totalCents;
   return (
     <div className="receipt-wrap">
+      {back && <BackLink {...back} className="ph-back no-print" />}
       <div className="rc-done no-print"><span className="rc-tick"><Icon name="check" size={30} /></span><h1>All <em>done</em></h1><p className="muted">{s.method === 'comp' ? 'Comp sale recorded.' : `${money(s.totalCents, { cents: true })} paid by ${(METHOD_LABEL[s.method] ?? s.method).toLowerCase()}.`}{r.passes.length ? ` ${r.passes.map((p) => p.name).join(', ')} added to ${r.client?.firstName}'s account.` : ''}</p></div>
       <article className="receipt card">
         <Logo className="rc-logo" />

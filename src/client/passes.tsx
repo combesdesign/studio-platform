@@ -2,11 +2,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { CreditSummary, PurchaseResult } from '../shared/store';
 import type { Pass, Product, Sale } from '../shared/types';
-import { store, useData, useToast, errorMessage, Sheet } from '../shared/react';
+import { store, useData, useToast, errorMessage, Sheet, leaveSheets, useBackHandler } from '../shared/react';
 import { addDays, gstOf, money, studioDate } from '../shared/format';
-import { Accent, Arrow, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
+import { Accent, Arrow, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
 import { Marquee } from '../shared/brand';
-import { daysLeft, dateOnlyShort, dateShortNoDay, expiryLabel, perClass, productWhat, queryOf, validityWords, when } from './lib';
+import { backOut, daysLeft, dateOnlyShort, dateShortNoDay, expiryLabel, flowFrom, perClass, productWhat, queryOf, validityWords, when } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -45,8 +45,13 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
     };
   }, [products.data]);
 
+  // Opened from a class ("Get a pass to book"): back returns to that class with its sheet open.
+  const backToClass = () => forId && backOut(nav, path, '/class/' + encodeURIComponent(forId));
+  const forLabel = flowFrom(path)?.label ?? forCt?.name;
+
   return (
     <div className="screen">
+      {forId && <div className="screen-back"><BackPill label={forLabel ?? 'Back to class'} onClick={backToClass} /></div>}
       <ScreenHead title={<>Your <em>passes</em></>} />
 
       {forId && forSession.data && (
@@ -123,7 +128,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
 
       <p className="fine muted center mt-28">All prices in AUD and include GST.</p>
 
-      <Checkout product={buy} onClose={() => setBuy(null)} nav={nav} forId={forId} forLabel={forCt ? forCt.name : undefined} />
+      <Checkout product={buy} onClose={() => setBuy(null)} nav={nav} forId={forId} forLabel={forCt ? forCt.name : undefined} onBackToClass={backToClass} />
     </div>
   );
 }
@@ -275,15 +280,16 @@ function PlanCard({ p, onBuy }: { p: Product; onBuy: () => void }) {
 }
 
 // ------------------------------------------------------------------ checkout
-function Checkout({ product, onClose, nav, forId, forLabel }: { product: Product | null; onClose: () => void; nav: Nav; forId?: string; forLabel?: string }) {
+type CheckoutProps = { onClose: () => void; nav: Nav; forId?: string; forLabel?: string; onBackToClass: () => void };
+function Checkout({ product, ...rest }: CheckoutProps & { product: Product | null }) {
   return (
-    <Sheet open={!!product} onClose={onClose} label="Checkout">
-      {product && <CheckoutBody key={product.id} p={product} onClose={onClose} nav={nav} forId={forId} forLabel={forLabel} />}
+    <Sheet open={!!product} onClose={rest.onClose} label="Checkout">
+      {product && <CheckoutBody key={product.id} p={product} {...rest} />}
     </Sheet>
   );
 }
 
-function CheckoutBody({ p, onClose, nav, forId, forLabel }: { p: Product; onClose: () => void; nav: Nav; forId?: string; forLabel?: string }) {
+function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: CheckoutProps & { p: Product }) {
   const app = useApp();
   const toast = useToast();
   const [step, setStep] = useState<'review' | 'pay' | 'done'>('review');
@@ -292,6 +298,8 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel }: { p: Product; onClos
   const [card, setCard] = useState({ number: '4242 4242 4242 4242', exp: '12 / 29', cvc: '123', name: `${app.client.firstName} ${app.client.lastName}`.trim() });
   const isMember = p.kind === 'membership';
   const isClassProduct = p.kind !== 'retail';
+  // review -> pay is a step inside the sheet: back (button, gesture or ‹ pill) returns to the review
+  useBackHandler(step === 'pay', () => setStep('review'));
 
   const toPayment = async () => {
     setBusy('continue');
@@ -318,6 +326,8 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel }: { p: Product; onClos
 
   if (step === 'done' && result) {
     return (
+      <>
+      <SheetHead onClose={onClose} />
       <div className="success">
         <div className="success-mark"><Flower size={64} className="bloom" /></div>
         <h2>You’re all <em>set</em></h2>
@@ -325,20 +335,21 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel }: { p: Product; onClos
         <Receipt sale={result.sale} />
         <div className="stack">
           {forId ? (
-            <button className="btn block" onClick={() => { onClose(); nav('/class/' + encodeURIComponent(forId)); }}>Back to {forLabel ?? 'your class'}</button>
+            <button className="btn block" onClick={() => leaveSheets(onBackToClass)}>Back to {forLabel ?? 'your class'}</button>
           ) : isClassProduct ? (
-            <button className="btn block" onClick={() => { onClose(); nav('/'); }}>Book a class</button>
+            <button className="btn block" onClick={() => leaveSheets(() => nav('/'))}>Book a class</button>
           ) : null}
           <button className="btn ghost block" onClick={onClose}>Done</button>
         </div>
       </div>
+      </>
     );
   }
 
   if (step === 'pay') {
     return (
       <div className="stack lg">
-        <SheetHead eyebrow="Checkout" title={<>{money(p.priceCents)} <span className="muted-serif">· {p.name}</span></>} onClose={onClose} />
+        <SheetHead back={{ label: p.name, onClick: () => setStep('review') }} eyebrow="Checkout" title={<>{money(p.priceCents)} <span className="muted-serif">· {p.name}</span></>} onClose={onClose} />
         {store.mode === 'demo' && <div className="demo-strip"><Icon name="info" size={18} />Demo – no real payment is taken</div>}
         <button className="apple-pay" disabled={!!busy} onClick={() => pay('apple')} aria-label="Pay with Apple Pay">
           {busy === 'apple' ? <Flower size={22} white spin /> : <><Icon name="apple" fill size={22} /><span>Pay</span></>}

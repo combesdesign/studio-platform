@@ -1,6 +1,6 @@
 /** Shared booking flows: client search, add-to-class, walk-in, move, record waiver, new client. */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Sheet, store, useAction, useData, useToast } from '../shared/react';
+import { Sheet, store, useAction, useBackHandler, useData, useToast } from '../shared/react';
 import { addDays, money, startOfStudioDay, studioDate, time } from '../shared/format';
 import type { Client, PaymentMethod, Product, SessionWithCounts } from '../shared/types';
 import { Avatar, Fill, Icon, SheetHead, cx, dayShort, fullName, useStudio } from './ui';
@@ -57,7 +57,7 @@ export async function createClient(v: NewClient): Promise<Client> {
   });
 }
 
-export function NewClientSheet({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (c: Client) => void }) {
+export function NewClientSheet({ open, onClose, onCreated, onBack, backLabel = 'Back' }: { open: boolean; onClose: () => void; onCreated: (c: Client) => void; onBack?: () => void; backLabel?: string }) {
   const [v, setV] = useState<NewClient>(emptyClient);
   const { busy, run } = useAction();
   useEffect(() => { if (open) setV(emptyClient); }, [open]);
@@ -69,7 +69,7 @@ export function NewClientSheet({ open, onClose, onCreated }: { open: boolean; on
   return (
     <Sheet open={open} onClose={onClose} label="New client">
       <form onSubmit={save}>
-        <SheetHead title={<>New <em>client</em></>} sub="They can set a password later from the client app." onClose={onClose} />
+        <SheetHead title={<>New <em>client</em></>} sub="They can set a password later from the client app." onClose={onClose} back={onBack && { label: backLabel, onClick: onBack }} />
         <ClientFields v={v} set={setV} />
         <div className="sh-foot"><button type="button" className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" disabled={busy}>Add client</button></div>
       </form>
@@ -205,9 +205,11 @@ export function BookOptions({ client, session, onDone, onBack }: { client: Clien
 export function AddClientSheet({ open, onClose, session, exclude }: { open: boolean; onClose: () => void; session: SessionWithCounts; exclude: string[] }) {
   const [client, setClient] = useState<Client | null>(null);
   useEffect(() => { if (open) setClient(null); }, [open]);
+  // picking a client is step 1; the booking options are step 2 (back returns to the search)
+  useBackHandler(open && !!client, () => setClient(null));
   return (
     <Sheet open={open} onClose={onClose} label="Add client to class">
-      <SheetHead title={<>Add to <em>class</em></>} sub={client ? undefined : 'Find a client to book in.'} onClose={onClose} />
+      <SheetHead title={<>Add to <em>class</em></>} sub={client ? undefined : 'Find a client to book in.'} onClose={onClose} back={client ? { label: 'Find a client', onClick: () => setClient(null) } : undefined} />
       {client
         ? <BookOptions client={client} session={session} onDone={onClose} onBack={() => setClient(null)} />
         : <ClientSearch onPick={setClient} autoFocus exclude={exclude} />}
@@ -315,10 +317,11 @@ export function SessionPicker({ onPick, excludeId, days = 14, title, noFull, cli
 export function BookClientSheet({ open, onClose, client }: { open: boolean; onClose: () => void; client: Client }) {
   const [s, setS] = useState<SessionWithCounts | null>(null);
   useEffect(() => { if (open) setS(null); }, [open]);
+  useBackHandler(open && !!s, () => setS(null));
   return (
     <Sheet open={open} onClose={onClose} label="Book into class">
-      <SheetHead title={<>Book <em>{client.firstName}</em> in</>} sub={s ? undefined : 'Pick a class in the next two weeks.'} onClose={onClose} />
-      {s ? <BookOptions client={client} session={s} onDone={onClose} onBack={() => setS(null)} /> : <SessionPicker onPick={setS} clientId={client.id} />}
+      <SheetHead title={<>Book <em>{client.firstName}</em> in</>} sub={s ? undefined : 'Pick a class in the next two weeks.'} onClose={onClose} back={s ? { label: 'Pick a class', onClick: () => setS(null) } : undefined} />
+      {s ? <BookOptions client={client} session={s} onDone={onClose} /> : <SessionPicker onPick={setS} clientId={client.id} />}
     </Sheet>
   );
 }

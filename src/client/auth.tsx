@@ -2,8 +2,8 @@
 import React, { useEffect, useState } from 'react';
 import type { AuthUser } from '../shared/types';
 import { store, useData, errorMessage, useToast } from '../shared/react';
-import { Arrow, Avatar, Flower, Icon, Logo } from './ui';
-import { markLaunched, pathOnly } from './lib';
+import { Arrow, Avatar, BackPill, Flower, Logo } from './ui';
+import { backOut, flowFrom, goFlow, markLaunched, pathOnly, swapFlow } from './lib';
 import { FlowerStars, Marquee } from '../shared/brand';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -12,9 +12,9 @@ export function AuthScreens({ path, nav, onSignedIn }: { path: string; nav: Nav;
   const p = pathOnly(path);
   // The welcome hero is the launch moment for signed-out visitors; don't replay it after they sign in.
   useEffect(() => { markLaunched(); }, []);
-  if (p === '/signin') return <SignIn nav={nav} onSignedIn={onSignedIn} />;
-  if (p === '/signup') return <SignUp nav={nav} onSignedIn={onSignedIn} />;
-  if (p === '/forgot') return <Forgot nav={nav} />;
+  if (p === '/signin') return <SignIn nav={nav} onSignedIn={onSignedIn} path={p} />;
+  if (p === '/signup') return <SignUp nav={nav} onSignedIn={onSignedIn} path={p} />;
+  if (p === '/forgot') return <Forgot nav={nav} path={p} />;
   return <Welcome nav={nav} onSignedIn={onSignedIn} />;
 }
 
@@ -29,8 +29,8 @@ function Welcome({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
           <h1>Join the newest club to hit <em>Cooma!</em></h1>
           <p className="lede">Movement isn’t a chore. Book classes, manage your passes and keep your health info up to date, all in one calm little place.</p>
           <div className="welcome-actions">
-            <button className="btn white" onClick={() => nav('/signup')}>Join the club <Arrow /></button>
-            <button className="btn glass" onClick={() => nav('/signin')}>Sign in</button>
+            <button className="btn white" onClick={() => goFlow(nav, '/signup', { label: 'Welcome', where: '/' })}>Join the club <Arrow /></button>
+            <button className="btn glass" onClick={() => goFlow(nav, '/signin', { label: 'Welcome', where: '/' })}>Sign in</button>
           </div>
         </div>
       </section>
@@ -87,13 +87,15 @@ function DemoPersonas({ onSignedIn }: { onSignedIn: () => void }) {
   );
 }
 
-function AuthFrame({ title, sub, children, nav, back = '/' }: { title: React.ReactNode; sub?: string; children: React.ReactNode; nav: Nav; back?: string }) {
+/** Signed-out page with a pinned "‹ Welcome" / "‹ Sign in" back pill (pops history when we know where it came from). */
+function AuthFrame({ title, sub, children, nav, path, back = '/', backLabel = 'Welcome' }: { title: React.ReactNode; sub?: string; children: React.ReactNode; nav: Nav; path: string; back?: string; backLabel?: string }) {
+  const label = flowFrom(path)?.label ?? backLabel;
   return (
     <div className="auth">
       <div className="auth-top">
-        <button className="icon-btn" aria-label="Back" onClick={() => nav(back)}><Icon name="back" /></button>
+        <BackPill label={label} onClick={() => backOut(nav, path, back)} />
         <Logo width={96} />
-        <span style={{ width: 44 }} />
+        <span className="auth-top-gap" />
       </div>
       <div className="auth-body">
         <h1>{title}</h1>
@@ -104,7 +106,7 @@ function AuthFrame({ title, sub, children, nav, back = '/' }: { title: React.Rea
   );
 }
 
-function SignIn({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
+function SignIn({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; path: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
@@ -116,7 +118,7 @@ function SignIn({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
     finally { setBusy(false); }
   };
   return (
-    <AuthFrame title={<>Welcome <em>back</em></>} sub="Sign in to book your next class." nav={nav}>
+    <AuthFrame title={<>Welcome <em>back</em></>} sub="Sign in to book your next class." nav={nav} path={path}>
       <form className="stack lg" onSubmit={submit}>
         <label className="field"><span>Email</span>
           <input className="input" type="email" autoComplete="email" inputMode="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -126,14 +128,14 @@ function SignIn({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
         </label>
         {err && <p className="form-error" role="alert">{err}</p>}
         <button className="btn block" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        <button type="button" className="link-btn" onClick={() => nav('/forgot')}>Forgot your password?</button>
+        <button type="button" className="link-btn" onClick={() => goFlow(nav, '/forgot', { label: 'Sign in', where: '/signin' })}>Forgot your password?</button>
       </form>
-      <p className="auth-foot muted">New here? <button className="link-btn inline" onClick={() => nav('/signup')}>Create an account</button></p>
+      <p className="auth-foot muted">New here? <button className="link-btn inline" onClick={() => swapFlow(nav, path, '/signup')}>Create an account</button></p>
     </AuthFrame>
   );
 }
 
-function SignUp({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
+function SignUp({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; path: string }) {
   const [f, setF] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '', marketingOptIn: true });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -150,7 +152,7 @@ function SignUp({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
     finally { setBusy(false); }
   };
   return (
-    <AuthFrame title={<>Join the <em>club</em></>} sub="Create your account, then grab the intro offer – two weeks of unlimited classes for new clients." nav={nav}>
+    <AuthFrame title={<>Join the <em>club</em></>} sub="Create your account, then grab the intro offer – two weeks of unlimited classes for new clients." nav={nav} path={path}>
       <form className="stack lg" onSubmit={submit}>
         <div className="grid2">
           <label className="field"><span>First name</span><input className="input" autoComplete="given-name" required value={f.firstName} onChange={set('firstName')} /></label>
@@ -163,12 +165,12 @@ function SignUp({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
         {err && <p className="form-error" role="alert">{err}</p>}
         <button className="btn block" disabled={busy}>{busy ? 'Creating your account…' : 'Create account'}</button>
       </form>
-      <p className="auth-foot muted">Already a member? <button className="link-btn inline" onClick={() => nav('/signin')}>Sign in</button></p>
+      <p className="auth-foot muted">Already a member? <button className="link-btn inline" onClick={() => swapFlow(nav, path, '/signin')}>Sign in</button></p>
     </AuthFrame>
   );
 }
 
-function Forgot({ nav }: { nav: Nav }) {
+function Forgot({ nav, path }: { nav: Nav; path: string }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState('');
@@ -181,17 +183,17 @@ function Forgot({ nav }: { nav: Nav }) {
   };
   if (sent) {
     return (
-      <AuthFrame title={<>Check your <em>inbox</em></>} nav={nav} back="/signin">
+      <AuthFrame title={<>Check your <em>inbox</em></>} nav={nav} path={path} back="/signin" backLabel="Sign in">
         <div className="panel-soft stack">
           <Flower size={28} />
           <p>If there’s an account for <strong>{email}</strong>, we’ve sent a link to reset your password. It can take a minute or two – and check your junk folder just in case.</p>
         </div>
-        <button className="btn block" onClick={() => nav('/signin')}>Back to sign in</button>
+        <button className="btn block" onClick={() => backOut(nav, path, '/signin')}>Back to sign in</button>
       </AuthFrame>
     );
   }
   return (
-    <AuthFrame title={<>Forgot your <em>password?</em></>} sub="No worries. Pop your email in and we’ll send you a reset link." nav={nav} back="/signin">
+    <AuthFrame title={<>Forgot your <em>password?</em></>} sub="No worries. Pop your email in and we’ll send you a reset link." nav={nav} path={path} back="/signin" backLabel="Sign in">
       <form className="stack lg" onSubmit={submit}>
         <label className="field"><span>Email</span>
           <input className="input" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -192,14 +192,32 @@ export function ErrorBlock({ error, onRetry }: { error: unknown; onRetry?: () =>
   );
 }
 
-export function SheetHead({ title, onClose, eyebrow }: { title: React.ReactNode; onClose: () => void; eyebrow?: React.ReactNode }) {
+/** "‹ Timetable": the back control used everywhere (sheets, flows, auth). */
+export function BackPill({ label, onClick, className }: { label: string; onClick: () => void; className?: string }) {
   return (
-    <div className="sheet-head">
-      <div>
-        {eyebrow && <div className="kicker">{eyebrow}</div>}
-        <h2>{title}</h2>
-      </div>
-      <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={20} /></button>
+    <button type="button" className={'back-pill ' + (className || '')} onClick={onClick}>
+      <Icon name="back" size={20} /><span>{label}</span>
+    </button>
+  );
+}
+
+export type Back = { label: string; onClick: () => void };
+
+/**
+ * Pinned sheet header: stays at the top while the sheet scrolls, so back / ✕ is always in reach.
+ * back: drill-down ("‹ Profile"). onClose: ✕. compact: one row with a small title that fades in once scrolled.
+ */
+export function SheetHead({ title, onClose, eyebrow, back, compact }: { title?: React.ReactNode; onClose?: () => void; eyebrow?: React.ReactNode; back?: Back; compact?: boolean }) {
+  return (
+    <div className={'sheet-head' + (back ? ' has-back' : '') + (compact ? ' compact' : '') + (title ? '' : ' bare')}>
+      {back && <BackPill label={back.label} onClick={back.onClick} />}
+      {title && (
+        <div className="sh-title">
+          {eyebrow && !compact && <div className="kicker">{eyebrow}</div>}
+          {compact ? <span className="sh-mini">{title}</span> : <h2>{title}</h2>}
+        </div>
+      )}
+      {onClose && <button className="icon-btn sh-close" onClick={onClose} aria-label="Close"><Icon name="close" size={20} /></button>}
     </div>
   );
 }

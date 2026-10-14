@@ -123,16 +123,34 @@ p { margin: 0; }
 
 /* sheet / modal */
 .scrim { position: fixed; inset: 0; background: rgba(26, 36, 68, .4); backdrop-filter: blur(2px); z-index: 50; animation: fade .2s ease; }
+/* The sheet is a fixed frame and .sheet-scroll inside it scrolls, so a header with position: sticky stays
+   pinned (back / ✕ always in reach). --sheet-px / --sheet-pb / --sheet-pt are the side, bottom and top
+   padding, for full-bleed pinned headers and sticky footers. */
 .sheet {
+  --sheet-px: 20px; --sheet-pb: calc(24px + var(--safe-bottom)); --sheet-pt: 4px;
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 51; background: var(--bg); border-radius: 24px 24px 0 0;
-  max-height: 92vh; overflow: auto; padding: 10px 20px calc(24px + var(--safe-bottom)); box-shadow: var(--shadow-lg);
-  animation: up .32s var(--ease);
+  max-height: 92vh; max-height: calc(100dvh - 24px - var(--safe-top)); display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: var(--shadow-lg); animation: up .32s var(--ease);
 }
-.sheet::before { content: ''; display: block; width: 40px; height: 4px; border-radius: 4px; background: var(--line); margin: 0 auto 14px; }
+.sheet-grip { flex: none; display: grid; place-items: center; height: 20px; touch-action: none; cursor: grab; }
+.sheet-grip span { width: 40px; height: 4px; border-radius: 4px; background: rgba(36, 52, 95, .2); }
+.sheet-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 var(--sheet-px) var(--sheet-pb); }
 @media (min-width: 760px) {
-  .sheet { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: min(560px, 92vw); border-radius: 24px; padding: 28px; animation: pop .25s var(--ease); }
-  .sheet::before { display: none; }
+  .sheet { --sheet-px: 28px; --sheet-pb: 28px; --sheet-pt: 24px; left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: min(560px, 92vw); max-height: 88vh; border-radius: 24px; animation: pop .25s var(--ease); }
+  .sheet-grip { display: none; }
 }
+
+/* Back pill, e.g. "‹ Timetable". Same look in both apps: pages, full-screen flows and pinned sheet headers. */
+.back-pill {
+  display: inline-flex; align-items: center; gap: 2px; min-height: 44px; max-width: 100%; padding: 0 16px 0 9px; border-radius: 999px;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, .92); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1;
+  text-decoration: none; cursor: pointer; white-space: nowrap; flex: none; transition: background .2s, border-color .2s, transform .15s var(--ease);
+}
+.back-pill > span { overflow: hidden; text-overflow: ellipsis; padding: 2px 0; }
+.back-pill .ic { color: var(--navy); flex: none; transition: transform .2s var(--ease); }
+.back-pill:hover { background: var(--mist); border-color: transparent; }
+.back-pill:hover .ic { transform: translateX(-2px); }
+.back-pill:active { transform: scale(.97); }
 .toast { position: fixed; left: 50%; bottom: calc(96px + var(--safe-bottom)); transform: translateX(-50%); z-index: 60; background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 999px; font-size: 14.5px; box-shadow: var(--shadow-lg); animation: up .3s var(--ease); max-width: 92vw; }
 @keyframes up { from { transform: translateY(24px); opacity: 0 } }
 @keyframes pop { from { transform: translate(-50%, -46%); opacity: 0 } }

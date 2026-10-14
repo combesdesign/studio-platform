@@ -3,10 +3,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import '../shared/theme.css';
 import './studio.css';
-import { DemoBadge, Sheet, ToastProvider, match, store, useData, useRoute } from '../shared/react';
+import { DemoBadge, Sheet, ToastProvider, leaveSheets, match, store, useData, useRoute } from '../shared/react';
 import type { StaffRole } from '../shared/types';
 import { Flower, Logo } from '../shared/brand';
-import { Avatar, Icon, Loading, SnackProvider, StudioCtx, cx, roleCan, roleLabel, teacherIds, type Perm, type StaffUser, type StudioCtxValue } from './ui';
+import { Avatar, Icon, Loading, SheetHead, SnackProvider, StudioCtx, cx, goFromSheet, roleCan, roleLabel, teacherIds, type Perm, type StaffUser, type StudioCtxValue } from './ui';
 import { SignIn } from './signin';
 import { Today } from './today';
 import { Roster } from './roster';
@@ -136,16 +136,17 @@ function Shell() {
         <button className={cx(overflow.some((n) => n.key === cur) && 'on')} onClick={() => setMoreOpen(true)}><Icon name="menu" /><span>More</span></button>
       </nav>
       <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} label="More">
+        <SheetHead title={<>More</>} onClose={() => setMoreOpen(false)} />
         <div className="more-me">
           <Avatar name={me.name} photo={photo} size={48} />
           <div><strong>{me.name}</strong><div className="muted small">{myRole}</div></div>
         </div>
         <div className="list more-list">
           {overflow.map((n) => (
-            <a key={n.key} href={n.href} onClick={() => setMoreOpen(false)}><Icon name={n.icon} />{n.label}<Icon name="right" size={18} className="push" /></a>
+            <a key={n.key} href={n.href} onClick={(e) => goFromSheet(e, n.href)}><Icon name={n.icon} />{n.label}<Icon name="right" size={18} className="push" /></a>
           ))}
           <a href="../" target="_blank" rel="noopener"><Icon name="external" />Open the client app<Icon name="right" size={18} className="push" /></a>
-          <button onClick={() => { setMoreOpen(false); signOut(); }}><Icon name="logout" />Sign out</button>
+          <button onClick={() => leaveSheets(signOut)}><Icon name="logout" />Sign out</button>
         </div>
       </Sheet>
 

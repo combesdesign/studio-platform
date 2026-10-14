@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Sheet, store, useAction, useData, useToast } from '../shared/react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { Sheet, leaveSheets, match, store, useAction, useData, useToast } from '../shared/react';
 import { addDays, money, studioDate, time } from '../shared/format';
 import type { Client, Pass, Sale } from '../shared/types';
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
-import { Avatar, Empty, Icon, Loading, PageHead, Seg, SheetHead, cx, dayShort, fullName, toCents, toDollars, useStudio } from './ui';
+import { Avatar, BackLink, Empty, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, fullName, replaceRoute, toCents, toDollars, useStudio } from './ui';
 import { BookClientSheet, NewClientSheet, WaiverSheet } from './book';
 import { computePassStatus, isPassCurrent } from '../domain';
 
@@ -14,6 +14,9 @@ export function Clients() {
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [adding, setAdding] = useState(() => can('editClients') && /[?&]new=1/.test(location.hash));
+  // '?new=1' (from Today) just opens the sheet: drop it from the url first, so back closes the sheet
+  // and a later back / reload doesn't open it again.
+  useLayoutEffect(() => { if (/[?&]new=1/.test(location.hash)) replaceRoute('/clients'); }, []);
   const res = useData(() => store.listClients({ search: q.trim() || undefined }), [q]);
   const monthAgo = new Date(Date.now() - 30 * 864e5).toISOString();
   const list = (res.data ?? []).filter((c) =>
@@ -54,7 +57,7 @@ export function Clients() {
           ))}
         </div>
       )}
-      <NewClientSheet open={adding} onClose={() => { setAdding(false); if (location.hash.includes('new=1')) history.replaceState(null, '', '#/clients'); }} onCreated={(c) => { setAdding(false); location.hash = `/clients/${c.id}`; }} />
+      <NewClientSheet open={adding} onClose={() => setAdding(false)} onCreated={(c) => leaveSheets(() => { location.hash = `/clients/${c.id}`; })} />
     </div>
   );
 }
@@ -77,8 +80,15 @@ export function ClientProfile({ id }: { id: string }) {
   const [refund, setRefund] = useState<Sale | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
-  if (res.error) return <div className="card pad" style={{ marginTop: 40 }}><Empty title="Client not found"><a href="#/clients">Back to clients</a></Empty></div>;
-  if (!res.data) return <Loading />;
+  // Back to the roster / Today / list you came from.
+  const back = backFrom((r) => {
+    if (r === '/') return 'Today';
+    if (r === '/clients') return 'Clients';
+    if (match('/class/:id', r)) return 'Roster';
+    return null;
+  }, { href: '#/clients', label: 'Clients' });
+  if (res.error) return <div className="profile"><BackLink {...back} className="ph-back" /><div className="card pad" style={{ marginTop: 24 }}><Empty title="Client not found"><a href="#/clients">Back to clients</a></Empty></div></div>;
+  if (!res.data) return <div className="profile"><BackLink {...back} className="ph-back" /><Loading /></div>;
   const { client: c, passes, credits, upcoming, past } = res.data;
   const injuries = c.injuries || c.healthForm?.injuries;
   const nowD = new Date();
@@ -89,7 +99,7 @@ export function ClientProfile({ id }: { id: string }) {
 
   return (
     <div className="profile">
-      <a className="back" href="#/clients"><Icon name="left" size={18} />Clients</a>
+      <BackLink {...back} className="ph-back" />
       <header className="pf-head">
         <Avatar name={fullName(c)} size={84} className="pf-av" />
         <div className="pf-text">

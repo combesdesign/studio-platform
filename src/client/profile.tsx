@@ -1,12 +1,12 @@
 /** Profile tab: details, health, marketing opt-in, receipts, studio info, install hint, sign out. */
 import React, { useEffect, useState } from 'react';
 import type { Sale } from '../shared/types';
-import { store, useData, useToast, errorMessage, Sheet } from '../shared/react';
+import { store, useData, useToast, errorMessage, Sheet, useBackHandler } from '../shared/react';
 import { money, studioDate } from '../shared/format';
 import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useApp } from './ui';
 import { Receipt, ReceiptSkeleton } from './passes';
 import { Policies } from './bookings';
-import { dateShortNoDay, isIOS, isNative, isStandalone, mapsUrl, saveClient, staffRole } from './lib';
+import { dateShortNoDay, goFlow, isIOS, isNative, isStandalone, mapsUrl, saveClient, staffRole } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -62,7 +62,7 @@ export function Profile({ nav }: { nav: Nav }) {
             <span className="list-row-main"><span className="list-row-title">Your details</span><span className="list-row-sub">{c.email}</span></span>
             <Icon name="chevron" size={18} className="faint" />
           </button>
-          <button className="list-row" onClick={() => nav('/waiver?edit=1')}>
+          <button className="list-row" onClick={() => goFlow(nav, '/waiver?edit=1', { label: 'Profile', where: '/profile' })}>
             <span className="row-ic"><Icon name="shield" size={20} /></span>
             <span className="list-row-main">
               <span className="list-row-title">Health + waiver</span>
@@ -187,7 +187,7 @@ function DetailsSheet({ open, onClose }: { open: boolean; onClose: () => void })
   };
   return (
     <Sheet open={open} onClose={onClose} label="Your details">
-      <SheetHead title={<>Your <em>details</em></>} onClose={onClose} />
+      <SheetHead back={{ label: 'Profile', onClick: onClose }} title={<>Your <em>details</em></>} />
       <form className="stack lg" onSubmit={save}>
         <div className="grid2">
           <label className="field"><span>First name</span><input className="input" required value={f.firstName} onChange={set('firstName')} autoComplete="given-name" /></label>
@@ -212,20 +212,19 @@ function DetailsSheet({ open, onClose }: { open: boolean; onClose: () => void })
 function HistorySheet({ open, onClose, sales }: { open: boolean; onClose: () => void; sales: Sale[] }) {
   const [sel, setSel] = useState<Sale | null>(null);
   useEffect(() => { if (!open) setSel(null); }, [open]);
+  // a receipt is a step inside the sheet: back returns to the list
+  useBackHandler(open && !!sel, () => setSel(null));
   const list = sales.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return (
     <Sheet open={open} onClose={onClose} label="Purchases">
       {sel ? (
         <div className="stack lg">
-          <div className="row spread">
-            <button className="icon-btn" aria-label="Back" onClick={() => setSel(null)}><Icon name="back" size={20} /></button>
-            <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="close" size={20} /></button>
-          </div>
+          <SheetHead back={{ label: 'Purchases', onClick: () => setSel(null) }} title={<>Your <em>receipt</em></>} onClose={onClose} />
           <Receipt sale={sel} />
         </div>
       ) : (
         <>
-          <SheetHead title={<>Purchases + <em>receipts</em></>} onClose={onClose} />
+          <SheetHead back={{ label: 'Profile', onClick: onClose }} title={<>Purchases + <em>receipts</em></>} />
           {list.length === 0 ? (
             <div className="empty-state"><div className="empty-mark"><Flower size={34} /></div><h3>No purchases yet</h3><p className="muted">Receipts for passes and memberships will live here.</p></div>
           ) : (

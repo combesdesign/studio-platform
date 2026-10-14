@@ -93,6 +93,10 @@ body { background: var(--bg); }
 .ph-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .back { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); text-decoration: none; font-size: 14.5px; margin: -6px 0 14px -4px; min-height: 36px; padding-right: 8px; }
 .back:hover { color: var(--navy); }
+/* "‹ Today" back pill on pages that aren't a sidebar / tab destination (roster, client, POS for a client, timetable) */
+.ph-back { margin: -8px 0 16px; align-self: flex-start; justify-self: start; }
+.ph-text > .ph-back { display: inline-flex; }
+.profile > .ph-back, .receipt-wrap > .ph-back { margin-bottom: 18px; }
 .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .sec-head h2 { font-size: 36px; }
 .sec-head .seg { margin-left: auto; }
@@ -128,12 +132,19 @@ body { background: var(--bg); }
 .empty-fl { display: block; margin: 0 auto 14px; }
 
 /* sheets */
-.sheet { max-height: 90vh; max-height: 90dvh; }
-@media (min-width: 760px) { .sheet { width: min(600px, 92vw); padding: 30px 32px 28px; max-height: 88vh; } }
-.sh-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+@media (min-width: 760px) { .sheet { --sheet-px: 32px; --sheet-pb: 28px; --sheet-pt: 28px; width: min(600px, 92vw); max-height: 88vh; } }
+/* Pinned header: ✕ (and "‹ step" back) + title stay at the top while the sheet scrolls. */
+.sh-head {
+  position: sticky; top: 0; z-index: 6; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px 16px;
+  margin: 0 calc(-1 * var(--sheet-px)) 20px; padding: var(--sheet-pt) var(--sheet-px) 14px; background: var(--bg); touch-action: none; transition: box-shadow .2s;
+}
+[data-scrolled] .sh-head { box-shadow: 0 1px 0 var(--line), 0 12px 20px -18px rgba(36, 52, 95, .4); }
+.sh-head .sh-title { flex: 1; min-width: 0; }
 .sh-head h3 { font-size: 32px; }
-.sh-x { flex: none; }
-.sh-foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; flex-wrap: wrap; position: sticky; bottom: -28px; background: linear-gradient(transparent, var(--bg) 30%); padding: 14px 0 4px; }
+.sh-head.has-back { align-items: center; }
+.sh-head.has-back .sh-title { order: 3; flex-basis: 100%; }
+.sh-x { flex: none; margin-left: auto; }
+.sh-foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; flex-wrap: wrap; position: sticky; bottom: calc(-1 * var(--sheet-pb)); background: linear-gradient(transparent, var(--bg) 30%); padding: 14px 0 4px; }
 .action-list { display: grid; gap: 6px; }
 .action-list > button, .action-list > a { display: flex; align-items: center; gap: 14px; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; min-height: 60px; cursor: pointer; text-decoration: none; color: var(--ink); transition: background .15s, border-color .15s; }
 .action-list > *:hover { border-color: var(--sky); background: #fbfcff; }
@@ -426,6 +437,7 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .cr-flags { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .profile .back { margin-bottom: 10px; }
+.more-me { margin-top: 2px; }
 .pf-head { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin-bottom: 22px; }
 .pf-av { box-shadow: 0 0 0 6px var(--mist); }
 .pf-text { flex: 1 1 340px; min-width: 0; }
@@ -828,7 +840,6 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
   .si-form { padding: 32px 20px 48px; place-items: start center; }
   .si-box h1 { font-size: 44px; }
   .sh-head h3 { font-size: 28px; }
-  .sh-foot { bottom: calc(-24px - var(--safe-bottom)); }
   .sh-foot .btn { flex: 1; }
   .dl.roles { grid-template-columns: 1fr; gap: 2px; }
   .dl.roles dd { margin-bottom: 10px; }

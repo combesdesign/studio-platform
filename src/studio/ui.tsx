@@ -8,7 +8,7 @@ export const dayShort = (iso: string | Date) => _dayShort(iso).replace(',', '');
 export const dayLong = (iso: string | Date) => _dayLong(iso).replace(',', '');
 /** '6:00am Tue 14 Oct' */
 export const dateTime = (iso: string | Date) => `${time(iso)} ${dayShort(iso)}`;
-import { Sheet } from '../shared/react';
+import { Sheet, leaveSheets } from '../shared/react';
 import { Flower } from '../shared/brand';
 import { can, type StaffAction } from '../domain';
 
@@ -148,11 +148,67 @@ export function Accent({ text }: { text: string }) {
   return <>{text.slice(0, i + 1)}<em>{text.slice(i + 1)}</em></>;
 }
 
-export function PageHead({ eyebrow, title, sub, actions, back }: { eyebrow?: React.ReactNode; title: React.ReactNode; sub?: React.ReactNode; actions?: React.ReactNode; back?: { href: string; label: string } }) {
+// ------------------------------------------------------------------ back navigation
+// A small trail of the routes visited in this tab, so a page's "‹ Back" link can pop history (like a native
+// back) when it leads to where you just came from, and pick its label from it ("‹ Today" vs "‹ Schedule").
+// Every history entry carries a unique stamp (state.spcT, set by shared/react before this runs), so a
+// back/forward lands on a known stamp and a new stamp is a new page. Sheet entries (state.spcBack) are skipped.
+const routeOf = (h: string) => (h.replace(/^#/, '').split('?')[0] || '/');
+const stampOf = (): number | undefined => { try { return history.state?.spcT; } catch { return undefined; } };
+type Stop = { t?: number; r: string };
+const trail: Stop[] = [{ t: typeof window !== 'undefined' ? stampOf() : undefined, r: typeof location !== 'undefined' ? routeOf(location.hash) : '/' }];
+let trailAt = 0;
+let replacing = false;
+if (typeof window !== 'undefined') {
+  const sync = (isHashChange: boolean) => {
+    let st: any = null; try { st = history.state; } catch { /* */ }
+    if (st?.spcBack) return; // a sheet's entry: not a page
+    const t = stampOf(), r = routeOf(location.hash);
+    const i = t == null ? -1 : trail.findIndex((x) => x.t === t);
+    if (i >= 0) { trailAt = i; trail[i]!.r = r; return; } // back / forward to a page we know
+    if (!isHashChange) return;
+    if (replacing) { replacing = false; trail[trailAt] = { t, r }; return; }
+    trail.splice(trailAt + 1, trail.length, { t, r });
+    trailAt = trail.length - 1;
+  };
+  window.addEventListener('popstate', () => sync(false));
+  window.addEventListener('hashchange', () => sync(true));
+}
+/** The route you came from (e.g. '/', '/schedule/2026-10-12', '/clients/abc'), or null after a reload / deep link. */
+export const prevRoute = (): string | null => (trailAt > 0 ? trail[trailAt - 1]!.r : null);
+/** Change route without adding a history entry (e.g. switching settings tabs). */
+export function replaceRoute(to: string) {
+  if (location.hash.replace(/^#/, '') === to.replace(/^#/, '')) return;
+  replacing = true;
+  location.replace('#' + to.replace(/^#/, ''));
+}
+/** Follow a link from inside a sheet: close the sheets (popping their history entries) and then go. */
+export function goFromSheet(e: React.MouseEvent | null, href: string) {
+  e?.preventDefault();
+  leaveSheets(() => { location.hash = href.replace(/^#/, ''); });
+}
+
+export type BackTo = { href: string; label: string };
+/** "‹ Today": goes back in history when that's where you came from, otherwise links there. */
+export function BackLink({ href, label, className }: BackTo & { className?: string }) {
+  const go = (e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if (prevRoute() === routeOf(href)) { e.preventDefault(); history.back(); }
+  };
+  return <a className={cx('back-pill', className)} href={href} onClick={go}><Icon name="left" size={20} /><span>{label}</span></a>;
+}
+/** Back target for a page: where you came from if `name` recognises it, otherwise the fallback. */
+export function backFrom(name: (route: string) => string | null, fallback: BackTo): BackTo {
+  const p = prevRoute();
+  const label = p ? name(p) : null;
+  return p && label ? { href: '#' + p, label } : fallback;
+}
+
+export function PageHead({ eyebrow, title, sub, actions, back }: { eyebrow?: React.ReactNode; title: React.ReactNode; sub?: React.ReactNode; actions?: React.ReactNode; back?: BackTo }) {
   return (
     <header className="page-head">
       <div className="ph-text">
-        {back && <a className="back" href={back.href}><Icon name="left" size={18} />{back.label}</a>}
+        {back && <BackLink {...back} className="ph-back" />}
         {eyebrow && <div className="eyebrow"><Flower size={12} className="eb-fl" />{eyebrow}</div>}
         <h1>{title}</h1>
         {sub && <div className="ph-sub">{sub}</div>}
@@ -162,14 +218,19 @@ export function PageHead({ eyebrow, title, sub, actions, back }: { eyebrow?: Rea
   );
 }
 
-export function SheetHead({ title, sub, onClose }: { title: React.ReactNode; sub?: React.ReactNode; onClose: () => void }) {
+/**
+ * Pinned sheet header (stays put while the sheet scrolls). back = a step inside the sheet ("‹ Find a client"),
+ * shown as the same pill as page back links; ✕ always closes the whole sheet.
+ */
+export function SheetHead({ title, sub, onClose, back }: { title: React.ReactNode; sub?: React.ReactNode; onClose: () => void; back?: { label: string; onClick: () => void } }) {
   return (
-    <div className="sh-head">
-      <div>
+    <div className={cx('sh-head', back && 'has-back')}>
+      {back && <button type="button" className="back-pill" onClick={back.onClick}><Icon name="left" size={20} /><span>{back.label}</span></button>}
+      <div className="sh-title">
         <h3>{title}</h3>
         {sub && <p className="muted small" style={{ marginTop: 6 }}>{sub}</p>}
       </div>
-      <button className="btn icon soft sh-x" onClick={onClose} aria-label="Close"><Icon name="x" size={18} /></button>
+      <button type="button" className="btn icon soft sh-x" onClick={onClose} aria-label="Close"><Icon name="x" size={18} /></button>
     </div>
   );
 }

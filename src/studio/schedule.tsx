@@ -3,7 +3,7 @@ import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { addDays, startOfStudioDay, studioDate, studioToUTC, time, weekStart } from '../shared/format';
 import type { ScheduleTemplate, SessionWithCounts } from '../shared/types';
 import { Flower } from '../shared/brand';
-import { Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Seg, SheetHead, cx, dayShort, useStudio } from './ui';
+import { Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, replaceRoute, useStudio } from './ui';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const fmtRange = (from: string) => {
@@ -34,7 +34,8 @@ export function Schedule({ week }: { week?: string }) {
   const total = (res.data ?? []).filter((s) => s.status !== 'cancelled');
   const booked = total.reduce((n, s) => n + s.bookedCount, 0), cap = total.reduce((n, s) => n + s.capacity, 0);
   const isThisWeek = from === weekStart(today);
-  const go = (d: string) => { location.hash = `/schedule/${d}`; };
+  // paging weeks swaps the page rather than stacking history, so back leaves the schedule
+  const go = (d: string) => replaceRoute(`/schedule/${d}`);
 
   return (
     <div className="schedule">
@@ -172,7 +173,7 @@ export function Timetable() {
 
   return (
     <div className="timetable">
-      <PageHead back={{ href: '#/schedule', label: 'Schedule' }} eyebrow="Repeats every week" title={<>Recurring <em>timetable</em></>}
+      <PageHead back={backFrom((r) => (r.startsWith('/schedule') ? 'Schedule' : null), { href: '#/schedule', label: 'Schedule' })} eyebrow="Repeats every week" title={<>Recurring <em>timetable</em></>}
         sub="Classes are created for the next 8 weeks. Editing a slot doesn't change classes that already have bookings; edit those from the class itself."
         actions={<button className="btn" onClick={() => setEdit({ weekday: 1, startTime: '06:00', active: true, startsOn: today })}><Icon name="plus" size={20} />Add weekly class</button>} />
       {res.loading && !res.data ? <Loading /> : list.length === 0 ? <div className="card"><Empty title="No weekly classes yet">Add the regular classes and they'll fill the schedule automatically.</Empty></div> : (

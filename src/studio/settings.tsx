@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Sheet, store, useAction, useData, useToast } from '../shared/react';
+import { Sheet, leaveSheets, store, useAction, useData, useToast } from '../shared/react';
 import { money } from '../shared/format';
 import type { ClassType, Product, Staff, StaffRole, StudioSettings } from '../shared/types';
 import { Flower } from '../shared/brand';
-import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
+import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, replaceRoute, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
 
 const TABS: { key: string; label: string; perm?: Perm }[] = [
@@ -20,7 +20,9 @@ export function Settings({ tab = 'studio' }: { tab?: string }) {
     <div className="settings">
       <PageHead eyebrow="Settings" title={<>Studio <em>setup</em></>} />
       <nav className="tabs" aria-label="Settings sections">
-        {tabs.map((t) => <a key={t.key} href={`#/settings/${t.key}`} className={cx(cur === t.key && 'on')}>{t.label}</a>)}
+        {/* Tabs swap in place (no history entry each), so back leaves Settings rather than stepping through tabs. */}
+        {tabs.map((t) => <a key={t.key} href={`#/settings/${t.key}`} className={cx(cur === t.key && 'on')} aria-current={cur === t.key ? 'page' : undefined}
+          onClick={(e) => { if (e.metaKey || e.ctrlKey) return; e.preventDefault(); replaceRoute(`/settings/${t.key}`); }}>{t.label}</a>)}
       </nav>
       {cur === 'studio' && <StudioTab />}
       {cur === 'policies' && <PoliciesTab />}
@@ -427,7 +429,7 @@ function DemoTab() {
   const toast = useToast();
   const go = async () => {
     const ok = await run(async () => { await store.demoReset?.(); return true; });
-    if (ok) { setOpen(false); toast('Demo data reset'); location.hash = '/'; }
+    if (ok) { toast('Demo data reset'); leaveSheets(() => { location.hash = '/'; }); }
   };
   return (
     <div className="card pad" style={{ maxWidth: 640 }}>

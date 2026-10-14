@@ -176,6 +176,53 @@ export function mapsUrl(address: string): string {
   return isIOS() ? `https://maps.apple.com/?q=${encodeURIComponent(address)}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
+// ------------------------------------------------------------------ back navigation for flows
+// Full-screen flows (waiver, sign in/up, forgot) and the shop-for-a-class remember where they were opened
+// from, so their "‹ Back" pops history (like a native back) instead of stacking a new entry.
+// After a reload there's no record, so back falls back to a replace navigation.
+type Nav = (to: string, o?: { replace?: boolean }) => void;
+type Origin = { path: string; label: string; where: string; reopen?: string };
+const origins: Origin[] = [];
+
+/** Open a flow (push). where = the route underneath; reopen = a class sheet to reopen when coming back. */
+export function goFlow(nav: Nav, to: string, o: { label: string; where: string; reopen?: string }) {
+  const path = pathOnly(to);
+  const i = origins.findIndex((x) => x.path === path);
+  if (i >= 0) origins.splice(i);
+  origins.push({ path, ...o });
+  nav(to);
+}
+/** Swap the current flow screen for another (replace), keeping where it came from. */
+export function swapFlow(nav: Nav, from: string, to: string) {
+  const o = flowFrom(from);
+  if (o) o.path = pathOnly(to);
+  nav(to, { replace: true });
+}
+/** Where the flow at `path` was opened from (null after a reload or a deep link). */
+export function flowFrom(path: string): Origin | null {
+  const o = origins[origins.length - 1];
+  return o && o.path === pathOnly(path) ? o : null;
+}
+/** Leave the flow at `path`: pop back to where it came from, or replace with `fallback`. */
+export function backOut(nav: Nav, path: string, fallback: string) {
+  const o = flowFrom(path);
+  if (o) {
+    origins.pop();
+    if (o.reopen) reopenClass(o.reopen, o.where);
+    history.back();
+  } else nav(fallback, { replace: true });
+}
+
+// A class sheet to open when Timetable / Bookings next mounts (coming back from the waiver or the shop).
+let pendingClass: { id: string; where: string } | null = null;
+export function reopenClass(id: string, where: string) { pendingClass = { id, where }; }
+export function takePendingClass(where: string): string | null {
+  if (!pendingClass || pendingClass.where !== where) return null;
+  const id = pendingClass.id;
+  pendingClass = null;
+  return id;
+}
+
 // ------------------------------------------------------------------ client record
 import type { Client } from '../shared/types';
 import { store } from '../shared/react';

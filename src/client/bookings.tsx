@@ -5,7 +5,7 @@ import { store, useData } from '../shared/react';
 import { studioDate, time } from '../shared/format';
 import { CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, useApp } from './ui';
 import { ClassSheet } from './timetable';
-import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, timeRange, when } from './lib';
+import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, takePendingClass, timeRange, when } from './lib';
 import { weekday } from '../shared/format';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -14,7 +14,7 @@ export function Bookings({ nav }: { nav: Nav }) {
   const app = useApp();
   const cid = app.client.id;
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(() => takePendingClass('/bookings'));
   const up = useData(() => store.listClientBookings(cid, { when: 'upcoming' }), [cid]);
   const past = useData(() => (tab === 'past' ? store.listClientBookings(cid, { when: 'past' }) : Promise.resolve(null)), [cid, tab]);
 
@@ -88,7 +88,7 @@ export function Bookings({ nav }: { nav: Nav }) {
             </div>
           )
       )}
-      <ClassSheet sessionId={open} onClose={() => setOpen(null)} nav={nav} />
+      <ClassSheet sessionId={open} onClose={() => setOpen(null)} nav={nav} backLabel="Bookings" where="/bookings" />
     </div>
   );
 }
