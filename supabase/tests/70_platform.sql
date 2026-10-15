@@ -20,6 +20,7 @@ grant execute on function test.count(text) to anon, authenticated, service_role;
 -- ---------------------------------------------------------------- the default studio
 select test.eq((select slug from public.studios where is_default), 'snowy', 'Snowy is studio #1 and the default studio');
 select test.eq((select count(*)::int from public.class_types where studio_id <> app.default_studio()), 0, 'existing data was backfilled to Snowy');
+select test.eq((select branding #>> '{colors,primary}' from public.studios where slug = 'snowy'), '#5069AC', 'the seed gives Snowy its exact branding (scripts/studio-sql.mjs)');
 
 -- ---------------------------------------------------------------- platform admin creates studio B
 insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values
@@ -213,6 +214,35 @@ select test.throws($$select public.cancel_booking((select id from public.booking
                    'STUDIO_SUSPENDED', 'nobody can book or cancel at a suspended studio');
 select test.login('pete');
 select public.platform_set_studio_status(test.id('harbour'), 'live');
+
+-- ---------------------------------------------------------------- a feature table made with app.scope_table (1100+ migrations)
+select test.admin();
+create table public.zz_feature_notes (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null default app.current_studio_id() references public.studios(id) on delete restrict,
+  body text not null
+);
+select app.scope_table('zz_feature_notes');
+create policy zz_staff on public.zz_feature_notes for all to authenticated using (app.is_staff_of(studio_id)) with check (app.is_staff_of(studio_id));
+grant select, insert, update, delete on public.zz_feature_notes to authenticated;
+select test.login('libby');
+select test.studio('snowy');
+insert into public.zz_feature_notes (body) values ('snowy note');
+select test.login('hank');
+select test.studio('harbour');
+insert into public.zz_feature_notes (body) values ('harbour note');
+select test.eq(test.count($$select 1 from public.zz_feature_notes$$), 1, 'scope_table: B staff see only B rows');
+select test.throws($$insert into public.zz_feature_notes (studio_id, body) values (app.default_studio(), 'sneaky')$$, 'NOT_ALLOWED', 'scope_table: B staff can''t write into A');
+select test.studio('snowy');
+select test.eq(test.count($$select 1 from public.zz_feature_notes$$), 0, 'scope_table: B staff asking for A see nothing');
+select test.login('libby');
+select test.studio('snowy');
+select test.eq((select string_agg(body, ',') from public.zz_feature_notes), 'snowy note', 'scope_table: A staff see only A rows');
+update public.zz_feature_notes set body = 'changed' where body = 'harbour note';
+select test.admin();
+select test.eq(test.count($$select 1 from public.zz_feature_notes where body = 'harbour note'$$), 1, 'scope_table: A staff can''t change B rows');
+select test.throws($$select app.scope_table('class_interest_missing')$$, 'P0001', 'scope_table needs a studio_id column');
+drop table public.zz_feature_notes;
 
 -- ---------------------------------------------------------------- service role (Stripe webhook) lands in the right studio
 select test.service();

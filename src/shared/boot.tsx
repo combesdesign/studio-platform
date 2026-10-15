@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { Studio } from './types';
 import { BUILD_STUDIO, PLATFORM_DOMAIN, bindStudio, platform } from '../data';
 import { applyBranding, PLATFORM_BRANDING, PLATFORM_NAME, setAssetBase } from './branding';
-import { studioHints, stripStudioPath, type StudioHint } from './resolve';
+import { slugFromHash, studioHints, stripStudioPath, type StudioHint } from './resolve';
 import { Flower } from './brand';
 
 export type AppKind = 'client' | 'studio' | 'admin';
@@ -96,6 +96,13 @@ export async function bootApp(app: AppKind, opts: BootOptions): Promise<void> {
     m.mount(root, studio);
   };
   if (!BUILD_STUDIO) { applyBranding(PLATFORM_BRANDING, { title: PLATFORM_NAME }); root.render(<BootSplash />); }
+  // A '#/s/<slug>' link opened in a tab that's already running: go to that studio (one bound store per page).
+  if (!BUILD_STUDIO) {
+    window.addEventListener('hashchange', () => {
+      const slug = slugFromHash(location.hash);
+      if (slug) { rememberStudio(app, slug); location.reload(); }
+    });
+  }
   const r = await resolveStudio(app);
   if (r.studio) { await start(r.studio); return; }
   applyBranding(PLATFORM_BRANDING, { title: PLATFORM_NAME, themeColor: PLATFORM_BRANDING.colors.primary });

@@ -4,6 +4,8 @@ Hey Pete, this is the step-by-step for switching the app from demo mode to the r
 
 Everything here is written for your Mac. Wherever you see `THIS-STYLE` text, swap in your own value.
 
+The code is now a multi-studio platform (see `docs/PLATFORM.md`), but Snowy is set up here as a **single-studio app**: one Netlify site built for Snowy only, on Snowy's own web address. Libby and her clients never see a studio picker or anything about other studios. Snowy is studio #1 in the database, so if you add more studios later, nothing here needs redoing.
+
 **What you're setting up**
 
 | Piece | What it does | Rough cost (check current pricing) |
@@ -55,8 +57,10 @@ The easiest way for a one-off is copy and paste (option A).
    3. `supabase/migrations/0004_outbox.sql`
    4. `supabase/migrations/0005_alignment.sql`
    5. `supabase/migrations/0006_profiles_permissions.sql`. This one also creates the **avatars** photo bucket (see step 5 below).
-   6. `supabase/seed.sql`. This adds the studio settings, class types, prices and the team.
-4. Check it worked: open **Table Editor**. You should see `class_types` (3 rows), `products` (10 rows) and `staff` (Libby, Julia, Grace T and Grace P).
+   6. `supabase/migrations/0007_platform.sql`. This makes the database multi-studio: it adds the `studios` table with **Snowy as studio #1** (and the default), tags every row with its studio, and creates the **branding** photo bucket. It's the biggest file, so give it a few seconds.
+   7. `supabase/seed.sql`. This adds the studio settings, class types, prices, the team, and Snowy's look (logo, colours, fonts, photos and wording, exactly as in the demo).
+   If more migration files turn up later (they're numbered, like `1100_appointments_….sql`), run them in number order after these.
+4. Check it worked: open **Table Editor**. You should see `studios` (1 row: `snowy`, status `live`), `class_types` (3 rows), `products` (10 rows) and `staff` (Libby, Julia, Grace T and Grace P).
 5. Check the photo bucket: open **Storage**. There should be a bucket called **avatars** marked **Public**. That's where client profile photos go. Anyone with a photo's link can see it, clients can only upload into their own folder, and staff can upload for anyone. If it's not there, re-run `0006_profiles_permissions.sql`.
 
 **Option B: the Supabase CLI.** You'll need the CLI for part 8 anyway, so if you install it first you can do this instead:
@@ -80,7 +84,8 @@ In **Table Editor**:
    - **Libby**: `owner` (everything, including pay rates, ABN and GST)
    - **Julia** and **Grace T**: `instructor` (their own classes' rosters and check-in, client profiles, the till, attendance reports)
    - **Grace P**: `front_desk`. That covers the schedule, every roster, check-in, clients, staff notes, the till and refunds, and attendance reports. It doesn't include revenue, pay or settings. She still teaches Mums + Bubs. Anyone can be the instructor on a class whatever their role, and pay reports go by who taught each class.
-3. Timetable: the easiest way is the studio app (Schedule → weekly timetable) once you're signed in as Libby (part 5). When you add a weekly slot, its classes appear straight away, and a Sunday job keeps four weeks ahead topped up. Set Grace P as the instructor on the Mums + Bubs slot.
+3. The look: Libby can change the logo, colours, fonts, photos and welcome wording herself in the studio app under **Settings → Branding**. It starts out exactly as the demo looks.
+4. Timetable: the easiest way is the studio app (Schedule → weekly timetable) once you're signed in as Libby (part 5). When you add a weekly slot, its classes appear straight away, and a Sunday job keeps four weeks ahead topped up. Set Grace P as the instructor on the Mums + Bubs slot.
 
 ## 4. Login settings (Authentication)
 
@@ -147,7 +152,7 @@ Fees are roughly **1.7% + 30c** per domestic card payment (international cards c
 
 ## 8. Deploy the server functions
 
-These are the little server bits in `supabase/functions/`: checkout, the Stripe webhook, emails, reminders, membership pause/cancel, refunds and the billing portal.
+These are the little server bits in `supabase/functions/`: checkout, the Stripe webhook, emails, reminders, membership pause/cancel, refunds, the billing portal and staff invites.
 
 1. Install the Supabase CLI if you haven't already. It needs [Homebrew](https://brew.sh):
    ```
@@ -177,6 +182,7 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
    supabase functions deploy create-checkout
    supabase functions deploy billing-portal
    supabase functions deploy refund-payment
+   supabase functions deploy invite-user
    supabase functions deploy stripe-webhook --no-verify-jwt
    supabase functions deploy send-email --no-verify-jwt
    supabase functions deploy send-reminders --no-verify-jwt
@@ -209,6 +215,7 @@ The app is a separate Netlify site from the marketing website.
 3. **Site configuration → Environment variables**: add
    - `SUPABASE_URL` = your Project URL
    - `SUPABASE_ANON_KEY` = the **anon / public** key (never the service_role one)
+   - `STUDIO_SLUG` = `snowy`. This makes it Snowy's own app: Snowy's name, icon colours and look from the very first second, and no studio picker. (Leave out `PLATFORM_DOMAIN`. That's only for the multi-studio setup in `docs/PLATFORM.md`.)
 4. Deploy. With those two set, the app switches from demo to live by itself. You can still see the demo any time by adding `?demo=1` to the address.
 5. **Domain management → Add a domain**: `app.snowypilatesclub.com`. Netlify gives you a DNS record to add, and HTTPS is automatic.
 
@@ -336,6 +343,8 @@ For example, about 150 weekly memberships averaging $45 is roughly 600 charges a
 | Thing | Where |
 |---|---|
 | Change prices, classes, timetable, staff, policies | Studio app |
+| Change the logo, colours, fonts, photos, welcome wording | Studio app → Settings → Branding |
+| Adding other studios later | `docs/PLATFORM.md` |
 | Who can do what | `RULES.md` → Staff permissions. The database enforces the same rules as the studio app. |
 | Profile photos | Supabase → Storage → avatars |
 | Who registered interest in a coming-soon class | SQL Editor: `select * from class_interest;` (a studio screen can come later) |

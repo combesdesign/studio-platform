@@ -18,18 +18,18 @@ Every feature built from here lands in both.
 - [x] Snowy brand pass (matches snowypilatesclub.com)
 
 ## Phase A: platform foundation (do first, everything else builds on it)
-- [ ] A1 Multi-studio data model:
+- [x] A1 Multi-studio data model:
   - a `Studio` record (slug, name, timezone, currency, contact, ABN/tax)
   - `studio_id` on every table
   - RLS by studio membership
   - a client can belong to several studios
-- [ ] A2 White-label branding per studio:
+- [x] A2 White-label branding per studio:
   - logo, wordmark, colours, fonts, photos, phrases, welcome copy, app name and icons
   - Snowy becomes studio config #1, looking exactly as it does now
-- [ ] A3 Studio resolution: which studio by subdomain, path (`/s/<slug>`) or build config. Timezone and currency come from the studio, not hard-coded.
-- [ ] A4 Platform admin (Pete): create a studio, set branding, invite its owner, see all studios, billing status
-- [ ] A5 Studio onboarding wizard: details → branding → classes → pricing → policies → staff → go live
-- [ ] A6 Demo with 2+ studios (Snowy plus a different-looking sample studio) to prove white-label
+- [x] A3 Studio resolution: which studio by subdomain, path (`/s/<slug>`) or build config. Timezone and currency come from the studio, not hard-coded.
+- [x] A4 Platform admin (Pete): create a studio, set branding, invite its owner, see all studios, billing status
+- [x] A5 Studio onboarding wizard: details → branding → classes → pricing → policies → staff → go live
+- [x] A6 Demo with 2+ studios (Snowy plus a different-looking sample studio) to prove white-label
 
 ## Phase B: Momence features
 ### B1 Appointments and events

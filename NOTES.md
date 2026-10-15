@@ -389,3 +389,26 @@ ALL DATABASE TESTS PASSED          (381 checks)
 ## lead (15 Oct)
 - **Client profile photos:** the client app's Profile → tap the avatar → pick a photo. It's centre-cropped to a 320px JPEG (`src/shared/photo.ts`) and saved as `Client.photoUrl`. The studio shows it on rosters, the client list and profile, POS, booking sheets and Today.
   - **Live backend TODO:** upload to a Supabase Storage `avatars` bucket (owner-only write, staff read) and store the public URL. Don't keep data URLs in Postgres.
+
+## platform
+Phase A (A1–A6) is in, plus the feature-module convention for the four feature agents. Snowy looks exactly as before: before/after Playwright screenshots (390 and 1024, every client and studio screen) are pixel-identical, except the new **Settings → Branding** tab and, on the multi-studio build only, a "Switch studio" row on the client Profile.
+
+- **Data model.** `Studio` + `StudioBranding` in `src/shared/types.ts`. `store` (from `src/data`) is bound to one studio (`bindStudio`), `platform` is the `PlatformStore` (directory, cross-studio sign-in, memberships, admin). `DataStore` gained `studioId`, `features`, `getStudio`, `updateStudio`, `uploadBrandingImage?`.
+- **SQL** (`0007_platform.sql`): `studios` (Snowy = `57d10000-…0001`, default), `platform_admins`, `studio_id` on every table backfilled to Snowy, composite same-studio FKs, guard trigger, restrictive `x-studio` RLS scope, studio-scoped RPCs and helpers, `branding` bucket, `platform_*` RPCs, `update_my_studio`, `my_studios`, `join_studio`, and `app.scope_table()` for feature tables. Tests: `supabase/tests/70_platform.sql` (studio A vs B isolation for staff, clients, RPCs, storage, webhook). Feature SQL tests `supabase/tests/<feature>_*.sql` are picked up by run.sh.
+- **Branding** (`src/shared/branding.ts`, `brand.tsx`, `theme.css`): role tokens → runtime CSS variables; Google Fonts per studio; logos as animated path sets, SVG, image or generated text logo. Studio configs in `src/data/studios/` (Snowy, Harbour). `scripts/studio-sql.mjs snowy --write` copies Snowy's branding into `seed.sql` (fills empty branding only). The live store also falls back to the built-in config for an empty row.
+- **Resolution** (`src/shared/resolve.ts`, `boot.tsx`): build `STUDIO_SLUG` → subdomain of `PLATFORM_DOMAIN` / custom domain → `#/s/<slug>` / `?studio=` → remembered → picker (client "Find your studio", studio "which studio?" + switcher).
+- **Admin** (`/admin/`, `src/admin`): studio list + stats, new studio (palettes), branding editor with live client preview, invite owner (`platform_invite_owner` + new `invite-user` edge function), suspend/reopen.
+- **Onboarding** (`src/studio/onboarding.tsx`, `#/welcome/:step`): details, branding, class types, pricing templates, policies, staff, go live.
+- **Demo**: one key `spc-demo-v4` holds every studio; Snowy unchanged, Harbour Reformer Co. (Double Bay, deep green/sand, Gloock + Work Sans, own personas), Pete as `pete@studioplatform.example`.
+- **Features**: `src/features/{appointments,marketing,commerce,payroll}` stubs, registries in `src/shared/registry.ts`, slots via `<Slot>`, demo/live hooks, `registerPermissions`. Full how-to in AGENTS.md › How to add a feature. A throwaway "hello" feature proved a nav item + route + demo store + permission end to end, then was removed.
+- **Fixed on the way**: the demo `listSessions` generated classes in the app's current timezone instead of the studio's (wrong for non-Sydney studios); Harbour's pack persona lost her last credit to the seeded waitlist.
+- Tests: `tests/platform.test.ts` (isolation, joining a second studio, admin create/invite/go live/suspend, feature hook + permissions, Snowy's exact tokens, resolution order, per-studio formatting), plus `invite-user` and `scope_table` checks.
+
+### Platform backlog (not done)
+- Stripe Connect per studio: checkout and webhooks still use one Stripe account (Snowy's). New studios can't take card payments until then.
+- Edge functions and email templates still default some wording to Snowy (sender name from env); make them read the studio row.
+- `cron.sql`: `generate_sessions` / `housekeeping` run as the service role; check they loop every studio (they currently rely on the privileged path) and add a test.
+- Custom domains: admin UI to add them (today it's the `custom_domains` column in Supabase).
+- Per-studio PWA manifest/icons on the multi-studio build (single-studio builds already get them at build time).
+- Billing status for studios in the admin (A4 mentions it): not built, there's no platform billing yet.
+- Studio-level analytics in the admin beyond the three stats.

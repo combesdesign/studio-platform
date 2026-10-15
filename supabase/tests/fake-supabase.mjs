@@ -12,7 +12,8 @@ const state = (globalThis.__fake ??= {
   now: null,             // 'app.now' for SQL (ISO string) or null
   users: new Map(),      // storageKey -> auth user id (each app keeps its own session)
   invoked: [],           // functions.invoke calls
-  userUpdates: [],       // auth.updateUser attrs (password / email)
+  userUpdates: [],
+  invites: [],          // auth.admin.inviteUserByEmail calls       // auth.updateUser attrs (password / email)
   invokeResult: {},      // name -> data to return
   log: [],               // SQL run (for debugging)
 });
@@ -232,6 +233,14 @@ select 'null'::json`));
         if (exists) return { data: {}, error: { message: 'User already registered' } };
         admin(`with w as (insert into auth.users (email, raw_user_meta_data) values (${lit(email)}, ${lit(options?.data ?? {})}) returning id) select to_json(w.id) from w`);
         return { data: { session: null, user: { email } }, error: null };
+      },
+      admin: {
+        async inviteUserByEmail(email, options = {}) {
+          const exists = admin(`select to_json(count(*)) from auth.users where lower(email) = lower(${lit(email)})`);
+          if (exists) return { data: {}, error: { message: 'A user with this email address has already been registered' } };
+          state.invites.push({ email, ...options });
+          return { data: { user: { email } }, error: null };
+        },
       },
       async signOut() { state.users.delete(key); fire('SIGNED_OUT'); return { error: null }; },
       async resetPasswordForEmail() { return { data: {}, error: null }; },

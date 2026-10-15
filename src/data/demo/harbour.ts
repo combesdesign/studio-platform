@@ -102,6 +102,10 @@ export function seedHarbour(now: Date): DemoState {
     staff: STAFF.map((s) => ({ ...s })), classTypes: CLASS_TYPES.map((c) => ({ ...c })), templates: templates('2025-01-01'),
     sessions: [], bookings: [], clients: [], products: PRODUCTS.map((p) => ({ ...p })), passes: [], sales: [], passSale: {}, outbox: [],
     personas: [HARBOUR_PERSONAS.newClient, HARBOUR_PERSONAS.member, HARBOUR_PERSONAS.pack, HARBOUR_PERSONAS.intro],
+    personaHints: {
+      [HARBOUR_PERSONAS.newClient]: 'Brand new – no waiver or passes yet', [HARBOUR_PERSONAS.member]: 'Member · 2 reformer classes a week',
+      [HARBOUR_PERSONAS.pack]: '5 class pack · 1 credit left', [HARBOUR_PERSONAS.intro]: 'On the intro week',
+    },
   };
   const clock = { t: nowT };
   let idn = 0;
@@ -186,7 +190,7 @@ export function seedHarbour(now: Date): DemoState {
   if (sat) {
     clock.t = nowT - 5 * HOUR_MS;
     for (const c of state.clients) {
-      if (c.id === jack.id || c.id === lucas.id) continue;
+      if (c.id === jack.id || c.id === lucas.id || c.id === priya.id) continue;
       try { eng.book(c.id, sat.id, { by: { kind: 'client', clientId: c.id } }); } catch { /* no credit */ }
       if (eng.counts(sat.id).waitlist >= 2) break;
     }

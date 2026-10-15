@@ -66,7 +66,13 @@ export function seedPlatform(now: Date): PlatformDemoState {
   for (const s of studios) {
     data[s.id] = withStudioFormat(fmtOf(s), () => {
       const st = s.id === SNOWY_ID ? seedState(now) : seedHarbour(now);
-      if (s.id === SNOWY_ID) st.personas = [PERSONA_EMAILS.newClient, PERSONA_EMAILS.member, PERSONA_EMAILS.pack, PERSONA_EMAILS.intro];
+      if (s.id === SNOWY_ID) {
+        st.personas = [PERSONA_EMAILS.newClient, PERSONA_EMAILS.member, PERSONA_EMAILS.pack, PERSONA_EMAILS.intro];
+        st.personaHints = {
+          [PERSONA_EMAILS.newClient]: 'Brand new – no waiver or passes yet', [PERSONA_EMAILS.member]: 'Member · 2 classes a week',
+          [PERSONA_EMAILS.pack]: '4 class pack · 1 credit left', [PERSONA_EMAILS.intro]: 'On the intro offer',
+        };
+      }
       seedFeatures(s, st, now);
       return st;
     });

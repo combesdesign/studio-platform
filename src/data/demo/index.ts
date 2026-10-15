@@ -375,6 +375,15 @@ export class DemoStore implements DataStore {
     });
   }
 
+  /** Demo only (not in DataStore): persona descriptions, and the imported (Momence) client whose invite link the demo can open. */
+  async demoPersonaInfo(): Promise<{ hints: Record<string, string>; importedClient?: string }> {
+    return this.read(() => {
+      const imported = this.state.clients.filter((c) => c.source === 'import' && !c.archived);
+      const c = imported.find((x) => !x.waiverSignedAt) ?? imported[0];
+      return { hints: this.state.personaHints ?? {}, ...(c ? { importedClient: c.firstName } : {}) };
+    });
+  }
+
   async demoSignInAs(user: AuthUser): Promise<AuthUser> {
     return this.write(() => {
       const u = this.freshUser(user);
@@ -542,12 +551,14 @@ export class DemoStore implements DataStore {
     this.prepare();
     const from = Date.parse(range.from), to = Date.parse(range.to);
     if (Number.isNaN(from) || Number.isNaN(to)) throw err('INVALID', 'Invalid date range.');
-    if (this.engine.generate(studioDay(range.from), studioDay(range.to)) > 0) this.save();
-    const counts = this.engine.allCounts();
-    return clone(this.state.sessions
-      .filter((s) => Date.parse(s.startsAt) < to && Date.parse(s.endsAt) > from && (range.includeCancelled !== false || s.status !== 'cancelled'))
-      .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-      .map((s) => this.engine.withCounts(s, counts)));
+    return this.inFormat(() => {
+      if (this.engine.generate(studioDay(range.from), studioDay(range.to)) > 0) this.save();
+      const counts = this.engine.allCounts();
+      return clone(this.state.sessions
+        .filter((s) => Date.parse(s.startsAt) < to && Date.parse(s.endsAt) > from && (range.includeCancelled !== false || s.status !== 'cancelled'))
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+        .map((s) => this.engine.withCounts(s, counts)));
+    });
   }
 
   async getSession(id: ID): Promise<SessionWithCounts> {

@@ -28,6 +28,8 @@ import { clientsCsv, salesCsv } from '../../domain/report';
 import { comparePassPriority, isPassCurrent } from '../../domain/rules';
 import { can, type StaffAction } from '../../domain/permissions';
 import { studioDay } from '../../domain/time';
+import { defaultBranding } from '../../shared/branding';
+import { BUILTIN_STUDIOS } from '../studios';
 
 // ---------------------------------------------------------------------------------------------- loose client typing
 
@@ -132,13 +134,20 @@ function toClassType(r: Row): ClassType {
 }
 
 /** studios row -> Studio. Branding is stored as JSON in the Studio shape (camelCase). */
+/** A studio's branding; a row whose branding was never filled in gets its built-in config (Snowy) or a calm default. */
+function brandingOf(r: Row): StudioBranding {
+  const b = obj(r.branding) as unknown as Partial<StudioBranding>;
+  if (b?.colors && b.fonts && b.logo) return b as StudioBranding;
+  const builtin = BUILTIN_STUDIOS.find((x) => x.slug === str(r.slug))?.branding;
+  return { ...(builtin ?? defaultBranding(str(r.name) || 'Studio')), ...b } as StudioBranding;
+}
 function toStudio(r: Row): Studio {
   return clean({
     id: str(r.id), slug: str(r.slug), name: str(r.name), timezone: str(r.timezone) || 'Australia/Sydney', currency: str(r.currency) || 'AUD',
     locale: str(r.locale) || 'en-AU', email: str(r.email), phone: optStr(r.phone), address: str(r.address), website: optStr(r.website),
     taxId: optStr(r.tax_id), taxIdLabel: str(r.tax_id_label) || 'ABN', taxName: str(r.tax_name) || 'GST',
     taxRate: r.tax_rate === undefined || r.tax_rate === null ? 0.1 : num(r.tax_rate), taxRegistered: r.tax_registered === undefined ? true : bool(r.tax_registered),
-    status: (str(r.status) || 'live') as StudioStatus, branding: obj(r.branding) as unknown as StudioBranding,
+    status: (str(r.status) || 'live') as StudioStatus, branding: brandingOf(r),
     customDomains: Array.isArray(r.custom_domains) && r.custom_domains.length ? r.custom_domains.map(str) : undefined,
     createdAt: iso(r.created_at),
   });

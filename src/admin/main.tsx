@@ -181,7 +181,7 @@ function NewStudio() {
         <div className="ad-form">
           <label className="field span2"><span>Studio name</span><input className="input" required value={v.name} onChange={f('name')} /></label>
           <label className="field span2"><span>Web address</span>
-            <span className="ad-slug"><input className="input" required value={v.slug} onChange={(e) => { setSlugTouched(true); f('slug')(e); }} pattern="[a-z0-9-]{2,40}" /><span className="muted small">#/s/{v.slug || 'your-studio'}</span></span>
+            <span className="ad-slug"><input className="input" required value={v.slug} onChange={(e) => { setSlugTouched(true); f('slug')(e); }} pattern="[a-z0-9\-]{2,40}" /><span className="muted small">#/s/{v.slug || 'your-studio'}</span></span>
           </label>
           <label className="field"><span>Studio email</span><input className="input" type="email" required value={v.email} onChange={f('email')} /></label>
           <label className="field"><span>Address</span><input className="input" value={v.address} onChange={f('address')} /></label>
@@ -281,7 +281,7 @@ function BrandingPage({ studio }: { studio: Studio }) {
     catch (x) { toast(msg(x)); } finally { setBusy(false); }
   };
   return (
-    <div className="ad-brand">
+    <div className="ad-brandpage">
       <div className="stack lg">
         <BrandingEditor value={b} onChange={(x) => { setB(x); setDirty(true); }} name={studio.name} />
         <div className="ad-save">

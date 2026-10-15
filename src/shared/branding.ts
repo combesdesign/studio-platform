@@ -88,10 +88,18 @@ export function brandTokens(b: Pick<StudioBranding, 'colors' | 'fonts' | 'tokens
   return { ...t, ...(b.tokens ?? {}) };
 }
 
-/** Google Fonts stylesheet URL for the studio's two families (regular + italic for the display face). */
+/**
+ * Display families with a true italic on Google Fonts. Asking Google for an italic a family doesn't have
+ * ('Gloock:ital@0;1') fails the whole stylesheet, so everything else is requested upright only
+ * (the browser slants it for the *accent* word).
+ */
+export const ITALIC_FAMILIES = ['Instrument Serif', 'Fraunces', 'Playfair Display', 'Cormorant Garamond', 'Cormorant', 'DM Serif Display',
+  'Lora', 'Libre Baskerville', 'Crimson Pro', 'IBM Plex Serif', 'EB Garamond', 'Newsreader', 'Source Serif 4', 'Spectral', 'Bodoni Moda'];
+
+/** Google Fonts stylesheet URL for the studio's two families (plus the display face's italic when it has one). */
 export function fontsUrl(fonts: StudioBranding['fonts']): string {
   const fam = (f: string, ital: boolean) => 'family=' + encodeURIComponent(f.trim()).replace(/%20/g, '+') + (ital ? ':ital@0;1' : '');
-  const list = [fam(fonts.display, true)];
+  const list = [fam(fonts.display, ITALIC_FAMILIES.some((x) => x.toLowerCase() === fonts.display.trim().toLowerCase()))];
   if (fonts.body.trim() && fonts.body.trim() !== fonts.display.trim()) list.push(fam(fonts.body, false));
   return `https://fonts.googleapis.com/css2?${list.join('&')}&display=swap`;
 }

@@ -1563,6 +1563,36 @@ begin
     from public.studios sd), '{}'::jsonb);
 end $$;
 
+-- ----------------------------------------------------------------------------- for feature migrations (1100+)
+-- Make a new feature table studio-scoped in one call (AGENTS.md › How to add a feature):
+--   create table public.appointment_slots (
+--     id uuid primary key default gen_random_uuid(),
+--     studio_id uuid not null default app.current_studio_id() references public.studios(id) on delete restrict,
+--     ...);
+--   select app.scope_table('appointment_slots');
+--   create policy slots_staff on public.appointment_slots for all to authenticated
+--     using (app.is_staff_of(studio_id)) with check (app.has_role_in(studio_id, 'owner', 'manager'));
+-- Adds: RLS on, an index on studio_id, unique (studio_id, id) for same-studio foreign keys, the guard trigger
+-- (writes only in the current studio; rows can't move studios) and the restrictive x-studio scope policy.
+-- Your own permissive policies decide who sees what inside a studio.
+create or replace function app.scope_table(p_table text) returns void
+language plpgsql as $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = p_table and column_name = 'studio_id') then
+    raise exception 'public.% needs a studio_id uuid not null default app.current_studio_id() references public.studios(id) column', p_table;
+  end if;
+  execute format('alter table public.%I enable row level security', p_table);
+  execute format('create index if not exists %I on public.%I (studio_id)', p_table || '_studio_idx', p_table);
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = p_table and column_name = 'id')
+     and not exists (select 1 from pg_constraint where conname = p_table || '_studio_id_key') then
+    execute format('alter table public.%I add constraint %I unique (studio_id, id)', p_table, p_table || '_studio_id_key');
+  end if;
+  execute format('drop trigger if exists aa_guard_studio on public.%I', p_table);
+  execute format('create trigger aa_guard_studio before insert or update or delete on public.%I for each row execute function app.guard_studio()', p_table);
+  execute format('drop policy if exists studio_scope on public.%I', p_table);
+  execute format('create policy studio_scope on public.%I as restrictive for all to anon, authenticated using (app.in_scope(studio_id)) with check (app.in_scope(studio_id))', p_table);
+end $$;
+
 -- ----------------------------------------------------------------------------- grants
 revoke execute on all functions in schema app from public, anon, authenticated;
 grant execute on function app.now(), app.tz(), app.is_privileged(), app.current_studio_id(), app.requested_studio(),

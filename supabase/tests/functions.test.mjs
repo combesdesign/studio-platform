@@ -34,7 +34,7 @@ const ENV = {
 };
 let handler = null;
 globalThis.Deno = { env: { get: (k) => ENV[k] }, serve: (h) => { handler = h; } };
-globalThis.__fake ??= { now: null, users: new Map(), invoked: [], invokeResult: {}, log: [] };
+globalThis.__fake ??= { now: null, users: new Map(), invoked: [], invokeResult: {}, log: [], invites: [] };
 globalThis.__fake.now = '2026-10-19T08:00:00+11:00';
 
 const calls = [];
@@ -291,6 +291,33 @@ await t('send-reminders: cron secret, housekeeping + reminders queued for ~2 hou
   assert.equal((await post(h, {})).status, 401);
   const j = await (await post(h, {}, { 'x-cron-secret': ENV.CRON_SECRET })).json();
   assert.ok('tidy' in j && 'queued' in j && 'sent' in j);
+});
+
+await t('invite-user: owners (or platform admins) email a login link for someone already on that studio\'s team', async () => {
+  const h = await load('invite-user');
+  const snowy = sql(`select id from public.studios where slug = 'snowy'`);
+  sql(`insert into public.staff (name, email, role, studio_id) values ('Nell New', 'nell@example.test', 'instructor', '${snowy}')`);
+  const as = (who) => ({ Authorization: `Bearer ${id(who)}` });
+  let r = await post(h, { studioId: snowy, email: 'nell@example.test', name: 'Nell' }, as('julia'));
+  assert.equal(r.status, 403, 'instructors can\'t invite');
+  r = await post(h, { studioId: snowy, email: 'stranger@example.test' }, as('libby'));
+  assert.equal(r.status, 404, 'only people already on the team');
+  r = await post(h, { studioId: snowy, email: 'Nell@Example.test', name: 'Nell' }, as('libby'));
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { invited: true });
+  const inv = globalThis.__fake.invites.at(-1);
+  assert.equal(inv.email, 'nell@example.test');
+  assert.equal(inv.redirectTo, 'https://app.example/studio/?studio=snowy');
+  assert.equal(inv.data.studio, 'snowy');
+  ENV.PLATFORM_DOMAIN = 'studioplatform.app';
+  r = await post(h, { studioId: snowy, email: 'nell@example.test' }, as('libby'));
+  assert.equal(globalThis.__fake.invites.at(-1).redirectTo, 'https://snowy.studioplatform.app/studio/');
+  delete ENV.PLATFORM_DOMAIN;
+  r = await post(h, { studioId: snowy, email: 'julia@example.test' }, as('libby'));
+  assert.deepEqual(await r.json(), { invited: false, existingLogin: true }, 'someone with a login just signs in');
+  r = await post(h, { studioId: snowy, email: 'nell@example.test' });
+  assert.equal(r.status, 401);
+  sql(`delete from public.staff where email = 'nell@example.test'`);
 });
 
 await t('no secrets in the code: every key comes from the environment', () => {

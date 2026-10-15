@@ -50,6 +50,8 @@ export interface DemoState {
   interest?: { clientId: ID; classTypeId: ID; at: ISODateTime }[];
   /** Client persona emails for the demo sign-in list, in order: brand new, member, pack, intro. */
   personas?: string[];
+  /** One-line description of each persona for the demo sign-in list, by email. */
+  personaHints?: Record<string, string>;
   /** Feature modules' own demo data, keyed by feature name (src/features/<name>/demo.ts). */
   features?: Record<string, unknown>;
 }

@@ -57,13 +57,14 @@ function Welcome({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
 function DemoPersonas({ onSignedIn }: { onSignedIn: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
-  // The demo store lists its client personas in a fixed order: brand new, member, pack, intro.
-  const HINTS = ['Brand new – no waiver or passes yet', 'Member · 2 classes a week', '4 class pack · 1 credit left', 'On the intro offer'];
+  // Each demo studio describes its own personas (brand new, member, pack, intro); otherwise show the email.
   const { data } = useData(async () => {
+    const extra = store as unknown as { demoPersonaInfo?: () => Promise<{ hints: Record<string, string>; importedClient?: string }> };
+    const info = (await extra.demoPersonaInfo?.()) ?? { hints: {} };
     const clients = (await store.demoPersonas()).filter((u: AuthUser) => u.kind === 'client');
-    return clients.map((u, i) => ({ u, hint: clients.length === HINTS.length ? HINTS[i]! : u.email }));
+    return { list: clients.map((u) => ({ u, hint: info.hints[u.email] ?? u.email })), imported: info.importedClient };
   }, []);
-  const clients = data ?? [];
+  const clients = data?.list ?? [];
   if (!data || !store.demoSignInAs) return null;
   const openInvite = async () => {
     setBusy('invite');
@@ -97,11 +98,13 @@ function DemoPersonas({ onSignedIn }: { onSignedIn: () => void }) {
         ))}
         {clients.length === 0 && <p className="muted pad-16">No demo clients yet.</p>}
       </div>
-      <button className="demo-invite" onClick={openInvite} disabled={!!busy}>
-        <Flower size={18} />
-        <span><strong>Moving over from Momence?</strong> See what imported clients get: open Margaret’s invite link</span>
-        <Arrow size={16} />
-      </button>
+      {data?.imported && (
+        <button className="demo-invite" onClick={openInvite} disabled={!!busy}>
+          <Flower size={18} />
+          <span><strong>Moving over from Momence?</strong> See what imported clients get: open {data.imported}’s invite link</span>
+          <Arrow size={16} />
+        </button>
+      )}
       <p className="muted fine center">Demo data lives in this browser only. No real bookings or payments.</p>
     </section>
   );
