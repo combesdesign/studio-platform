@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Sheet, leaveSheets, match, store, useAction, useData, useToast } from '../shared/react';
-import { addDays, money, studioDate, time } from '../shared/format';
+import { Slot } from '../shared/slots';
+import { addDays, money, studioDate, time, LOCALE } from '../shared/format';
 import type { Client, Pass, Sale } from '../shared/types';
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import { Avatar, BackLink, Empty, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, fullName, replaceRoute, toCents, toDollars, useStudio } from './ui';
@@ -51,7 +52,7 @@ export function Clients() {
                 {(c.injuries || c.healthForm?.injuries) && <span className="chip warn">Injury</span>}
                 {c.createdAt >= monthAgo && <span className="chip navy">New</span>}
               </span>
-              <span className="cr-since faint small">Since {new Date(c.createdAt).toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })}</span>
+              <span className="cr-since faint small">Since {new Date(c.createdAt).toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' })}</span>
               <Icon name="right" size={18} className="faint" />
             </a>
           ))}
@@ -108,7 +109,7 @@ export function ClientProfile({ id }: { id: string }) {
             {c.waiverSignedAt ? <span className="chip ok"><Icon name="check" size={14} />Waiver signed</span> : <button className="chip danger flag" onClick={() => setSheet('waiver')} disabled={!can('waiver')}><Icon name="doc" size={14} />No waiver</button>}
             {injuries && <span className="chip warn"><Icon name="injury" size={14} />Injury noted</span>}
             {c.healthForm?.pregnantOrPostnatal && <span className="chip cream">Pregnant / postnatal</span>}
-            <span className="chip">Client since {new Date(c.createdAt).toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}</span>
+            <span className="chip">Client since {new Date(c.createdAt).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' })}</span>
             {c.archived && <span className="chip">Archived</span>}
           </div>
         </div>
@@ -116,6 +117,7 @@ export function ClientProfile({ id }: { id: string }) {
           <button className="btn" onClick={() => setSheet('book')}><Icon name="calendar" size={20} />Book into class</button>
           {can('pos') && <a className="btn soft" href={`#/pos/${c.id}`}><Icon name="bag" size={20} />Sell</a>}
           {can('editClients') && <button className="btn icon soft" onClick={() => setSheet('edit')} aria-label="Edit details"><Icon name="edit" /></button>}
+          <Slot name="client.profile.actions" props={{ client: c }} can={can} />
         </div>
       </header>
 
@@ -128,6 +130,7 @@ export function ClientProfile({ id }: { id: string }) {
 
       <div className="pf-grid">
         <div className="stack lg">
+          <Slot name="client.profile" props={{ client: c }} can={can} />
           <section className="card pad">
             <div className="sec-head"><h3>Passes</h3>{can('pos') && <a className="linkish" href={`#/pos/${c.id}`}>Sell a pass<Icon name="right" size={16} /></a>}</div>
             {activePasses.length === 0 && <p className="muted">No active passes. {can('pos') && <a href={`#/pos/${c.id}`}>Sell one</a>}</p>}
@@ -182,7 +185,7 @@ export function ClientProfile({ id }: { id: string }) {
             <dl className="dl">
               <dt>Email</dt><dd><a href={`mailto:${c.email}`}>{c.email}</a></dd>
               <dt>Mobile</dt><dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="faint">Not added</span>}</dd>
-              <dt>Birthday</dt><dd>{c.birthday ? `${new Date(c.birthday + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long' })}${age ? ` (${age})` : ''}` : <span className="faint">Not added</span>}</dd>
+              <dt>Birthday</dt><dd>{c.birthday ? `${new Date(c.birthday + 'T00:00:00').toLocaleDateString(LOCALE, { day: 'numeric', month: 'long' })}${age ? ` (${age})` : ''}` : <span className="faint">Not added</span>}</dd>
               <dt>Emergency</dt><dd>{c.emergencyContactName ? `${c.emergencyContactName}${c.emergencyContactPhone ? ', ' + c.emergencyContactPhone : ''}` : <span className="faint">Not added</span>}</dd>
               <dt>Marketing</dt><dd>{c.marketingOptIn ? 'Happy to get news' : 'No marketing emails'}</dd>
             </dl>

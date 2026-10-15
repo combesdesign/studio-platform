@@ -4,6 +4,7 @@
  * OWNED BY THE LEAD / PLATFORM. No studio is named in here.
  */
 import React from 'react';
+import type { StudioBranding } from './types';
 import { accentParts, brandAsset, getBranding } from './branding';
 
 /**
@@ -11,9 +12,9 @@ import { accentParts, brandAsset, getBranding } from './branding';
  * path-set and SVG logos. letters/flower = fill colours (default primary + accent; on dark bands use
  * highlight + accent like Snowy's website hero).
  */
-export function Logo({ animate = false, letters = 'var(--primary)', flower = 'var(--accent)', className = '', style, label }:
-  { animate?: boolean; letters?: string; flower?: string; className?: string; style?: React.CSSProperties; label?: string }) {
-  const b = getBranding();
+export function Logo({ animate = false, letters = 'var(--primary)', flower = 'var(--accent)', className = '', style, label, branding }:
+  { animate?: boolean; letters?: string; flower?: string; className?: string; style?: React.CSSProperties; label?: string; branding?: StudioBranding }) {
+  const b = branding ?? getBranding();
   const name = label ?? b.appName;
   const cls = `spc-logo${animate ? ' spc-logo-anim' : ''} ${className}`;
   const vars = { ['--logo-letters' as string]: letters, ['--logo-mark' as string]: flower } as React.CSSProperties;
@@ -40,9 +41,9 @@ export function Logo({ animate = false, letters = 'var(--primary)', flower = 'va
 export const logoAspect = () => getBranding().logo.aspect || 2.3;
 
 /** The studio's mark (Snowy's flower): stars, bullets, separators, empty states. */
-export function Flower({ size = 16, color = 'var(--accent)', className = '', spin = false, style }:
-  { size?: number | string; color?: string; className?: string; spin?: boolean; style?: React.CSSProperties }) {
-  const { mark } = getBranding();
+export function Flower({ size = 16, color = 'var(--accent)', className = '', spin = false, style, branding }:
+  { size?: number | string; color?: string; className?: string; spin?: boolean; style?: React.CSSProperties; branding?: StudioBranding }) {
+  const { mark } = branding ?? getBranding();
   const cls = `spc-flower${spin ? ' spc-flower-spin' : ''} ${className}`;
   if (!mark.d && mark.imageUrl) return <img className={cls} src={brandAsset(mark.imageUrl)} width={size} height={size} alt="" aria-hidden="true" style={style} />;
   return (
@@ -61,10 +62,10 @@ export function FlowerStars({ count = 5, size = 13 }: { count?: number; size?: n
 export const brandPhrases = (): string[] => getBranding().marquee;
 
 /** The scrolling phrase strip with mark separators. Renders nothing if the studio has no phrases. */
-export function Marquee({ phrases, tone = 'navy', speed = 45 }: { phrases?: string[]; tone?: 'navy' | 'mist' | 'cream'; speed?: number }) {
-  const list = phrases ?? brandPhrases();
+export function Marquee({ phrases, tone = 'navy', speed = 45, branding }: { phrases?: string[]; tone?: 'navy' | 'mist' | 'cream'; speed?: number; branding?: StudioBranding }) {
+  const list = phrases ?? (branding ? branding.marquee : brandPhrases());
   if (!list.length) return null;
-  const row = list.map((p, i) => <span key={i}>{p}<Flower size={18} color={tone === 'navy' ? 'var(--accent)' : 'var(--primary)'} /></span>);
+  const row = list.map((p, i) => <span key={i}>{p}<Flower size={18} branding={branding} color={tone === 'navy' ? 'var(--accent)' : 'var(--primary)'} /></span>);
   return (
     <div className={`spc-marquee spc-marquee-${tone}`} aria-hidden="true">
       <div className="spc-track" style={{ animationDuration: `${speed}s` }}>{row}{row}</div>

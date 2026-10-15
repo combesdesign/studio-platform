@@ -3,7 +3,8 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import type { ClassType, SessionWithCounts } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet, leaveSheets, useBackHandler } from '../shared/react';
-import { addDays, dayLong, money, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
+import { addDays, dateFormat, dayLong, money, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
+import { Slot } from '../shared/slots';
 import { Accent, Arrow, Avatar, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Logo, ScreenHead, SheetHead, Skeleton, classPhoto, useApp } from './ui';
 import {
   WEEKDAYS, classTypeFor, dayLabel, firstName, freeCancelUntil, goFlow, hoursUntil, icsDataUrl, icsFileName,
@@ -65,6 +66,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
         <CreditPill credits={credits.data} loading={credits.loading && !credits.data} onClick={() => nav('/passes')} />
       </div>
       <ScreenHead eyebrow={greeting(firstName(app.client.firstName))} title={<>Book a <em>class</em></>} />
+      <Slot name="client.timetable" props={{}} />
 
       <DateStrip days={days} day={day} onPick={setDay} booked={bookedDays} />
 
@@ -95,7 +97,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
 }
 
 function greeting(name: string) {
-  const h = Number(new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', hour: 'numeric', hour12: false }).format(new Date()));
+  const h = Number(dateFormat({ hour: 'numeric', hour12: false }).format(new Date()));
   const part = h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : 'Evening';
   return name ? `${part}, ${name}` : `Good ${part.toLowerCase()}`;
 }
@@ -127,7 +129,7 @@ function DateStrip({ days, day, onPick, booked }: { days: string[]; day: string;
       box.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
     }
   }, [day]);
-  const month = new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', month: 'long', year: 'numeric' })
+  const month = dateFormat({ timeZone: 'UTC', month: 'long', year: 'numeric' })
     .format(new Date(day + 'T00:00:00Z'));
   return (
     <div className="strip-wrap">
@@ -191,7 +193,7 @@ function ComingSoon({ types }: { types: ClassType[] }) {
     <section className="soon">
       {types.map((t) => (
         <button key={t.id} className="soon-card" onClick={() => setOpen(t)}>
-          <span className="soon-img"><img src={classPhoto(t.name)} alt="" loading="lazy" /></span>
+          <span className="soon-img"><img src={classPhoto(t)} alt="" loading="lazy" /></span>
           <span className="soon-body">
             <span className="soon-top"><span className="soon-dur">{t.durationMin} min</span><span className="tag glass-tag">Coming soon</span></span>
             <span className="soon-name serif"><Accent text={t.name} /></span>
@@ -410,7 +412,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     <div className="cs">
       <SheetHead compact back={back} title={<>{time(s.startsAt)} · {className}</>} />
       <div className="cs-media">
-        <img src={classPhoto(ct?.name)} alt="" />
+        <img src={classPhoto(ct ?? undefined)} alt="" />
       </div>
       <div className="cs-top">
         <div className="row spread">
@@ -449,6 +451,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
       )}
 
       {ct?.description && <p className="cs-desc">{ct.description}</p>}
+      <Slot name="client.class" props={{ session: s }} />
 
       {inst && (
         <figure className="inst">

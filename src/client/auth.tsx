@@ -8,7 +8,8 @@ import {
   backOut, demoOpenPasswordLink, endPasswordLink, flowFrom, goFlow, markLaunched, pathOnly, setLinkOrigin, swapFlow, takeLinkProblem,
   type PasswordLinkKind,
 } from './lib';
-import { FlowerStars, Marquee } from '../shared/brand';
+import { Accented, FlowerStars, Marquee } from '../shared/brand';
+import { brandAsset, getBranding } from '../shared/branding';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -23,15 +24,16 @@ export function AuthScreens({ path, nav, onSignedIn }: { path: string; nav: Nav;
 }
 
 function Welcome({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
+  const b = getBranding();
   return (
     <div className="welcome">
       <section className="welcome-hero">
-        <img src="img/wide.webp" alt="" className="welcome-img" />
+        <img src={brandAsset(b.photos.hero)} alt="" className="welcome-img" />
         <div className="welcome-shade" />
         <div className="welcome-copy">
           <Logo animate white width={252} />
-          <h1>Join the newest club to hit <em>Cooma!</em></h1>
-          <p className="lede">Movement isn’t a chore. Book classes, manage your passes and keep your health info up to date, all in one calm little place.</p>
+          <h1><Accented text={b.welcome.headline} /></h1>
+          <p className="lede">{b.welcome.copy}</p>
           <div className="welcome-actions">
             <button className="btn white" onClick={() => goFlow(nav, '/signup', { label: 'Welcome', where: '/' })}>Join the club <Arrow /></button>
             <button className="btn glass" onClick={() => goFlow(nav, '/signin', { label: 'Welcome', where: '/' })}>Sign in</button>
@@ -40,10 +42,12 @@ function Welcome({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
       </section>
       <Marquee />
       <div className="welcome-body">
-        <figure className="pull">
-          <blockquote>“I loved it. Snowy Pilates Club is a masterclass in form, balance. My mind feels clear and my core feels amazing.”</blockquote>
-          <figcaption><FlowerStars /> Reena S., Google review</figcaption>
-        </figure>
+        {b.welcome.quote && (
+          <figure className="pull">
+            <blockquote>“{b.welcome.quote.text}”</blockquote>
+            <figcaption><FlowerStars /> {b.welcome.quote.by}</figcaption>
+          </figure>
+        )}
         {store.mode === 'demo' && <DemoPersonas onSignedIn={onSignedIn} />}
       </div>
     </div>
@@ -296,7 +300,7 @@ export function NewPassword({ kind, path, nav, email, signedIn, onSaved }: {
   return (
     <AuthFrame
       className="new-pw"
-      title={invite ? <>Welcome to the new Snowy Pilates <em>app</em></> : <>Choose a new <em>password</em></>}
+      title={invite ? <>Welcome to the new {getBranding().appName} <em>app</em></> : <>Choose a new <em>password</em></>}
       sub={invite ? 'Set a password to see your credits.' : 'Make it something you’ll remember. You’ll use it to sign in from now on.'}
       nav={nav} path={path} back={signedIn ? '/' : '/signin'} backLabel={signedIn ? 'Timetable' : 'Sign in'} onBack={endPasswordLink}>
       {email && <p className="for-account"><Icon name="user" size={18} /><span>{email}</span></p>}

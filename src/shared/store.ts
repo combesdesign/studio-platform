@@ -102,6 +102,8 @@ export interface DataStore {
   getStudio(): Promise<Studio>;
   /** Owner (and manager for branding): change details or branding; 'live' finishes onboarding. Platform admins use PlatformStore. */
   updateStudio(patch: StudioPatch): Promise<Studio>;
+  /** Optional: store a logo / photo for this studio's branding and return its URL (live: the 'branding' Storage bucket). */
+  uploadBrandingImage?(file: Blob): Promise<string>;
 
   /** Fires after any change (any tab). UIs re-fetch on this. */
   subscribe(listener: () => void): Unsubscribe;

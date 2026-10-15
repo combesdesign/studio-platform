@@ -86,7 +86,7 @@ export function NewPassword({ kind, email, signedIn, onSaved }: {
     if (pw !== pw2) { setErr({ field: 'pw2', msg: 'Those two don’t quite match. Have another go.' }); return; }
     setErr(null); setBusy(true);
     try {
-      if (!store.setNewPassword) throw new Error('Setting a password isn’t available right now. Please ask Libby.');
+      if (!store.setNewPassword) throw new Error('Setting a password isn’t available right now. Please ask the studio owner.');
       await store.setNewPassword(pw);
       pushed = false;
       clearResetNote();

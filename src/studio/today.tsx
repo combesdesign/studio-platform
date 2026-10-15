@@ -1,21 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { store, useData } from '../shared/react';
-import { addDays, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
+import { addDays, dateFormat, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
+import { brandAsset, getBranding } from '../shared/branding';
+import { todayWidgetsList } from '../shared/registry';
 import type { Client, Pass, SessionWithCounts } from '../shared/types';
 import type { RosterEntry } from '../shared/store';
-import { BRAND_PHRASES, Flower, Logo } from '../shared/brand';
+import { brandPhrases, Flower, Logo } from '../shared/brand';
 import { Accent, Avatar, Empty, Fill, Icon, Loading, Seg, Sep, cx, dayLong, dayShort, fullName, useStudio } from './ui';
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** The website's phrases, one at a time. Starts on today's phrase; rotates gently unless reduced motion is on. */
 function useBrandPhrase(ms = 7000) {
-  const [i, setI] = useState(() => Math.floor(Date.now() / 864e5) % BRAND_PHRASES.length);
+  const phrases = brandPhrases();
+  const n = Math.max(1, phrases.length);
+  const [i, setI] = useState(() => Math.floor(Date.now() / 864e5) % n);
   useEffect(() => {
-    if (reducedMotion()) return;
-    const t = window.setInterval(() => setI((n) => (n + 1) % BRAND_PHRASES.length), ms);
+    if (reducedMotion() || phrases.length < 2) return;
+    const t = window.setInterval(() => setI((k) => (k + 1) % n), ms);
     return () => window.clearInterval(t);
-  }, [ms]);
-  return { phrase: BRAND_PHRASES[i]!, i };
+  }, [ms, n]);
+  return { phrase: phrases[i % n] ?? '', i };
 }
 
 export function useNow(ms = 30000) {
@@ -35,7 +39,7 @@ export function relTime(s: { startsAt: string; endsAt: string }, now: number): s
 }
 
 function greeting() {
-  const h = Number(new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
+  const h = Number(dateFormat({ hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
@@ -100,14 +104,14 @@ export function Today() {
   return (
     <div className="today">
       <section className="today-hero">
-        <img className="th-photo" src="../img/wide.webp" alt="" />
+        <img className="th-photo" src={brandAsset(getBranding().photos.hero)} alt="" />
         <div className="th-inner">
           <div className="th-main">
             <Logo className="th-logo" letters="var(--highlight)" flower="var(--accent)" />
             <div className="eyebrow"><Flower size={12} className="eb-fl" />{dayLong(new Date())}</div>
             <h1>{greeting()}, <em>{first}</em></h1>
             <p className="th-sub">{sub}</p>
-            <p className="th-phrase"><Flower size={14} /><span key={phraseKey}>{phrase}</span></p>
+            {phrase && <p className="th-phrase"><Flower size={14} /><span key={phraseKey}>{phrase}</span></p>}
           </div>
           {(can('pos') || can('editClients')) && (
             <div className="th-actions">
@@ -171,6 +175,7 @@ export function Today() {
                     })}
                   </div>
                 )}
+              {todayWidgetsList().filter((w) => w.column !== 'side' && (!w.perm || can(w.perm))).map((w) => <React.Fragment key={w.id}>{w.render()}</React.Fragment>)}
             </section>
 
             <aside className="tg-aside">
@@ -213,6 +218,7 @@ export function Today() {
                   </div>
                 )}
               </section>
+              {todayWidgetsList().filter((w) => w.column === 'side' && (!w.perm || can(w.perm))).map((w) => <React.Fragment key={w.id}>{w.render()}</React.Fragment>)}
             </aside>
           </div>
         </>

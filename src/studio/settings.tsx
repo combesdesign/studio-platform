@@ -3,19 +3,28 @@ import { Sheet, leaveSheets, store, useAction, useData, useToast } from '../shar
 import { money } from '../shared/format';
 import type { ClassType, Product, Staff, StaffRole, StudioSettings } from '../shared/types';
 import { Flower } from '../shared/brand';
+import { brandAsset, getBranding } from '../shared/branding';
+import { Slot } from '../shared/slots';
+import { settingsTabsList } from '../shared/registry';
 import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, replaceRoute, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
+import { BrandingTab } from './branding';
 
-const TABS: { key: string; label: string; perm?: Perm }[] = [
-  { key: 'studio', label: 'Studio' }, { key: 'policies', label: 'Policies' }, { key: 'classes', label: 'Class types' },
-  { key: 'products', label: 'Products & pricing', perm: 'products' }, { key: 'staff', label: 'Staff', perm: 'staff' },
+const TABS: { key: string; label: string; perm?: Perm | string; order: number }[] = [
+  { key: 'studio', label: 'Studio', order: 10 }, { key: 'branding', label: 'Branding', order: 15 }, { key: 'policies', label: 'Policies', order: 20 },
+  { key: 'classes', label: 'Class types', order: 30 }, { key: 'products', label: 'Products & pricing', perm: 'products', order: 40 },
+  { key: 'staff', label: 'Staff', perm: 'staff', order: 50 },
 ];
 
 export function Settings({ tab = 'studio' }: { tab?: string }) {
   const { can } = useStudio();
-  const allowed = TABS.filter((t) => !t.perm || can(t.perm));
-  const tabs = store.mode === 'demo' ? [...allowed, { key: 'demo', label: 'Demo' }] : allowed;
+  const feature = settingsTabsList();
+  const all = [...TABS, ...feature.map((t) => ({ key: t.id, label: t.label, ...(t.perm ? { perm: t.perm } : {}), order: t.order ?? 100 }))]
+    .concat(store.mode === 'demo' ? [{ key: 'demo', label: 'Demo', order: 90 }] : [])
+    .sort((x, y) => x.order - y.order);
+  const tabs = all.filter((t) => !t.perm || can(t.perm));
   const cur = tabs.find((t) => t.key === tab)?.key ?? 'studio';
+  const featureTab = feature.find((t) => t.id === cur);
   return (
     <div className="settings">
       <PageHead eyebrow="Settings" title={<>Studio <em>setup</em></>} />
@@ -30,6 +39,8 @@ export function Settings({ tab = 'studio' }: { tab?: string }) {
       {cur === 'products' && <ProductsTab />}
       {cur === 'staff' && <StaffTab />}
       {cur === 'demo' && <DemoTab />}
+      {cur === 'branding' && <BrandingTab />}
+      {featureTab && featureTab.render()}
     </div>
   );
 }
@@ -50,7 +61,7 @@ function SaveBar({ dirty, busy, onSave, onReset }: { dirty: boolean; busy: boole
 }
 
 function StudioTab() {
-  const { can } = useStudio();
+  const { can, studio } = useStudio();
   const { d, setD, dirty, reset } = useDraft();
   const { busy, run } = useAction();
   const fin = can('studioFinance');
@@ -70,10 +81,10 @@ function StudioTab() {
       </section>
       <section className="card pad">
         <h3>Tax &amp; <em>payments</em></h3>
-        <p className="muted small" style={{ margin: '6px 0 18px' }}>{fin ? 'Used on tax invoices. Prices include GST.' : 'Only the owner can change these.'}</p>
+        <p className="muted small" style={{ margin: '6px 0 18px' }}>{fin ? `Used on tax invoices. Prices include ${studio.taxName}.` : 'Only the owner can change these.'}</p>
         <div className="form-grid">
-          <label className="field span2"><span>ABN</span><input className="input" value={d.abn ?? ''} onChange={f('abn')} disabled={!fin} placeholder="12 345 678 901" /></label>
-          <label className="check span2"><input type="checkbox" checked={d.gstRegistered} disabled={!fin} onChange={(e) => setD({ ...d, gstRegistered: e.target.checked })} /><span>Registered for GST (receipts show "Total includes GST of $X")</span></label>
+          <label className="field span2"><span>{studio.taxIdLabel}</span><input className="input" value={d.abn ?? ''} onChange={f('abn')} disabled={!fin} placeholder="12 345 678 901" /></label>
+          <label className="check span2"><input type="checkbox" checked={d.gstRegistered} disabled={!fin} onChange={(e) => setD({ ...d, gstRegistered: e.target.checked })} /><span>Registered for {studio.taxName} (receipts show "Total includes {studio.taxName} of $X")</span></label>
         </div>
         <div className="panel" style={{ marginTop: 18 }}>
           <strong>Card payments</strong>
@@ -146,7 +157,7 @@ function ClassTypesTab() {
   const { settings } = useStudio();
   return (
     <div>
-      <div className="tab-head"><p className="muted">The kinds of classes on the timetable.</p><button className="btn" onClick={() => setEdit({ color: '#85A2D1', durationMin: 55, defaultCapacity: settings.defaultCapacity, bookable: true, active: true })}><Icon name="plus" size={20} />New class type</button></div>
+      <div className="tab-head"><p className="muted">The kinds of classes on the timetable.</p><button className="btn" onClick={() => setEdit({ color: getBranding().colors.accent, durationMin: 55, defaultCapacity: settings.defaultCapacity, bookable: true, active: true })}><Icon name="plus" size={20} />New class type</button></div>
       <div className="ct-grid">
         {classTypes.map((t) => (
           <button key={t.id} className={cx('card ct-card', !t.active && 'off')} onClick={() => setEdit(t)} style={{ ['--ct' as string]: t.color }}>
@@ -167,7 +178,8 @@ function ClassTypesTab() {
   );
 }
 
-const SWATCHES = ['#5069AC', '#85A2D1', '#24345F', '#7FA79B', '#C9A961', '#9C8AB4', '#6E8FA6'];
+/** The studio's own colours first, then a few calm extras. */
+const swatches = () => { const c = getBranding().colors; return [...new Set([c.primary, c.accent, c.ink, '#7FA79B', '#C9A961', '#9C8AB4', '#6E8FA6'])]; };
 function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose: () => void }) {
   const [v, setV] = useState<Partial<ClassType>>({});
   const { busy, run } = useAction();
@@ -175,7 +187,7 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
   const s = (k: keyof ClassType) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value });
   const save = async () => {
     const r = await run(() => store.upsertClassType({
-      id: v.id, name: (v.name ?? '').trim(), description: v.description ?? '', durationMin: Number(v.durationMin) || 55, color: v.color ?? '#85A2D1',
+      id: v.id, name: (v.name ?? '').trim(), description: v.description ?? '', durationMin: Number(v.durationMin) || 55, color: v.color ?? getBranding().colors.accent,
       defaultCapacity: Number(v.defaultCapacity) || 14, level: v.level || undefined, bookingNote: v.bookingNote || undefined, bookable: v.bookable !== false, active: v.active !== false,
     }), 'Class type saved');
     if (r) onClose();
@@ -190,7 +202,7 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
         <label className="field"><span>Default capacity</span><input className="input" type="number" value={v.defaultCapacity ?? ''} onChange={(e) => setV({ ...v, defaultCapacity: Number(e.target.value) })} /></label>
         <label className="field"><span>Level</span><input className="input" value={v.level ?? ''} onChange={s('level')} placeholder="All levels" /></label>
         <div className="field"><span>Timetable colour</span>
-          <div className="swatches">{SWATCHES.map((c) => <button key={c} type="button" className={cx('sw', v.color?.toLowerCase() === c.toLowerCase() && 'on')} style={{ background: c }} onClick={() => setV({ ...v, color: c })} aria-label={c} />)}</div>
+          <div className="swatches">{swatches().map((c) => <button key={c} type="button" className={cx('sw', v.color?.toLowerCase() === c.toLowerCase() && 'on')} style={{ background: c }} onClick={() => setV({ ...v, color: c })} aria-label={c} />)}</div>
         </div>
         <label className="field span2"><span>Booking note (shown before booking)</span><textarea className="textarea" rows={2} value={v.bookingNote ?? ''} onChange={s('bookingNote')} placeholder="e.g. Mums must have clearance from a women's health professional" /></label>
         <label className="check span2"><input type="checkbox" checked={v.bookable !== false} onChange={(e) => setV({ ...v, bookable: e.target.checked })} /><span>Bookable (untick for “Coming soon – register interest”)</span></label>
@@ -251,7 +263,7 @@ function ProductsTab() {
             <span className="oc-fine">New clients only<Flower size={9} color="var(--highlight)" />{p.validityDays ?? 14} days unlimited from first booking</span>
             <span className="btn sm white plan-edit"><Icon name="edit" size={16} />Edit</span>
           </span>
-          <span className="oc-img"><img src="../img/square.webp" alt="" loading="lazy" /></span>
+          <span className="oc-img"><img src={brandAsset(getBranding().photos.offer ?? getBranding().photos.hero)} alt="" loading="lazy" /></span>
         </button>
       ))}
 
@@ -363,6 +375,7 @@ function StaffTab() {
               <span className="faint small">{s.email}</span>
               {showPay && s.payPerClassCents != null && <span className="small muted">{money(s.payPerClassCents)} per class</span>}
               {!s.active && <span className="chip">Inactive</span>}
+              <Slot name="staff.card" props={{ staff: s }} can={can} />
             </span>
           </button>
         ))}

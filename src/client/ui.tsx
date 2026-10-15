@@ -1,15 +1,18 @@
 /** Small presentational pieces for the client app. */
 import React, { createContext, useContext } from 'react';
-import type { AuthUser, ClassType, Client, Staff, StudioSettings } from '../shared/types';
+import type { AuthUser, ClassType, Client, Staff, Studio, StudioSettings } from '../shared/types';
 import { initials } from '../shared/format';
 import { asset } from './lib';
-import { Flower as BrandFlower, Logo as BrandLogo } from '../shared/brand';
+import { Flower as BrandFlower, Logo as BrandLogo, logoAspect } from '../shared/brand';
+import { brandAsset, classPhotoFor, getBranding } from '../shared/branding';
 
 // ------------------------------------------------------------------ app context
 export interface AppCtx {
   user: Extract<AuthUser, { kind: 'client' }>;
   client: Client;
   settings: StudioSettings;
+  /** The studio (name, contact, tax, branding). */
+  studio: Studio;
   staff: Staff[];
   classTypes: ClassType[];
   refreshAuth: () => void;
@@ -74,7 +77,7 @@ export function Flower({ size = 40, white, color, className, spin }: { size?: nu
 }
 /** The wordmark, drawn inline. white = cream letters + sky flower (the website's on-navy colours). */
 export function Logo({ white, width = 96, animate }: { white?: boolean; width?: number; animate?: boolean }) {
-  return <BrandLogo animate={animate} letters={white ? 'var(--highlight)' : 'var(--primary)'} flower="var(--accent)" className="logo" style={{ width, height: 'auto', aspectRatio: '1024.7 / 443.9' }} />;
+  return <BrandLogo animate={animate} letters={white ? 'var(--highlight)' : 'var(--primary)'} flower="var(--accent)" className="logo" style={{ width, height: 'auto', aspectRatio: String(logoAspect()) }} />;
 }
 
 /** The website's thin arrow, used on pill buttons ("Join the club ->"). */
@@ -82,12 +85,9 @@ export function Arrow({ size = 16 }: { size?: number }) {
   return <svg className="ic arr" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 12h15M14 6.5l5.5 5.5-5.5 5.5" /></svg>;
 }
 
-/** Studio photos per class type, as on the website's class cards. */
-export function classPhoto(name?: string): string {
-  const n = (name || '').toLowerCase();
-  if (/mum|bub|postnatal/.test(n)) return 'img/portrait.webp';
-  if (/strength|sculpt/.test(n)) return 'img/square.webp';
-  return 'img/wide.webp';
+/** The studio's photo for a class type (its own image, else the branding's photo for that class, else the default). */
+export function classPhoto(ct?: Pick<ClassType, 'name' | 'imageUrl'> | string): string {
+  return brandAsset(classPhotoFor(getBranding(), ct)) ?? '';
 }
 
 /** Centred section head like the website: optional kicker, serif headline with an italic sky word, short line under. */

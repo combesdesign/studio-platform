@@ -1,20 +1,27 @@
 import React, { useState } from 'react';
 import { errorMessage, store, useData } from '../shared/react';
 import type { AuthUser } from '../shared/types';
-import { Flower, Logo, Marquee } from '../shared/brand';
+import { Accented, Flower, Logo, Marquee } from '../shared/brand';
+import { brandAsset, getBranding } from '../shared/branding';
+import { currentStudio } from '../data';
+
+/** '57 Vale Street, Cooma NSW 2630' -> '57 Vale Street, Cooma' */
+const shortAddress = (a: string) => a.replace(/\s+[A-Z]{2,3}\s+\d{4}$/, '');
 import { Avatar, Icon, roleLabel, teacherIds } from './ui';
 import { demoOpenPasswordLink, setLinkOrigin } from './password';
 
 /** The photo half of the sign-in (website hero): also used by the "Choose a new password" screen. */
 export function SignInArt() {
+  const b = getBranding();
+  const address = shortAddress(currentStudio?.address ?? '');
   return (
     <section className="si-art">
-      <img className="si-photo" src="../img/wide.webp" alt="" />
+      <img className="si-photo" src={brandAsset(b.photos.hero)} alt="" />
       <div className="si-art-inner">
         <Logo animate className="si-logo" letters="var(--highlight)" flower="var(--accent)" />
         <div className="si-copy">
-          <p className="si-quote">Behind the scenes at the newest club in <em>Cooma.</em></p>
-          <p className="si-addr">Studio app<Flower size={9} />57 Vale Street, Cooma</p>
+          <p className="si-quote"><Accented text={b.staffHeadline ?? `Behind the scenes at *${currentStudio?.name ?? b.appName}*`} /></p>
+          <p className="si-addr">Studio app{address && <><Flower size={9} />{address}</>}</p>
         </div>
       </div>
       <Marquee tone="navy" speed={60} />
@@ -83,7 +90,7 @@ export function SignIn({ notStaff, onDone, linkProblem }: { notStaff?: boolean; 
 
           <form className="stack" style={{ marginTop: 26 }} onSubmit={submit}>
             <label className="field"><span>Email</span>
-              <input className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@snowypilatesclub.com" />
+              <input className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder={`you@${(currentStudio?.email.split('@')[1] || 'yourstudio.com')}`} />
             </label>
             <label className="field"><span>Password</span>
               <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />

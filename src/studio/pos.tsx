@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../shared/react';
+import { Slot } from '../shared/slots';
 import { gstOf, money } from '../shared/format';
 import type { Client, Pass, PaymentMethod, Product, Sale } from '../shared/types';
 import { FlowerStars, Logo } from '../shared/brand';
@@ -11,7 +12,7 @@ const KIND_ORDER: Product['kind'][] = ['intro', 'dropin', 'pack', 'membership', 
 type Line = { productId: string; qty: number };
 
 export function Pos({ clientId }: { clientId?: string }) {
-  const { me, can } = useStudio();
+  const { me, can, studio } = useStudio();
   const toast = useToast();
   const prods = useData(() => store.listProducts(), []);
   const [cart, setCart] = useState<Line[]>([]);
@@ -83,6 +84,7 @@ export function Pos({ clientId }: { clientId?: string }) {
       {prods.loading && !prods.data ? <Loading /> : (
         <div className="pos-grid">
           <div className="pos-products">
+            <Slot name="pos.products" props={{ ...(client ? { clientId: client.id } : {}) }} can={can} />
             {groups.map(([k, list]) => (
               <section key={k} className="pg">
                 <div className="eyebrow">{productKindLabel(k)}</div>
@@ -140,6 +142,7 @@ export function Pos({ clientId }: { clientId?: string }) {
 
             {lines.length > 0 && (
               <>
+                <Slot name="pos.cart" props={{ ...(client ? { clientId: client.id } : {}), subtotalCents: subtotal, setDiscount: (cents: number, n: string) => { setDiscType('$'); setDisc((cents / 100).toFixed(2)); if (n) setNote(n); } }} can={can} />
                 <div className="pc-disc">
                   <span className="muted small">Discount</span>
                   <Seg value={discType} onChange={setDiscType} options={[{ value: '$', label: '$' }, { value: '%', label: '%' }]} className="sm" />
@@ -153,7 +156,7 @@ export function Pos({ clientId }: { clientId?: string }) {
                   <div><span>Subtotal</span><span>{money(subtotal, { cents: true })}</span></div>
                   {(discCents > 0 || method === 'comp') && <div><span>Discount</span><span>−{money(method === 'comp' ? subtotal : discCents, { cents: true })}</span></div>}
                   <div className="pc-total"><span>Total</span><span>{money(total, { cents: true })}</span></div>
-                  <div className="faint small"><span>Includes GST</span><span>{money(gstOf(total), { cents: true })}</span></div>
+                  {studio.taxRegistered && <div className="faint small"><span>Includes {studio.taxName}</span><span>{money(gstOf(total), { cents: true })}</span></div>}
                 </div>
                 <button className="btn block pc-charge" disabled={busy || (needsClient && !client)} onClick={charge}>
                   {busy ? 'Processing…' : needsClient && !client ? 'Add a client to continue' : method === 'comp' ? 'Complete comp sale' : `Charge ${money(total, { cents: true })}`}
@@ -190,7 +193,7 @@ function passBlurb(p: Product): string {
 }
 
 function Receipt({ r, onNew, back }: { r: { sale: Sale; passes: Pass[]; client: Client | null }; onNew: () => void; back?: BackTo }) {
-  const { settings } = useStudio();
+  const { settings, studio } = useStudio();
   const s = r.sale;
   const sub = s.items.reduce((n, i) => n + i.unitCents * i.qty, 0);
   const disc = sub - s.totalCents;
@@ -201,11 +204,11 @@ function Receipt({ r, onNew, back }: { r: { sale: Sale; passes: Pass[]; client: 
       <article className="receipt card">
         <Logo className="rc-logo" />
         <div className="rc-studio">
-          <div>{settings.name || 'Snowy Pilates Club'}</div>
+          <div>{settings.name || studio.name}</div>
           <div>{settings.address}</div>
-          {settings.abn && <div>ABN {settings.abn}</div>}
+          {settings.abn && <div>{studio.taxIdLabel} {settings.abn}</div>}
         </div>
-        <div className="rc-title">Tax invoice</div>
+        <div className="rc-title">{settings.gstRegistered !== false ? 'Tax invoice' : 'Receipt'}</div>
         <div className="rc-meta"><span>{dateTime(s.createdAt)}</span><span>#{s.id.slice(-6).toUpperCase()}</span></div>
         {r.client && <div className="rc-meta"><span>Client</span><span>{fullName(r.client)}</span></div>}
         <div className="rc-items">
@@ -213,7 +216,7 @@ function Receipt({ r, onNew, back }: { r: { sale: Sale; passes: Pass[]; client: 
           {disc > 0 && <div><span>Discount</span><span>−{money(disc, { cents: true })}</span></div>}
         </div>
         <div className="rc-total"><span>Total</span><span>{money(s.totalCents, { cents: true })}</span></div>
-        {settings.gstRegistered !== false && <div className="rc-gst">Total includes GST of {money(gstOf(s.totalCents), { cents: true })}</div>}
+        {settings.gstRegistered !== false && <div className="rc-gst">Total includes {studio.taxName} of {money(gstOf(s.totalCents), { cents: true })}</div>}
         <div className="rc-meta"><span>Paid by</span><span>{METHOD_LABEL[s.method] ?? s.method}</span></div>
         <div className="rc-thanks"><FlowerStars count={5} size={12} /><p>Thank you for moving with us.</p></div>
       </article>

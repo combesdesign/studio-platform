@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { store, useAction, useData } from '../shared/react';
-import { addDays, money, studioDate, weekStart } from '../shared/format';
+import { addDays, money, studioDate, weekStart, LOCALE } from '../shared/format';
 import type { ReportRange } from '../shared/types';
 import { Avatar, Icon, Loading, PageHead, Seg, cx, downloadText, useStudio } from './ui';
 import { METHOD_LABEL } from './clients';
@@ -16,7 +16,7 @@ function rangeFor(p: Preset, custom: ReportRange): ReportRange {
   if (p === 'last_month') { const prev = addDays(monthStart(t), -1); return { from: monthStart(prev), to: prev }; }
   return custom;
 }
-const fmtD = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const fmtD = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const KIND: Record<string, string> = { membership: 'Memberships', pack: 'Class packs', intro: 'Intro offer', dropin: 'Drop-ins', retail: 'Retail' };
 
 export function Reports() {

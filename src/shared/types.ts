@@ -110,7 +110,7 @@ export interface BrandMark {
 export interface StudioBranding {
   /** Name on the home screen and title bar. */
   appName: string;
-  /** Up to 12 characters, for the home-screen icon. */
+  /** Short name under the home-screen icon (keep it to about 12 characters). */
   shortName: string;
   colors: BrandColors;
   /** Google Fonts family names. */

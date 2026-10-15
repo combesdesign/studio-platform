@@ -2,7 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import type { Sale } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet, useBackHandler } from '../shared/react';
-import { money, studioDate } from '../shared/format';
+import { dateFormat, money, studioDate } from '../shared/format';
+import { getBranding } from '../shared/branding';
+import { clientProfileEntries } from '../shared/registry';
+import { isSingleStudio, switchStudio } from '../shared/boot';
 import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useApp } from './ui';
 import { Receipt, ReceiptSkeleton } from './passes';
 import { squarePhoto } from '../shared/photo';
@@ -41,7 +44,9 @@ export function Profile({ nav }: { nav: Nav }) {
     catch (e) { toast(errorMessage(e)); }
   };
 
-  const since = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', month: 'long', year: 'numeric' }).format(new Date(c.createdAt));
+  const since = dateFormat({ month: 'long', year: 'numeric' }).format(new Date(c.createdAt));
+  const brand = getBranding();
+  const site = app.studio.website?.replace(/^https?:\/\//, '').replace(/\/$/, '');
   const s = app.settings;
   const team = app.staff.filter((x) => x.active && !!x.photoUrl);
 
@@ -83,6 +88,20 @@ export function Profile({ nav }: { nav: Nav }) {
             <span className="list-row-main"><span className="list-row-title">News + offers</span><span className="list-row-sub">New classes, events and the odd offer by email</span></span>
             <Toggle checked={!!c.marketingOptIn} disabled={savingOpt} onChange={setOptIn} label="News and offers emails" />
           </div>
+          {clientProfileEntries().map((e) => (
+            <button key={e.id} className="list-row" onClick={() => goFlow(nav, e.path, { label: 'Profile', where: '/profile' })}>
+              <span className="row-ic">{typeof e.icon === 'string' ? <Icon name={e.icon} size={20} /> : e.icon}</span>
+              <span className="list-row-main"><span className="list-row-title">{e.label}</span>{e.sub && <span className="list-row-sub">{e.sub}</span>}</span>
+              <Icon name="chevron" size={18} className="faint" />
+            </button>
+          ))}
+          {!isSingleStudio() && (
+            <button className="list-row" onClick={() => switchStudio('client', null)}>
+              <span className="row-ic"><Icon name="globe" size={20} /></span>
+              <span className="list-row-main"><span className="list-row-title">Switch studio</span><span className="list-row-sub">You’re at {app.studio.name}</span></span>
+              <Icon name="chevron" size={18} className="faint" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -113,7 +132,7 @@ export function Profile({ nav }: { nav: Nav }) {
 
       <footer className="studio-foot">
         <Logo white width={150} />
-        <p className="foot-tagline">Feel-good mat Pilates in Cooma, where movement becomes addictive.</p>
+        {brand.tagline && <p className="foot-tagline">{brand.tagline}</p>}
         <div className="foot-group">
           <small>Studio</small>
           <a href={mapsUrl(s.address)} target="_blank" rel="noopener"><span>{s.address}</span><Arrow /></a>
@@ -122,9 +141,9 @@ export function Profile({ nav }: { nav: Nav }) {
           <small>Connect</small>
           <a href={`mailto:${s.email}`}><span>{s.email}</span><Arrow /></a>
           {s.phone && <a href={`tel:${s.phone.replace(/\s+/g, '')}`}><span>{s.phone}</span><Arrow /></a>}
-          <a href="https://snowypilatesclub.com" target="_blank" rel="noopener"><span>snowypilatesclub.com</span><Arrow /></a>
+          {site && <a href={app.studio.website} target="_blank" rel="noopener"><span>{site}</span><Arrow /></a>}
         </div>
-        <p className="foot-base">Mat Pilates for every body · Cooma NSW</p>
+        {brand.footerLine && <p className="foot-base">{brand.footerLine}</p>}
       </footer>
 
       <DetailsSheet open={sheet === 'details'} onClose={() => setSheet(null)} />

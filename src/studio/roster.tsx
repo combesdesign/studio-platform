@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Sheet, match, store, useAction, useBackHandler, useData, useToast } from '../shared/react';
-import { studioDate, studioToUTC, time, weekStart } from '../shared/format';
+import { Slot } from '../shared/slots';
+import { studioDate, studioToUTC, time, weekStart, LOCALE, TZ } from '../shared/format';
 import type { Booking, Pass, SessionWithCounts } from '../shared/types';
 import type { RosterEntry } from '../shared/store';
 import { Flower } from '../shared/brand';
@@ -119,6 +120,7 @@ export function Roster({ id }: { id: string }) {
           </>
         )}
       />
+      <Slot name="roster.header" props={{ session: s }} can={can} />
 
       {!cancelled && (
         <div className="rs-summary card">
@@ -146,7 +148,7 @@ export function Roster({ id }: { id: string }) {
             ) : (
               <div className="rlist">
                 {attending.map((e) => (
-                  <RosterRow key={e.id} e={e} onToggle={() => toggle(e)} onOpen={() => setDetail(e)} onInjury={() => setInjury(e)} onWaiver={() => setWaiverFor(e)} disabled={cancelled} />
+                  <RosterRow key={e.id} e={e} s={s} onToggle={() => toggle(e)} onOpen={() => setDetail(e)} onInjury={() => setInjury(e)} onWaiver={() => setWaiverFor(e)} disabled={cancelled} />
                 ))}
               </div>
             )}
@@ -218,7 +220,7 @@ export function Roster({ id }: { id: string }) {
   );
 }
 
-function RosterRow({ e, onToggle, onOpen, onInjury, onWaiver, disabled }: { e: RosterEntry; onToggle: () => void; onOpen: () => void; onInjury: () => void; onWaiver: () => void; disabled?: boolean }) {
+function RosterRow({ e, s, onToggle, onOpen, onInjury, onWaiver, disabled }: { e: RosterEntry; s: SessionWithCounts; onToggle: () => void; onOpen: () => void; onInjury: () => void; onWaiver: () => void; disabled?: boolean }) {
   const inn = e.status === 'checked_in';
   const flags = FLAG_ORDER.filter((f) => e.flags.includes(f));
   return (
@@ -233,6 +235,7 @@ function RosterRow({ e, onToggle, onOpen, onInjury, onWaiver, disabled }: { e: R
           const click = f === 'injury' ? onInjury : f === 'no_waiver' ? onWaiver : onOpen;
           return <button key={f} className={cx('chip', 'flag', F.tone)} onClick={click}><Icon name={F.icon} size={15} />{F.label}</button>;
         })}
+        <Slot name="roster.entry" props={{ entry: e, session: s }} />
       </div>
       <button className={cx('ci', inn && 'on')} onClick={onToggle} disabled={disabled} aria-pressed={inn} aria-label={inn ? `Undo check-in for ${e.client.firstName}` : `Check in ${e.client.firstName}`}>
         <span className="ci-circle"><Icon name="check" size={26} /></span>
@@ -295,9 +298,9 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
                     {f === 'injury' && <span>{e.client.injuries || e.client.healthForm?.injuries}</span>}
                     {f === 'first_class' && <span>Give them a warm welcome and a quick intro to the studio.</span>}
                     {f === 'no_waiver' && <span>Ask them to sign before class.</span>}
-                    {f === 'birthday' && <span>Birthday this week{e.client.birthday ? ` (${new Date(e.client.birthday + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long' })})` : ''}.</span>}
+                    {f === 'birthday' && <span>Birthday this week{e.client.birthday ? ` (${new Date(e.client.birthday + 'T00:00:00').toLocaleDateString(LOCALE, { day: 'numeric', month: 'long' })})` : ''}.</span>}
                     {f === 'last_credit' && <span>This is the last credit on their pack. A good moment to mention a new one.</span>}
-                    {f === 'pass_expiring' && <span>Their pass expires {e.pass?.expiresAt ? `on ${new Date(e.pass.expiresAt).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })}` : 'within 7 days'}.</span>}
+                    {f === 'pass_expiring' && <span>Their pass expires {e.pass?.expiresAt ? `on ${new Date(e.pass.expiresAt).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' })}` : 'within 7 days'}.</span>}
                   </span>
                 </div>
               ))}
@@ -354,7 +357,7 @@ export function EditSessionSheet({ open, onClose, s, onBack }: { open: boolean; 
   useEffect(() => {
     if (!open) return;
     setDate(studioDate(s.startsAt));
-    setHhmm(new Intl.DateTimeFormat('en-GB', { timeZone: 'Australia/Sydney', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(s.startsAt)));
+    setHhmm(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(s.startsAt)));
     setIns(s.instructorId); setCap(String(s.capacity)); setNote(s.note ?? '');
   }, [open, s]);
   const save = async () => {

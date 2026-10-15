@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import type { BookingWithDetails } from '../shared/store';
 import { store, useData } from '../shared/react';
-import { studioDate, time } from '../shared/format';
+import { studioDate, time, dateFormat } from '../shared/format';
 import { CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, useApp } from './ui';
 import { ClassSheet } from './timetable';
 import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, takePendingClass, timeRange, when } from './lib';
@@ -105,7 +105,7 @@ function BookingCard({ b, onOpen, i }: { b: BookingWithDetails; onOpen: () => vo
       <span className="bk-date">
         <span className="bk-wd">{WEEKDAYS[weekday(d)]}</span>
         <span className="bk-num serif">{Number(d.slice(8))}</span>
-        <span className="bk-mo">{new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', month: 'short' }).format(new Date(d + 'T00:00:00Z'))}</span>
+        <span className="bk-mo">{dateFormat({ timeZone: 'UTC', month: 'short' }).format(new Date(d + 'T00:00:00Z'))}</span>
       </span>
       <span className="bk-main">
         <span className="bk-name">{b.classType.name}</span>

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../shared/react';
-import { addDays, startOfStudioDay, studioDate, studioToUTC, time, weekStart } from '../shared/format';
+import { addDays, startOfStudioDay, studioDate, studioToUTC, time, weekStart, LOCALE } from '../shared/format';
 import type { ScheduleTemplate, SessionWithCounts } from '../shared/types';
 import { Flower } from '../shared/brand';
 import { Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, replaceRoute, useStudio } from './ui';
@@ -9,7 +9,7 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const fmtRange = (from: string) => {
   const a = new Date(from + 'T12:00:00Z'), b = new Date(addDays(from, 6) + 'T12:00:00Z');
   const o: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'UTC' };
-  return `${a.toLocaleDateString('en-AU', o)} – ${b.toLocaleDateString('en-AU', { ...o, year: 'numeric' })}`;
+  return `${a.toLocaleDateString(LOCALE, o)} – ${b.toLocaleDateString(LOCALE, { ...o, year: 'numeric' })}`;
 };
 const hhmm12 = (t: string) => { const [h, m] = t.split(':').map(Number); const hh = ((h! + 11) % 12) + 1; return `${hh}:${String(m).padStart(2, '0')}${h! < 12 ? 'am' : 'pm'}`; };
 

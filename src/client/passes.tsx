@@ -3,7 +3,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import type { CreditSummary, PurchaseResult } from '../shared/store';
 import type { Pass, Product, Sale } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet, leaveSheets, useBackHandler } from '../shared/react';
-import { addDays, gstOf, money, studioDate } from '../shared/format';
+import { CURRENCY, addDays, gstOf, money, studioDate } from '../shared/format';
+import { brandAsset, getBranding } from '../shared/branding';
+import { Slot } from '../shared/slots';
 import { Accent, Arrow, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
 import { Marquee } from '../shared/brand';
 import { backOut, daysLeft, dateOnlyShort, dateShortNoDay, expiryLabel, flowFrom, perClass, productWhat, queryOf, validityWords, when } from './lib';
@@ -78,7 +80,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
           )}
 
       <section className="shop">
-        <Marquee phrases={['Feel your best', 'Designed for every body', 'Good energy', 'Strong from the inside out', "Movement isn't a chore"]} />
+        <Marquee phrases={getBranding().shopMarquee ?? getBranding().marquee} />
 
         {products.error && !products.data ? <div className="shop-pad"><ErrorBlock error={products.error} onRetry={products.reload} /></div> :
           !products.data || intro.loading && intro.data === undefined ? <div className="shop-pad"><CardSkeletons n={3} h={120} /></div> : (
@@ -126,7 +128,8 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
           )}
       </section>
 
-      <p className="fine muted center mt-28">All prices in AUD and include GST.</p>
+      <Slot name="client.shop" props={{}} />
+      <p className="fine muted center mt-28">All prices in {CURRENCY}{app.studio.taxRegistered ? ` and include ${app.studio.taxName}` : ''}.</p>
 
       <Checkout product={buy} onClose={() => setBuy(null)} nav={nav} forId={forId} forLabel={forCt ? forCt.name : undefined} onBackToClass={backToClass} />
     </div>
@@ -250,7 +253,7 @@ function IntroCard({ p, onBuy }: { p: Product; onBuy: () => void }) {
   const dollars = money(p.priceCents).replace(/^\$/, '');
   return (
     <section className="intro">
-      <div className="intro-media"><img src="img/square.webp" alt="" className="intro-img" /></div>
+      <div className="intro-media"><img src={brandAsset(getBranding().photos.offer ?? getBranding().photos.hero)} alt="" className="intro-img" /></div>
       <div className="intro-body">
         <span className="intro-price serif"><sup>$</sup>{dollars}</span>
         <h2 className="intro-title">Feel stronger, more confident and <em>enjoy movement</em></h2>
@@ -368,7 +371,7 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: Check
         <button className="btn block big" disabled={!!busy} onClick={() => pay('pay')}>
           {busy === 'pay' ? 'Processing…' : <><Icon name="lock" size={17} />Pay {money(p.priceCents)}</>}
         </button>
-        <p className="fine muted center">{isMember ? `Then ${money(p.priceCents)} every ${p.billingInterval === 'month' ? 'month' : 'week'} from your first booking. Cancel or pause any time.` : 'Secure payment. Prices include GST.'}</p>
+        <p className="fine muted center">{isMember ? `Then ${money(p.priceCents)} every ${p.billingInterval === 'month' ? 'month' : 'week'} from your first booking. Cancel or pause any time.` : `Secure payment.${app.studio.taxRegistered ? ` Prices include ${app.studio.taxName}.` : ''}`}</p>
       </div>
     );
   }
@@ -400,7 +403,7 @@ function kindLabel(p: Product): string {
 
 // ------------------------------------------------------------------ receipt
 export function Receipt({ sale }: { sale: Sale }) {
-  const { settings } = useApp();
+  const { settings, studio } = useApp();
   const refunded = sale.refundedCents ?? 0;
   return (
     <div className="receipt">
@@ -408,7 +411,7 @@ export function Receipt({ sale }: { sale: Sale }) {
         <Flower size={28} />
         <div>
           <div className="receipt-studio serif">{settings.name}</div>
-          {settings.abn && <div className="muted">ABN {settings.abn}</div>}
+          {settings.abn && <div className="muted">{studio.taxIdLabel} {settings.abn}</div>}
         </div>
       </div>
       <div className="receipt-meta muted">
@@ -421,7 +424,7 @@ export function Receipt({ sale }: { sale: Sale }) {
         ))}
       </div>
       <div className="receipt-total spread"><strong>Total</strong><strong>{money(sale.totalCents, { cents: true })}</strong></div>
-      {settings.gstRegistered !== false && <div className="muted">Total includes GST of {money(gstOf(sale.totalCents), { cents: true })}</div>}
+      {settings.gstRegistered !== false && <div className="muted">Total includes {studio.taxName} of {money(gstOf(sale.totalCents), { cents: true })}</div>}
       {refunded > 0 && <div className="muted">Refunded {money(refunded, { cents: true })}{sale.refundedAt ? ` on ${dateShortNoDay(sale.refundedAt)}` : ''}</div>}
       <div className="muted">Paid by {sale.method === 'card_online' ? 'card (online)' : sale.method === 'card_reader' ? 'card (in studio)' : sale.method}</div>
     </div>

@@ -392,6 +392,16 @@ export class DemoStore implements DataStore {
     this.db.emit();
   }
 
+  /** Demo: images stay inline as data URLs (fine for a browser demo; the live store uploads to Storage). */
+  async uploadBrandingImage(file: Blob): Promise<string> {
+    await this.delay();
+    if (file.size > 4 * 1024 * 1024) throw err('INVALID', 'That image is over 4 MB. Please choose a smaller one.');
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:${file.type || 'application/octet-stream'};base64,${btoa(bin)}`;
+  }
+
   // ---------------------------------------------------------------- studio (details + branding)
   async getStudio(): Promise<Studio> {
     return this.read(() => this.studioRec);

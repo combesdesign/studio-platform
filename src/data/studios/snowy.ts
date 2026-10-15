@@ -11,7 +11,7 @@ const LOGO_PATHS: LogoPath[] = [{"c": "lt", "n": 9, "d": "M 1358.14 705.60 C 136
 
 export const SNOWY_BRANDING: StudioBranding = {
   appName: 'Snowy Pilates Club',
-  shortName: 'Snowy',
+  shortName: 'Snowy Pilates',
   colors: {
     primary: '#5069AC', primaryDeep: '#435C9E', ink: '#24345F', accent: '#85A2D1', soft: '#EEF2F9', softDeep: '#E3E9F4',
     highlight: '#F2E6C6', highlightSoft: '#F8F1DE', bg: '#FAF8F3', muted: '#5D6A8A', faint: '#8C96B0',

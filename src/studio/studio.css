@@ -1,4 +1,4 @@
-/* Snowy Pilates Club — studio app. Builds on src/shared/theme.css tokens. */
+/* Studio app styles. Builds on src/shared/theme.css tokens (role colours set from the studio's branding). */
 
 :root { --side: 236px; --gut: 40px; --ok-2: #2F7A5C; }
 body { background: var(--bg); }
@@ -869,3 +869,62 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
   .dl.roles { grid-template-columns: 1fr; gap: 2px; }
   .dl.roles dd { margin-bottom: 10px; }
 }
+
+/* ---- which studio? (platform, before a studio is chosen) + the switcher ---- */
+.choose { min-height: 100svh; display: grid; place-items: center; padding: calc(var(--safe-top) + 32px) 16px calc(32px + var(--safe-bottom)); background: var(--bg); }
+.choose-card { width: min(460px, 100%); display: grid; gap: 14px; }
+.choose-logo { width: 170px; height: auto; margin-bottom: 18px; }
+.choose-card h1 { font-size: clamp(38px, 9vw, 52px); }
+.choose-form { margin-top: 6px; }
+.choose-wait { display: grid; place-items: center; padding: 32px; }
+.choose-list { display: grid; gap: 8px; }
+.choose-demo { margin-top: 18px; display: grid; gap: 10px; }
+.choose-demo .eyebrow { display: flex; gap: 6px; align-items: center; }
+.choose-initial { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--primary); font-size: 22px; }
+.persona:disabled { opacity: .6; cursor: default; }
+.side-switch { width: 100%; background: none; border: 0; text-align: left; cursor: pointer; font: inherit; }
+
+/* ---- Settings › Branding, onboarding ---- */
+.brand-tab { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; padding-bottom: 90px; }
+.brand-edit { display: grid; gap: 18px; min-width: 0; }
+.brand-preview { position: sticky; top: 24px; }
+.bare-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+@media (max-width: 1100px) { .brand-tab { grid-template-columns: 1fr; } .brand-preview { position: static; } }
+.onb { display: grid; gap: 20px; max-width: 1080px; padding-bottom: 40px; }
+.onb-head { display: grid; gap: 8px; }
+.onb-head h1 { font-size: clamp(36px, 5vw, 52px); }
+.onb-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; flex-wrap: wrap; }
+.onb-steps button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 6px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer; font-size: 14.5px; }
+.onb-steps button.on { border-color: var(--primary); color: var(--ink); }
+.onb-steps button.done { color: var(--ink); }
+.onb-n { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--primary); font-size: 13px; }
+.onb-steps .on .onb-n { background: var(--primary); color: #fff; }
+.onb-steps .done .onb-n { background: var(--ok-bg); color: var(--ok); }
+.onb-card { display: grid; gap: 16px; }
+.onb-card h2 { font-size: 34px; }
+.onb-brand { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 26px; align-items: start; }
+@media (max-width: 1100px) { .onb-brand { grid-template-columns: 1fr; } }
+.onb-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.onb-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.onb-list { display: grid; gap: 8px; }
+.onb-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 14px; background: var(--soft-light); border: 1px solid var(--line); flex-wrap: wrap; }
+.onb-item .ct-sw { width: 12px; height: 12px; border-radius: 50%; background: var(--ct); }
+.onb-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px 0 12px; border-radius: 999px; border: 1px dashed var(--accent); background: #fff; color: var(--ink); cursor: pointer; font-size: 14.5px; }
+.chip-btn:hover { background: var(--soft); }
+.onb-add { display: flex; gap: 8px; flex-wrap: wrap; }
+.onb-add .input, .onb-add .select { flex: 1 1 180px; width: auto; }
+.onb-add .onb-mins { flex: 0 0 90px; }
+.onb-tpl { display: grid; grid-template-columns: 24px 1fr auto; gap: 12px; align-items: center; padding: 12px 16px; border-radius: 14px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+.onb-tpl.made { background: var(--soft-light); cursor: default; }
+.onb-tpl input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--primary); }
+.onb-tpl-t { display: grid; line-height: 1.35; }
+.onb-tpl-t strong { font-weight: 400; }
+.onb-tpl .money-in { width: 120px; }
+.onb-waiver { min-height: 160px; }
+.onb-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.onb-checks li { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.onb-checks a { color: var(--ink); }
+.onb-tick { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--muted); }
+.onb-checks .ok .onb-tick { background: var(--ok-bg); color: var(--ok); }
+@media (max-width: 700px) { .onb-card .form-grid { grid-template-columns: 1fr; } .onb-tpl { grid-template-columns: 24px 1fr; } .onb-tpl .money-in, .onb-tpl .chip { grid-column: 2; } }

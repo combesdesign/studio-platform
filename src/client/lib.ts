@@ -1,6 +1,6 @@
 /** Client app helpers (no JSX). */
 import type { ClassType, Pass, Product, SessionWithCounts, Staff, StudioSettings } from '../shared/types';
-import { addDays, dateTime, money, studioDate, time, weekday } from '../shared/format';
+import { addDays, dateFormat, dateTime, money, studioDate, time, weekday } from '../shared/format';
 
 /** '6:00am Tue 14 Oct' (strips the comma some ICU builds put after the weekday). */
 export function when(iso: string | Date): string {
@@ -70,7 +70,7 @@ export function expiryLabel(p: Pass): string {
   if (p.status === 'paused') return p.pausedUntil ? `Paused until ${dateOnlyShort(p.pausedUntil)}` : 'Paused';
   if (p.expiresAt) {
     const d = new Date(p.expiresAt);
-    const short = new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', day: 'numeric', month: 'short' }).format(d);
+    const short = dateFormat({ day: 'numeric', month: 'short' }).format(d);
     return d.getTime() < Date.now() ? `Expired ${short}` : `Expires ${short}`;
   }
   if (!p.activatedAt) return 'Starts on first booking';
@@ -79,13 +79,13 @@ export function expiryLabel(p: Pass): string {
 }
 
 export function dateShortNoDay(iso: string): string {
-  return new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', day: 'numeric', month: 'short' }).format(new Date(iso));
+  return dateFormat({ day: 'numeric', month: 'short' }).format(new Date(iso));
 }
 
 /** 'YYYY-MM-DD' (studio calendar date) -> '12 Dec' */
 export function dateOnlyShort(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
-  return new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1)));
+  return dateFormat({ timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1)));
 }
 
 export function daysLeft(iso?: string | null): number | null {
@@ -136,9 +136,9 @@ export function icsDataUrl(s: SessionWithCounts, ct: ClassType | undefined, inst
   const desc = [instructor ? `With ${firstName(instructor.name)}` : '', ct?.bookingNote ?? '', settings.cancellationPolicyText ?? '']
     .filter(Boolean).join('\n\n');
   const lines = [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Snowy Pilates Club//Client app//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${icsEsc(settings.name)}//Client app//EN`, 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `UID:${s.id}@snowypilatesclub.com`,
+    `UID:${s.id}@${(settings.email.split('@')[1] || 'studio.app').toLowerCase()}`,
     `DTSTAMP:${icsTime(new Date().toISOString())}`,
     `DTSTART:${icsTime(s.startsAt)}`,
     `DTEND:${icsTime(s.endsAt)}`,

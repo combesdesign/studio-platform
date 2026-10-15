@@ -728,6 +728,18 @@ class SupabaseStore implements DataStore {
     return toStudio(await this.one(this.sb.from('studios').select('*').eq('id', this.studioId).limit(1), 'We couldn’t find this studio.'));
   }
 
+  /** Logos and photos go to the public 'branding' bucket under <studio id>/ (owner / manager only, see 0007). */
+  async uploadBrandingImage(file: Blob): Promise<string> {
+    await this.requireStaff('settings');
+    await this.ready();
+    if (file.size > 5 * 1024 * 1024) throw new StoreError('INVALID', 'That image is over 5 MB. Please choose a smaller one.');
+    const ext = /svg/.test(file.type) ? 'svg' : /png/.test(file.type) ? 'png' : /webp/.test(file.type) ? 'webp' : 'jpg';
+    const path = `${this.studioId}/${Date.now().toString(36)}.${ext}`;
+    const up = await this.sb.storage.from('branding').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
+    if (up.error) throw toStoreError(up.error);
+    return str(this.sb.storage.from('branding').getPublicUrl(path).data?.publicUrl);
+  }
+
   async updateStudio(patch: StudioPatch): Promise<Studio> {
     return this.write(async () => {
       await this.requireStaff('settings');

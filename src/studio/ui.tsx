@@ -1,6 +1,6 @@
 /** Studio app: small UI kit, permissions and app context. */
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import type { AuthUser, ClassType, ScheduleTemplate, Staff, StaffRole, StudioSettings } from '../shared/types';
+import type { AuthUser, ClassType, ScheduleTemplate, Staff, StaffRole, Studio, StudioSettings } from '../shared/types';
 import { dayLong as _dayLong, dayShort as _dayShort, initials, time } from '../shared/format';
 
 /** 'Tue 14 Oct' (Intl adds a comma in en-AU; RULES.md wants none). */
@@ -10,7 +10,7 @@ export const dayLong = (iso: string | Date) => _dayLong(iso).replace(',', '');
 export const dateTime = (iso: string | Date) => `${time(iso)} ${dayShort(iso)}`;
 import { Sheet, leaveSheets } from '../shared/react';
 import { Flower } from '../shared/brand';
-import { can, type StaffAction } from '../domain';
+import { can, type FeatureAction, type StaffAction } from '../domain';
 
 export const cx = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ');
 
@@ -46,7 +46,9 @@ const PERM_MAP = {
   exportClients: 'export_clients',
 } as const satisfies Record<string, StaffAction>;
 export type Perm = keyof typeof PERM_MAP;
-export const roleCan = (role: StaffRole, p: Perm) => can(role, PERM_MAP[p]);
+/** Core UI permissions (above) or a feature action ('payroll.view', see registerPermissions). */
+export const roleCan = (role: StaffRole, p: Perm | FeatureAction | string) =>
+  p.includes('.') ? can(role, p as FeatureAction) : p in PERM_MAP ? can(role, PERM_MAP[p as Perm]) : false;
 export const ROLE_LABEL: Record<StaffRole, string> = { owner: 'Owner', manager: 'Manager', front_desk: 'Front desk', instructor: 'Instructor' };
 /** Like the website's team cards: 'Owner + instructor', 'Front desk + instructor'. Teaching is about the timetable, not the role. */
 export const roleLabel = (role: StaffRole, teaches: boolean) => (teaches && role !== 'instructor' ? `${ROLE_LABEL[role]} + instructor` : ROLE_LABEL[role]);
@@ -60,7 +62,9 @@ export interface StudioCtxValue {
   staff: Staff[];
   classTypes: ClassType[];
   settings: StudioSettings;
-  can: (p: Perm) => boolean;
+  /** The studio itself (details, tax, branding, status). */
+  studio: Studio;
+  can: (p: Perm | FeatureAction | string) => boolean;
   staffById: (id?: string) => Staff | undefined;
   typeById: (id?: string) => ClassType | undefined;
   /** Weekly timetable (for who teaches what). */
