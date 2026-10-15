@@ -248,7 +248,7 @@ function ProductsTab() {
             <span className="oc-price"><sup>$</sup>{toDollars(p.priceCents)}</span>
             <span className="oc-name">{p.name}{!p.active && ' · hidden'}</span>
             <span className="oc-desc">{p.description || prodSummary(p)}</span>
-            <span className="oc-fine">New clients only<Flower size={9} color="var(--cream)" />{p.validityDays ?? 14} days unlimited from first booking</span>
+            <span className="oc-fine">New clients only<Flower size={9} color="var(--highlight)" />{p.validityDays ?? 14} days unlimited from first booking</span>
             <span className="btn sm white plan-edit"><Icon name="edit" size={16} />Edit</span>
           </span>
           <span className="oc-img"><img src="../img/square.webp" alt="" loading="lazy" /></span>

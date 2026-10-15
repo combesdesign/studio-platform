@@ -127,7 +127,7 @@ function Shell() {
     <div className="app">
       <aside className="side" aria-label="Main">
         <a className="brand" href="#/" aria-label="Snowy Pilates Club studio home">
-          <Logo className="brand-logo" letters="var(--cream)" flower="var(--sky)" />
+          <Logo className="brand-logo" letters="var(--highlight)" flower="var(--accent)" />
           <span className="brand-tag">Studio</span>
         </a>
         <nav className="nav">

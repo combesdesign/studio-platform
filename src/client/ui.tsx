@@ -70,11 +70,11 @@ export function Icon({ name, size = 22, className, fill }: { name: keyof typeof 
 // ------------------------------------------------------------------ brand
 /** The flower mark, drawn inline (shared/brand). white = cream on navy surfaces, like the website. */
 export function Flower({ size = 40, white, color, className, spin }: { size?: number; white?: boolean; color?: string; className?: string; spin?: boolean }) {
-  return <BrandFlower size={size} color={color ?? (white ? 'var(--cream)' : 'var(--sky)')} className={'flower ' + (spin ? 'spin ' : '') + (className || '')} />;
+  return <BrandFlower size={size} color={color ?? (white ? 'var(--highlight)' : 'var(--accent)')} className={'flower ' + (spin ? 'spin ' : '') + (className || '')} />;
 }
 /** The wordmark, drawn inline. white = cream letters + sky flower (the website's on-navy colours). */
 export function Logo({ white, width = 96, animate }: { white?: boolean; width?: number; animate?: boolean }) {
-  return <BrandLogo animate={animate} letters={white ? 'var(--cream)' : 'var(--navy)'} flower="var(--sky)" className="logo" style={{ width, height: 'auto', aspectRatio: '1024.7 / 443.9' }} />;
+  return <BrandLogo animate={animate} letters={white ? 'var(--highlight)' : 'var(--primary)'} flower="var(--accent)" className="logo" style={{ width, height: 'auto', aspectRatio: '1024.7 / 443.9' }} />;
 }
 
 /** The website's thin arrow, used on pill buttons ("Join the club ->"). */

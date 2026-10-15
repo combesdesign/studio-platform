@@ -101,7 +101,7 @@ function BookingCard({ b, onOpen, i }: { b: BookingWithDetails; onOpen: () => vo
   const late = isLateCancel(b.session, settings);
   const lbl = dayLabel(d);
   return (
-    <button className="bk" onClick={onOpen} style={{ ['--c' as any]: b.classType.color || 'var(--sky)', animationDelay: `${i * 50}ms` }}>
+    <button className="bk" onClick={onOpen} style={{ ['--c' as any]: b.classType.color || 'var(--accent)', animationDelay: `${i * 50}ms` }}>
       <span className="bk-date">
         <span className="bk-wd">{WEEKDAYS[weekday(d)]}</span>
         <span className="bk-num serif">{Number(d.slice(8))}</span>
@@ -136,7 +136,7 @@ function PastRow({ b, onOpen }: { b: BookingWithDetails; onOpen: () => void }) {
   const [label, tone] = PAST_LABEL[b.status] ?? [b.status, ''];
   return (
     <button className="list-row" onClick={onOpen}>
-      <span className="past-bar" style={{ background: b.classType.color || 'var(--sky)' }} />
+      <span className="past-bar" style={{ background: b.classType.color || 'var(--accent)' }} />
       <span className="list-row-main">
         <span className="list-row-title">{b.classType.name}</span>
         <span className="list-row-sub">{when(b.session.startsAt)}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>

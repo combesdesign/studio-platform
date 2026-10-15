@@ -58,7 +58,9 @@ test('zero-arg demo store seeds a realistic, consistent studio', async () => {
   assert.equal(mia[0]?.pass.kind, 'intro');
 
   // Pack usage always matches bookings; memberships never exceed their weekly credits; no class over capacity.
-  const raw = JSON.parse(mem.get(STATE_KEY)!) as import('../src/data/demo/engine').DemoState;
+  const platform = JSON.parse(mem.get(STATE_KEY)!) as import('../src/data/demo/db').PlatformDemoState;
+  assert.deepEqual(platform.studios.map((s) => s.slug), ['snowy', 'harbour'], 'the demo platform has Snowy and Harbour');
+  const raw = platform.data['studio_snowy']!;
   const startOf = new Map(raw.sessions.map((s) => [s.id, s.startsAt]));
   const using = ['booked', 'checked_in', 'no_show', 'late_cancelled'];
   for (const p of raw.passes) {

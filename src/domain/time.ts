@@ -3,12 +3,14 @@
  * and memoises ISO strings (rules call it thousands of times per operation).
  */
 import type { ISODate, ISODateTime } from '../shared/types';
-import { TZ } from '../shared/format';
+import { TZ, formatEpoch } from '../shared/format';
 
 let fmt: Intl.DateTimeFormat | undefined;
+let fmtEpoch = -1;
 const memo = new Map<string, ISODate>();
 
 export function studioDay(d: Date | ISODateTime): ISODate {
+  if (fmtEpoch !== formatEpoch()) { fmt = undefined; memo.clear(); fmtEpoch = formatEpoch(); }
   fmt ??= new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
   if (typeof d !== 'string') return fmt.format(d);
   let v = memo.get(d);

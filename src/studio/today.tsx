@@ -103,7 +103,7 @@ export function Today() {
         <img className="th-photo" src="../img/wide.webp" alt="" />
         <div className="th-inner">
           <div className="th-main">
-            <Logo className="th-logo" letters="var(--cream)" flower="var(--sky)" />
+            <Logo className="th-logo" letters="var(--highlight)" flower="var(--accent)" />
             <div className="eyebrow"><Flower size={12} className="eb-fl" />{dayLong(new Date())}</div>
             <h1>{greeting()}, <em>{first}</em></h1>
             <p className="th-sub">{sub}</p>
@@ -146,7 +146,7 @@ export function Today() {
                       const done = new Date(s.endsAt).getTime() <= now;
                       const isLive = !done && new Date(s.startsAt).getTime() <= now;
                       return (
-                        <a key={s.id} href={`#/class/${s.id}`} className={cx('cls-card', s.status === 'cancelled' && 'cancelled', s.id === next?.id && 'is-next', done && 'done', isLive && 'live')} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>
+                        <a key={s.id} href={`#/class/${s.id}`} className={cx('cls-card', s.status === 'cancelled' && 'cancelled', s.id === next?.id && 'is-next', done && 'done', isLive && 'live')} style={{ ['--ct' as string]: ct?.color ?? 'var(--accent)' }}>
                           <div className="cls-time"><strong>{time(s.startsAt).replace(/(am|pm)$/, '')}</strong><span>{time(s.startsAt).slice(-2)}</span></div>
                           <div className="cls-body">
                             <div className="cls-name">{ct?.name ?? 'Class'}{s.status === 'cancelled' && <span className="chip danger">Cancelled</span>}{isLive && <span className="chip ok"><Flower size={11} spin className="live-fl" color="currentColor" />On now</span>}</div>

@@ -54,6 +54,15 @@ for f in "$HERE"/[2-7]*_*.sql; do
   run_test "$f"
 done
 
+# Feature modules' tests: supabase/tests/<feature>_*.sql (appointments_, marketing_, commerce_, payroll_ ...).
+# Each runs in its own transaction (begin; ... rollback;) against the fixtures above. See AGENTS.md.
+for f in "$HERE"/[a-z]*_*.sql; do
+  [ -n "${ONLY_LIVE:-}" ] && break
+  [ -e "$f" ] || continue
+  step "$(basename "$f")"
+  run_test "$f"
+done
+
 if [ -z "${ONLY_LIVE:-}" ]; then
 step "concurrency: 10 clients race for 3 spots"
 "${PSQL[@]}" -f "$HERE/80_concurrency_setup.sql"

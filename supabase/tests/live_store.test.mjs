@@ -216,7 +216,7 @@ const S_EVE = id('s_eve'), S_CANCEL = id('s_cancel'), SCULPT = id('sculpt'), S_T
 const range = { from: '2026-10-18T13:00:00.000Z', to: '2026-10-26T13:00:00.000Z' };
 
 await t('DataStore: every method in src/shared/store.ts is implemented', () => {
-  const iface = readFileSync(path.join(ROOT, 'src/shared/store.ts'), 'utf8').split('export interface DataStore')[1];
+  const iface = readFileSync(path.join(ROOT, 'src/shared/store.ts'), 'utf8').split('export interface DataStore')[1].split('\nexport ')[0];
   const names = [...iface.matchAll(/^ {2}(\w+)(\?)?\(/gm)].filter((m) => !m[2] || ['registerInterest', 'moveBooking', 'startCheckout'].includes(m[1])).map((m) => m[1]);
   const missing = names.filter((n) => typeof client[n] !== 'function');
   assert.ok(names.length > 45);

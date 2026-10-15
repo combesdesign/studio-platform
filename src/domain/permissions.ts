@@ -37,8 +37,25 @@ export const PERMISSIONS: Record<StaffRole, readonly StaffAction[]> = {
   instructor: ['roster_own', 'clients_view', 'waiver_record', 'pos', 'reports'],
 };
 
-export function can(role: StaffRole, action: StaffAction): boolean {
-  return PERMISSIONS[role].includes(action);
+/**
+ * Feature permission actions, namespaced '<feature>.<action>' (e.g. 'appointments.manage').
+ * Features register them from their own folder; nobody edits the core matrix above.
+ */
+export type FeatureAction = `${string}.${string}`;
+const FEATURE_PERMISSIONS = new Map<string, readonly StaffRole[]>();
+
+/** registerPermissions({ 'payroll.view': ['owner', 'manager'], 'payroll.export': ['owner'] }) */
+export function registerPermissions(map: Record<FeatureAction, readonly StaffRole[]>): void {
+  for (const [action, roles] of Object.entries(map)) {
+    if (!/^[a-z][a-z0-9_-]*\.[a-z0-9_.-]+$/.test(action)) throw new Error(`Feature permission "${action}" must look like "<feature>.<action>".`);
+    FEATURE_PERMISSIONS.set(action, [...roles]);
+  }
+}
+export function featurePermissions(): ReadonlyMap<string, readonly StaffRole[]> { return FEATURE_PERMISSIONS; }
+
+export function can(role: StaffRole, action: StaffAction | FeatureAction): boolean {
+  if (action.includes('.')) return FEATURE_PERMISSIONS.get(action)?.includes(role) ?? false;
+  return PERMISSIONS[role].includes(action as StaffAction);
 }
 
 /** Settings fields only the owner may change (ABN / bank / Stripe). */

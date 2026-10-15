@@ -48,6 +48,10 @@ export interface DemoState {
   outbox: OutboxMessage[];
   /** "Register interest" for coming-soon class types (one row per client + class type). Staff can see it. */
   interest?: { clientId: ID; classTypeId: ID; at: ISODateTime }[];
+  /** Client persona emails for the demo sign-in list, in order: brand new, member, pack, intro. */
+  personas?: string[];
+  /** Feature modules' own demo data, keyed by feature name (src/features/<name>/demo.ts). */
+  features?: Record<string, unknown>;
 }
 
 export type Actor = { kind: 'client'; clientId: ID } | { kind: 'staff'; staffId: ID } | { kind: 'system' };

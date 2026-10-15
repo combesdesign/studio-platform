@@ -300,7 +300,7 @@ export function SessionPicker({ onPick, excludeId, days = 14, title, noFull, cli
             const already = mine.data?.get(s.id);
             const blocked = !!already || (!!noFull && s.spotsLeft <= 0);
             return (
-              <button key={s.id} className={cx('sp-row', blocked && 'off')} onClick={() => onPick(s)} type="button" disabled={blocked} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>
+              <button key={s.id} className={cx('sp-row', blocked && 'off')} onClick={() => onPick(s)} type="button" disabled={blocked} style={{ ['--ct' as string]: ct?.color ?? 'var(--accent)' }}>
                 <span className="sp-time">{time(s.startsAt)}</span>
                 <span className="sp-t"><strong>{ct?.name}</strong><span>{staffById(s.instructorId)?.name}</span></span>
                 <span className="sp-fill"><span>{already ?? (s.spotsLeft === 0 ? `Full${s.waitlistCount ? ` · ${s.waitlistCount} waiting` : ''}` : `${s.spotsLeft} left`)}</span><Fill value={s.bookedCount} max={s.capacity} /></span>

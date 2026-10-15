@@ -14,13 +14,15 @@ import { createClient } from '@supabase/supabase-js';
 import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
-  Staff, StaffRole, StudioReport, StudioSettings,
+  Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser,
 } from '../../shared/types';
 import {
   StoreError,
   type BookResult, type BookingWithDetails, type CancelResult, type CreditSummary, type DataStore, type PurchaseResult,
-  type RosterEntry, type Unsubscribe,
+  type RosterEntry, type Unsubscribe, type FeatureStores, type StudioPatch, type PlatformStore, type NewStudioInput,
 } from '../../shared/store';
+import { liveFeatures, type LiveFeatureContext } from './features';
+import '../../features/live';
 import { addDays, startOfStudioDay } from '../../shared/format';
 import { clientsCsv, salesCsv } from '../../domain/report';
 import { comparePassPriority, isPassCurrent } from '../../domain/rules';
@@ -125,8 +127,32 @@ function toClassType(r: Row): ClassType {
   return clean({
     id: str(r.id), name: str(r.name), description: str(r.description), durationMin: num(r.duration_min, 55),
     color: str(r.color) || '#5069AC', defaultCapacity: num(r.default_capacity, 14), level: optStr(r.level),
-    bookingNote: optStr(r.booking_note), bookable: bool(r.bookable), active: bool(r.active),
+    bookingNote: optStr(r.booking_note), bookable: bool(r.bookable), active: bool(r.active), imageUrl: optStr(r.image_url),
   });
+}
+
+/** studios row -> Studio. Branding is stored as JSON in the Studio shape (camelCase). */
+function toStudio(r: Row): Studio {
+  return clean({
+    id: str(r.id), slug: str(r.slug), name: str(r.name), timezone: str(r.timezone) || 'Australia/Sydney', currency: str(r.currency) || 'AUD',
+    locale: str(r.locale) || 'en-AU', email: str(r.email), phone: optStr(r.phone), address: str(r.address), website: optStr(r.website),
+    taxId: optStr(r.tax_id), taxIdLabel: str(r.tax_id_label) || 'ABN', taxName: str(r.tax_name) || 'GST',
+    taxRate: r.tax_rate === undefined || r.tax_rate === null ? 0.1 : num(r.tax_rate), taxRegistered: r.tax_registered === undefined ? true : bool(r.tax_registered),
+    status: (str(r.status) || 'live') as StudioStatus, branding: obj(r.branding) as unknown as StudioBranding,
+    customDomains: Array.isArray(r.custom_domains) && r.custom_domains.length ? r.custom_domains.map(str) : undefined,
+    createdAt: iso(r.created_at),
+  });
+}
+const STUDIO_COLS: Record<string, string> = {
+  slug: 'slug', name: 'name', timezone: 'timezone', currency: 'currency', locale: 'locale', email: 'email', phone: 'phone', address: 'address',
+  website: 'website', taxId: 'tax_id', taxIdLabel: 'tax_id_label', taxName: 'tax_name', taxRate: 'tax_rate', taxRegistered: 'tax_registered',
+  status: 'status', branding: 'branding', customDomains: 'custom_domains',
+};
+/** Studio patch -> the JSON update_my_studio / platform_update_studio take (snake_case keys). */
+function studioPatchRow(p: Partial<Studio>): Row {
+  const out: Row = {};
+  for (const [k, v] of Object.entries(p)) { const col = STUDIO_COLS[k]; if (col && v !== undefined) out[col] = v ?? ''; }
+  return out;
 }
 
 function toTemplate(r: Row): ScheduleTemplate {
@@ -288,9 +314,61 @@ const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.c
 /** Optional text from a form: '' and undefined both clear the column. */
 const textOrNull = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
-/** Which app is running: the client app at / and the studio app at /studio/ keep separate logins (like the demo). */
-function currentApp(): 'client' | 'studio' {
-  return typeof location !== 'undefined' && location.pathname.includes('/studio') ? 'studio' : 'client';
+/** Which app is running: the client app at /, the studio app at /studio/ and the admin app at /admin/ keep separate logins. */
+function currentApp(): 'client' | 'studio' | 'admin' {
+  if (typeof location === 'undefined') return 'client';
+  return location.pathname.includes('/admin') ? 'admin' : location.pathname.includes('/studio') ? 'studio' : 'client';
+}
+
+/**
+ * One supabase-js client per app, shared by the PlatformStore and the studio-bound store, so there's one session.
+ * The studio a request is for goes in the x-studio header, added to every request by our fetch wrapper (the
+ * database scopes RLS and RPCs to it: supabase/migrations/0007_platform.sql).
+ */
+export interface SharedClient {
+  sb: Loose;
+  app: 'client' | 'studio' | 'admin';
+  /** x-studio header value (studio id). Mutable: set when a store is bound. */
+  hdr: Record<string, string>;
+  /** Auth events, fanned out to whoever is listening (stores come and go; the client stays). */
+  onAuth: Set<(event: string) => void>;
+  /** A reset / invite link that signed someone in, waiting for a store to show the new-password screen. */
+  pendingLink: PasswordLinkKind | null;
+  onLink: Set<(kind: PasswordLinkKind) => void>;
+}
+
+export function createSharedClient(url: string, anonKey: string, app = currentApp()): SharedClient {
+  // Invite and password-reset links land here with '#access_token=…&type=invite|recovery'. Note which before
+  // supabase-js reads (and clears) the tokens from the address.
+  let linkType: PasswordLinkKind | null = typeof location !== 'undefined' ? passwordLinkKind(location.hash) : null;
+  const hdr: Record<string, string> = {};
+  const baseFetch = typeof fetch === 'function' ? fetch.bind(globalThis) : undefined;
+  const studioFetch = baseFetch && ((input: RequestInfo | URL, init?: RequestInit) => {
+    const h = new Headers(init?.headers);
+    if (hdr['x-studio']) h.set('x-studio', hdr['x-studio']); else h.delete('x-studio');
+    return baseFetch(input, { ...init, headers: h });
+  });
+  const make = createClient as unknown as (u: string, k: string, o?: object) => Loose;
+  const sb = make(url, anonKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: `spc-live-auth-${app}` },
+    global: { headers: hdr, ...(studioFetch ? { fetch: studioFetch } : {}) },
+  });
+  const shared: SharedClient = { sb, app, hdr, onAuth: new Set(), pendingLink: null, onLink: new Set() };
+  sb.auth.onAuthStateChange((event: string) => {
+    for (const l of [...shared.onAuth]) { try { l(event); } catch (e) { console.error(e); } }
+    // Recovery links fire PASSWORD_RECOVERY; invite links just sign in. Only once per link: supabase-js
+    // also fires SIGNED_IN when the tab regains focus, and that mustn't reopen the screen.
+    if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && linkType)) {
+      const kind: PasswordLinkKind = linkType ?? 'recovery';
+      linkType = null;
+      // Out of supabase-js's callback first (it warns about auth calls made inside it).
+      setTimeout(() => {
+        if (shared.onLink.size) shared.onLink.forEach((fn) => fn(kind));
+        else shared.pendingLink = kind;
+      }, 0);
+    }
+  });
+  return shared;
 }
 
 /** The object path inside the avatars bucket for one of our public URLs, if it is one. */
@@ -314,11 +392,16 @@ export function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; type: strin
 
 class SupabaseStore implements DataStore {
   readonly mode = 'live' as const;
+  readonly features: Partial<FeatureStores> = {};
   private sb: Loose;
-  private app = currentApp();
+  private app: 'client' | 'studio' | 'admin';
+  private shared: SharedClient;
+  /** The bound studio (resolved to the database's default studio when none was given, e.g. in tests). */
+  private studio: Studio | null;
+  private studioReady: Promise<void> | null = null;
   private listeners = new Set<() => void>();
   private channel: Loose = null;
-  private authSub: Loose = null;
+  private authSub: { unsubscribe: () => void } | null = null;
   private notifyTimer: ReturnType<typeof setTimeout> | null = null;
   private me: Promise<AuthUser | null> | null = null;
   /** Date ranges we've already asked the database to fill from the weekly timetable (this session). */
@@ -329,35 +412,61 @@ class SupabaseStore implements DataStore {
   private pendingLink: PasswordLinkKind | null = null;
   private fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(url: string, anonKey: string) {
-    // Invite and password-reset links land here with '#access_token=…&type=invite|recovery'. Note which
-    // before supabase-js reads (and clears) the tokens from the address.
-    let linkType: PasswordLinkKind | null = typeof location !== 'undefined' ? passwordLinkKind(location.hash) : null;
-    const make = createClient as unknown as (u: string, k: string, o?: object) => Loose;
-    this.sb = make(url, anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: `spc-live-auth-${this.app}` },
-    });
+  constructor(url: string, anonKey: string, opts: { studio?: Studio; shared?: SharedClient } = {}) {
+    this.shared = opts.shared ?? createSharedClient(url, anonKey);
+    this.sb = this.shared.sb;
+    this.app = this.shared.app;
+    this.studio = opts.studio ?? null;
+    if (this.studio) this.shared.hdr['x-studio'] = this.studio.id;
     // Sign in/out (any tab) or a password-reset link invalidates who-am-I.
-    const { data } = this.sb.auth.onAuthStateChange((event: string) => {
+    const onAuth = (event: string) => {
       if (event === 'TOKEN_REFRESHED') return;
       this.me = null;
       this.ensured.clear();
       this.emit();
-      // Recovery links fire PASSWORD_RECOVERY; invite links just sign in. Only once per link: supabase-js
-      // also fires SIGNED_IN when the tab regains focus, and that mustn't reopen the screen.
-      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && linkType)) {
-        const kind: PasswordLinkKind = linkType ?? 'recovery';
-        linkType = null;
-        // Out of supabase-js's callback first (it warns about auth calls made inside it).
-        setTimeout(() => this.passwordLinkArrived(kind), 0);
-      }
-    });
-    this.authSub = data?.subscription ?? null;
+    };
+    this.shared.onAuth.add(onAuth);
+    const onLink = (kind: PasswordLinkKind) => this.passwordLinkArrived(kind);
+    this.shared.onLink.add(onLink);
+    if (this.shared.pendingLink) { const k = this.shared.pendingLink; this.shared.pendingLink = null; setTimeout(() => onLink(k), 0); }
+    this.authSub = { unsubscribe: () => { this.shared.onAuth.delete(onAuth); this.shared.onLink.delete(onLink); } };
+    const ctx = this.featureContext();
+    for (const f of liveFeatures()) (this.features as Record<string, unknown>)[f.name] = f.create(ctx);
+  }
+
+  get studioId(): ID { return this.studio?.id ?? ''; }
+
+  /** No studio given: use the database's default studio (the Snowy single-studio deployment, and the tests). */
+  private ready(): Promise<void> {
+    if (this.studio) { this.shared.hdr['x-studio'] = this.studio.id; return Promise.resolve(); }
+    this.studioReady ??= (async () => {
+      const res = (await this.sb.from('studios').select('*').eq('is_default', true).limit(1)) as DbResult;
+      const row = arr(res.data)[0];
+      if (res.error || !row) { this.studioReady = null; throw toStoreError(res.error ?? { message: 'NO_STUDIO: This app isn’t linked to a studio yet.' }); }
+      this.studio = toStudio(obj(row));
+      this.shared.hdr['x-studio'] = this.studio.id;
+    })();
+    return this.studioReady;
+  }
+
+  private featureContext(): LiveFeatureContext {
+    const self = this;
+    return {
+      get studioId() { return self.studioId; },
+      get sb() { return self.sb; },
+      rpc: (name, args) => this.rpc(name, (args ?? {}) as Row),
+      rows: (q) => this.rows(q as PromiseLike<DbResult>),
+      read: async (fn) => { await this.ready(); return fn(); },
+      write: (fn) => this.write(async () => { await this.ready(); return fn(); }),
+      currentUser: () => this.currentUser(),
+      error: (code, msg) => new StoreError(code, msg),
+    };
   }
 
   // ------------------------------------------------------------------ plumbing
 
   private async run(q: PromiseLike<DbResult>): Promise<unknown> {
+    await this.ready();
     let res: DbResult;
     try { res = await q; } catch (e) { throw toStoreError(e); }
     if (res.error) throw toStoreError(res.error);
@@ -379,7 +488,8 @@ class SupabaseStore implements DataStore {
   /** Call an edge function; its {code, message} JSON errors become StoreErrors. */
   private async invoke(fn: string, body: Row): Promise<Row> {
     let res: DbResult;
-    try { res = await this.sb.functions.invoke(fn, { body }); } catch (e) { throw toStoreError(e); }
+    await this.ready();
+    try { res = await this.sb.functions.invoke(fn, { body: { ...body, studioId: this.studioId } }); } catch (e) { throw toStoreError(e); }
     if (res.error) {
       const ctx = obj(res.error).context as { json?: () => Promise<unknown> } | undefined;
       if (ctx && typeof ctx.json === 'function') {
@@ -409,11 +519,11 @@ class SupabaseStore implements DataStore {
   subscribe(listener: () => void): Unsubscribe {
     this.listeners.add(listener);
     if (!this.channel) {
-      const ch = this.sb.channel('snowy-live');
+      const ch = this.sb.channel(`live-${this.studioId || 'default'}`);
       // RLS applies: clients only hear about their own bookings/passes; class_sessions changes
-      // (bumped on every booking) tell everyone that spot counts moved.
+      // (bumped on every booking) tell everyone that spot counts moved. Only this studio's rows.
       for (const table of ['bookings', 'class_sessions', 'passes']) {
-        ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => this.emit());
+        ch.on('postgres_changes', { event: '*', schema: 'public', table, ...(this.studioId ? { filter: `studio_id=eq.${this.studioId}` } : {}) }, () => this.emit());
       }
       ch.subscribe();
       this.channel = ch;
@@ -434,6 +544,7 @@ class SupabaseStore implements DataStore {
       const p = (async () => {
         const { data } = await this.sb.auth.getSession();
         if (!data?.session) return null;
+        await this.ready();
         return this.whoami();
       })();
       p.catch(() => { this.me = null; });
@@ -479,16 +590,22 @@ class SupabaseStore implements DataStore {
       throw new StoreError('INVALID_LOGIN', 'That email and password don’t match. Try again or reset your password.');
     }
     this.me = null;
-    const u = await this.currentUser();
+    let u = await this.currentUser();
+    // One login, many studios: a client of another studio signing in here joins this one.
+    if (!u && this.app === 'client') {
+      try { await this.rpc('join_studio'); } catch { /* not open to new clients */ }
+      this.me = null;
+      u = await this.currentUser();
+    }
     if (!u) {
       await this.sb.auth.signOut();
       this.me = null;
       throw new StoreError('NOT_FOUND', 'Your login worked, but your account isn’t set up yet. Please contact the studio.');
     }
     // Same rule as the demo: the studio app is for staff, the client app for clients.
-    if (this.app === 'studio' && u.kind !== 'staff') {
+    if (this.app !== 'client' && u.kind !== 'staff') {
       await this.signOut();
-      throw new StoreError('NOT_ALLOWED', 'This sign-in is for studio staff. Clients can use the Snowy Pilates Club app.');
+      throw new StoreError('NOT_ALLOWED', `This sign-in is for studio staff. Clients can use the ${this.studio?.name ?? 'studio’s'} app.`);
     }
     if (this.app === 'client' && u.kind === 'staff') {
       await this.signOut();
@@ -500,6 +617,7 @@ class SupabaseStore implements DataStore {
 
   async signUpClient(input: { firstName: string; lastName: string; email: string; phone?: string; password: string; marketingOptIn?: boolean }): Promise<AuthUser> {
     const email = (input.email ?? '').trim().toLowerCase();
+    await this.ready();
     if (!input.firstName?.trim()) throw new StoreError('INVALID', 'Please enter your first name.');
     if (!EMAIL_RE.test(email)) throw new StoreError('INVALID', 'Please enter a valid email address.');
     if (!input.password || input.password.length < 8) throw new StoreError('INVALID', 'Please choose a password with at least 8 characters.');
@@ -508,7 +626,7 @@ class SupabaseStore implements DataStore {
       email,
       password: input.password,
       options: {
-        data: { first_name: input.firstName.trim(), last_name: (input.lastName ?? '').trim(), phone: input.phone?.trim() ?? '', marketing_opt_in: !!input.marketingOptIn },
+        data: { first_name: input.firstName.trim(), last_name: (input.lastName ?? '').trim(), phone: input.phone?.trim() ?? '', marketing_opt_in: !!input.marketingOptIn, studio: this.studioId },
         ...(redirect ? { emailRedirectTo: redirect } : {}),
       },
     });
@@ -594,7 +712,7 @@ class SupabaseStore implements DataStore {
     if (typeof g.prompt !== 'function') return;
     for (let i = 0; i < 3; i++) {
       let pw: string | null;
-      try { pw = g.prompt('Choose a new password for Snowy Pilates Club (at least 8 characters)'); } catch { return; }
+      try { pw = g.prompt(`Choose a new password for ${this.studio?.name ?? 'your account'} (at least 8 characters)`); } catch { return; }
       if (pw === null) return;
       try { await this.setNewPassword(pw); g.alert?.('All set. Your new password is saved.'); return; }
       catch (e) { try { g.alert?.(e instanceof StoreError ? e.message : GENERIC); } catch { return; } }
@@ -603,10 +721,27 @@ class SupabaseStore implements DataStore {
 
   async demoPersonas(): Promise<AuthUser[]> { return []; }
 
+  // ------------------------------------------------------------------ the studio (details + branding)
+
+  async getStudio(): Promise<Studio> {
+    await this.ready();
+    return toStudio(await this.one(this.sb.from('studios').select('*').eq('id', this.studioId).limit(1), 'We couldn’t find this studio.'));
+  }
+
+  async updateStudio(patch: StudioPatch): Promise<Studio> {
+    return this.write(async () => {
+      await this.requireStaff('settings');
+      const r = toStudio(obj(await this.rpc('update_my_studio', { p_patch: studioPatchRow(patch) })));
+      if (this.studio) this.studio = r;
+      return r;
+    });
+  }
+
   // ------------------------------------------------------------------ settings
 
   async getSettings(): Promise<StudioSettings> {
-    return toSettings(await this.one(this.sb.from('studio_settings').select('*').eq('id', 1).limit(1)));
+    await this.ready();
+    return toSettings(await this.one(this.sb.from('studio_settings').select('*').eq('studio_id', this.studioId).limit(1)));
   }
 
   async updateSettings(patch: Partial<StudioSettings>): Promise<StudioSettings> {
@@ -621,7 +756,8 @@ class SupabaseStore implements DataStore {
         const col = SETTINGS_COLS[k];
         if (col && v !== undefined) row[col] = v === '' && (k === 'phone' || k === 'abn') ? null : v;
       }
-      const r = await this.one(this.sb.from('studio_settings').update(row).eq('id', 1).select('*'),
+      await this.ready();
+      const r = await this.one(this.sb.from('studio_settings').update(row).eq('studio_id', this.studioId).select('*'),
         'You don’t have permission to change settings.', 'NOT_ALLOWED');
       return toSettings(r);
     });
@@ -691,7 +827,7 @@ class SupabaseStore implements DataStore {
       const row = patchRow([
         ['name', ct.name.trim()], ['description', ct.description ?? ''], ['duration_min', ct.durationMin], ['color', ct.color],
         ['default_capacity', ct.defaultCapacity], ['level', textOrNull(ct.level)], ['booking_note', textOrNull(ct.bookingNote)],
-        ['bookable', ct.bookable], ['active', ct.active],
+        ['bookable', ct.bookable], ['active', ct.active], ['image_url', 'imageUrl' in ct ? textOrNull(ct.imageUrl) : undefined],
       ]);
       const r = ct.id
         ? await this.one(this.sb.from('class_types').update(row).eq('id', ct.id).select('*'), 'You don’t have permission to edit classes.', 'NOT_ALLOWED')
@@ -1213,8 +1349,127 @@ class SupabaseStore implements DataStore {
   }
 }
 
-export function createSupabaseStore(url: string, anonKey: string): DataStore {
-  return new SupabaseStore(url, anonKey);
+/** A live store bound to one studio (or, with no studio, the database's default studio: the Snowy deployment). */
+export function createSupabaseStore(url: string, anonKey: string, opts: { studio?: Studio; shared?: SharedClient } = {}): DataStore {
+  return new SupabaseStore(url, anonKey, opts);
+}
+
+/**
+ * Live PlatformStore: the studio directory (public.studios with RLS), person-level sign-in, memberships
+ * (my_studios) and the platform admin functions (platform_*). forStudio() returns stores that share its client.
+ */
+class SupabasePlatform implements PlatformStore {
+  readonly mode = 'live' as const;
+  private shared: SharedClient | null = null;
+  private stores = new Map<ID, DataStore>();
+  private listeners = new Set<() => void>();
+  constructor(private url: string, private anonKey: string) {}
+  private get sc(): SharedClient {
+    if (!this.shared) {
+      this.shared = createSharedClient(this.url, this.anonKey);
+      this.shared.onAuth.add(() => this.listeners.forEach((l) => l()));
+    }
+    return this.shared;
+  }
+  private async call(q: PromiseLike<DbResult>): Promise<unknown> {
+    let res: DbResult;
+    try { res = await q; } catch (e) { throw toStoreError(e); }
+    if (res.error) throw toStoreError(res.error);
+    return res.data;
+  }
+  private rpc(fn: string, args: Row = {}) { return this.call(this.sc.sb.rpc(fn, args)); }
+  private emit() { this.listeners.forEach((l) => { try { l(); } catch (e) { console.error(e); } }); }
+
+  subscribe(listener: () => void): Unsubscribe { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+
+  async listStudios(opts: { search?: string; includeAll?: boolean } = {}): Promise<Studio[]> {
+    let q = this.sc.sb.from('studios').select('*').order('name');
+    if (!opts.includeAll) q = q.eq('status', 'live');
+    const list = arr(await this.call(q)).map((r) => toStudio(obj(r)));
+    const terms = (opts.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+    return list.filter((s) => terms.every((t) => `${s.name} ${s.slug} ${s.address}`.toLowerCase().includes(t)));
+  }
+  async findStudio(key: { slug?: string; id?: ID; domain?: string }): Promise<Studio | null> {
+    let q = this.sc.sb.from('studios').select('*');
+    if (key.id) q = q.eq('id', key.id);
+    else if (key.slug) q = q.eq('slug', key.slug.toLowerCase());
+    else if (key.domain) q = q.contains('custom_domains', [key.domain.toLowerCase()]);
+    else return null;
+    const r = arr(await this.call(q.limit(1)))[0];
+    return r ? toStudio(obj(r)) : null;
+  }
+  forStudio(studio: Studio): DataStore {
+    let s = this.stores.get(studio.id);
+    if (!s) { s = new SupabaseStore(this.url, this.anonKey, { studio, shared: this.sc }); this.stores.set(studio.id, s); }
+    this.sc.hdr['x-studio'] = studio.id;
+    return s;
+  }
+  async currentPerson(): Promise<{ email: string; name: string } | null> {
+    const { data } = await this.sc.sb.auth.getSession();
+    const u = obj(obj(data?.session).user);
+    if (!u.id) return null;
+    const meta = obj(u.user_metadata);
+    return { email: str(u.email), name: `${str(meta.first_name)} ${str(meta.last_name)}`.trim() || str(u.email) };
+  }
+  async signIn(email: string, password: string): Promise<{ email: string; name: string }> {
+    if (!email?.trim() || !password) throw new StoreError('INVALID_LOGIN', 'Enter your email and password.');
+    const { error } = await this.sc.sb.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error) throw new StoreError('INVALID_LOGIN', 'That email and password don’t match. Try again or reset your password.');
+    if (this.sc.app === 'admin' && !(await this.platformUser())) {
+      await this.sc.sb.auth.signOut();
+      throw new StoreError('NOT_ALLOWED', 'This sign-in is for the platform team.');
+    }
+    this.emit();
+    return (await this.currentPerson()) ?? { email, name: email };
+  }
+  async signOut(): Promise<void> { await this.sc.sb.auth.signOut(); this.emit(); }
+  async myMemberships(): Promise<StudioMembership[]> {
+    return arr(await this.rpc('my_studios')).map(obj).map((m) => clean({
+      studioId: str(m.studio_id), slug: str(m.slug), name: str(m.name), status: str(m.status) as StudioStatus,
+      kind: str(m.kind) as 'client' | 'staff', role: optStr(m.role) as StaffRole | undefined,
+    }));
+  }
+  async platformUser(): Promise<PlatformUser | null> {
+    const p = await this.currentPerson();
+    if (!p) return null;
+    const rows = arr(await this.call(this.sc.sb.from('platform_admins').select('user_id').limit(1)));
+    return rows.length ? { email: p.email, name: p.name, role: 'platform_admin' } : null;
+  }
+  async createStudio(input: NewStudioInput): Promise<Studio> {
+    const r = toStudio(obj(await this.rpc('platform_create_studio', {
+      p_name: input.name, p_slug: input.slug, p_email: input.email, p_timezone: input.timezone ?? 'Australia/Sydney',
+      p_currency: input.currency ?? 'AUD', p_locale: input.locale ?? 'en-AU', p_phone: input.phone ?? null, p_address: input.address ?? '',
+      p_branding: input.branding ?? {},
+    })));
+    this.emit();
+    return r;
+  }
+  async updateStudioAsAdmin(id: ID, patch: Partial<Omit<Studio, 'id' | 'createdAt'>>): Promise<Studio> {
+    const r = toStudio(obj(await this.rpc('platform_update_studio', { p_studio_id: id, p_patch: studioPatchRow(patch) })));
+    this.emit();
+    return r;
+  }
+  async setStudioStatus(id: ID, status: StudioStatus): Promise<Studio> {
+    const r = toStudio(obj(await this.rpc('platform_set_studio_status', { p_studio_id: id, p_status: status })));
+    this.emit();
+    return r;
+  }
+  async inviteOwner(studioId: ID, owner: { name: string; email: string }): Promise<Staff> {
+    const st = toStaff(obj(await this.rpc('platform_invite_owner', { p_studio_id: studioId, p_name: owner.name, p_email: owner.email })));
+    // The email itself: Supabase Auth's invite (edge function invite-user), which links to that studio's app.
+    try { await this.sc.sb.functions.invoke('invite-user', { body: { studioId, email: owner.email, name: owner.name, role: 'owner' } }); }
+    catch { /* the owner can still use "Forgot password" with this email */ }
+    this.emit();
+    return st;
+  }
+  async studioStats(): Promise<Record<ID, { clients: number; staff: number; classesNext7Days: number }>> {
+    const o = obj(await this.rpc('platform_studio_stats'));
+    return Object.fromEntries(Object.entries(o).map(([k, v]) => { const x = obj(v); return [k, { clients: num(x.clients), staff: num(x.staff), classesNext7Days: num(x.classes_next_7_days) }]; }));
+  }
+}
+
+export function createSupabasePlatform(url: string, anonKey: string): PlatformStore {
+  return new SupabasePlatform(url, anonKey);
 }
 
 /** Row mappers, exported for supabase/tests/live_store.test.mjs. */

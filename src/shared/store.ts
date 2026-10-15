@@ -1,5 +1,9 @@
 /**
- * The contract between the UI (client app + studio app) and the data layer.
+ * The contract between the UI (client, studio and admin apps) and the data layer.
+ *
+ * Studio scoping: a DataStore is bound to ONE studio (`studioId`). Everything it reads and writes belongs to
+ * that studio. The PlatformStore (below) lists studios, signs people in across studios and hands out bound
+ * DataStores with forStudio(). The apps get the bound store as `store` from src/data after boot.
  * Two implementations:
  *   - src/data/demo      — in-browser, localStorage-backed, seeded with fake data (clickable demo, tests)
  *   - src/data/supabase  — the real thing (Postgres + Auth + RLS, Stripe via edge functions)
@@ -11,6 +15,7 @@
  * All methods are async. Errors are thrown as StoreError with a user-friendly message.
  */
 import type {
+  PlatformUser, Studio, StudioMembership, StudioStatus,
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime,
   Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff,
   StudioReport, StudioSettings, ReportRange, HealthForm,
@@ -71,9 +76,32 @@ export interface RosterEntry extends Booking {
 
 export type Unsubscribe = () => void;
 
+/**
+ * Feature stores, one per feature module (src/features/<name>). Empty here on purpose: each feature adds its
+ * own entry from its types.ts with module augmentation, so nobody edits this file:
+ *
+ *   declare module '../../shared/store' { interface FeatureStores { appointments: AppointmentsStore } }
+ *
+ * At runtime `store.features.<name>` is present when that feature's demo.ts / live.ts registered an implementation.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface FeatureStores {}
+
+/** What a studio owner may change about their own studio (details + branding). Status: only onboarding -> live. */
+export type StudioPatch = Partial<Omit<Studio, 'id' | 'slug' | 'createdAt' | 'status' | 'customDomains'>> & { status?: 'live' };
+
 export interface DataStore {
   /** 'demo' or 'live' — the UI shows a small DEMO badge in demo mode. */
   readonly mode: 'demo' | 'live';
+  /** The studio this store is bound to. */
+  readonly studioId: ID;
+  /** Optional feature stores (see FeatureStores). */
+  readonly features: Partial<FeatureStores>;
+
+  /** The bound studio (details, branding, status). Anyone may read it. */
+  getStudio(): Promise<Studio>;
+  /** Owner (and manager for branding): change details or branding; 'live' finishes onboarding. Platform admins use PlatformStore. */
+  updateStudio(patch: StudioPatch): Promise<Studio>;
 
   /** Fires after any change (any tab). UIs re-fetch on this. */
   subscribe(listener: () => void): Unsubscribe;
@@ -208,4 +236,58 @@ export interface DataStore {
   exportClientsCsv(): Promise<string>;
 }
 
+// ---------------------------------------------------------------------------------------------- platform
+
+export interface NewStudioInput {
+  name: string;
+  slug: string;
+  timezone?: string;
+  currency?: string;
+  locale?: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  /** Start from this branding (else a calm neutral default). */
+  branding?: Studio['branding'];
+}
+
+/**
+ * The platform layer: which studios exist, who you are across them, and Pete's platform admin tools.
+ * One per app; the apps get it as `platform` from src/data.
+ */
+export interface PlatformStore {
+  readonly mode: 'demo' | 'live';
+  subscribe(listener: () => void): Unsubscribe;
+
+  /** "Find your studio": live studios (platform admins also see onboarding / suspended ones with includeAll). */
+  listStudios(opts?: { search?: string; includeAll?: boolean }): Promise<Studio[]>;
+  /** By slug, id or custom domain. null if there's no such studio (or it isn't visible to you). */
+  findStudio(key: { slug?: string; id?: ID; domain?: string }): Promise<Studio | null>;
+  /** A DataStore bound to one studio. */
+  forStudio(studio: Studio): DataStore;
+
+  /** Person-level sign-in, shared by every studio in this app (the studio app's "which studio?" and the admin app). */
+  currentPerson(): Promise<{ email: string; name: string } | null>;
+  signIn(email: string, password: string): Promise<{ email: string; name: string }>;
+  signOut(): Promise<void>;
+  /** Studios the signed-in person belongs to (client and/or staff). */
+  myMemberships(): Promise<StudioMembership[]>;
+
+  // ---------------------------------------------------------------- platform admin (role platform_admin)
+  platformUser(): Promise<PlatformUser | null>;
+  createStudio(input: NewStudioInput): Promise<Studio>;
+  updateStudioAsAdmin(id: ID, patch: Partial<Omit<Studio, 'id' | 'createdAt'>>): Promise<Studio>;
+  setStudioStatus(id: ID, status: StudioStatus): Promise<Studio>;
+  /** Adds the owner as staff (role owner) of that studio and sends them an invite. */
+  inviteOwner(studioId: ID, owner: { name: string; email: string }): Promise<Staff>;
+  /** Staff and clients per studio, for the admin list. */
+  studioStats?(): Promise<Record<ID, { clients: number; staff: number; classesNext7Days: number }>>;
+
+  /** Demo only. */
+  demoPersonas?(app: 'client' | 'studio' | 'admin'): Promise<{ email: string; name: string; hint: string; studioId?: ID }[]>;
+  demoSignInAs?(email: string): Promise<void>;
+  demoReset?(): Promise<void>;
+}
+
+export type { PlatformUser, Studio, StudioMembership, StudioStatus };
 export type { AuthUser, Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff, StudioReport, StudioSettings, ReportRange, HealthForm };

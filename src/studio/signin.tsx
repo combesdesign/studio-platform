@@ -11,7 +11,7 @@ export function SignInArt() {
     <section className="si-art">
       <img className="si-photo" src="../img/wide.webp" alt="" />
       <div className="si-art-inner">
-        <Logo animate className="si-logo" letters="var(--cream)" flower="var(--sky)" />
+        <Logo animate className="si-logo" letters="var(--highlight)" flower="var(--accent)" />
         <div className="si-copy">
           <p className="si-quote">Behind the scenes at the newest club in <em>Cooma.</em></p>
           <p className="si-addr">Studio app<Flower size={9} />57 Vale Street, Cooma</p>

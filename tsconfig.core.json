@@ -1,5 +1,29 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "types": ["node"], "typeRoots": ["./node_modules/@types"] },
-  "include": ["src/shared/types.ts", "src/shared/store.ts", "src/shared/format.ts", "src/domain", "src/data", "tests", "scripts"]
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "typeRoots": [
+      "./node_modules/@types"
+    ]
+  },
+  "include": [
+    "src/shared/types.ts",
+    "src/shared/store.ts",
+    "src/shared/format.ts",
+    "src/shared/branding.ts",
+    "src/shared/resolve.ts",
+    "src/features/**/*.ts",
+    "src/domain",
+    "src/data",
+    "tests",
+    "scripts"
+  ],
+  "exclude": [
+    "src/features/client.ts",
+    "src/features/studio.ts",
+    "src/features/*/client/**",
+    "src/features/*/studio/**"
+  ]
 }

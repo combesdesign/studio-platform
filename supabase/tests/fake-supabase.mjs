@@ -46,19 +46,27 @@ function lit(v) {
 const ident = (s) => `"${String(s).replace(/"/g, '""')}"`;
 
 const serviceKeys = (state.serviceKeys ??= new Set());
+const headersOf = (state.headers ??= new Map()); // key -> the client's global headers object (read at request time, like a fetch wrapper)
+function requestHeaders(storageKey) {
+  const h = headersOf.get(storageKey);
+  const studio = h && h['x-studio'];
+  return studio ? JSON.stringify({ 'x-studio': studio }) : '';
+}
 function preamble(storageKey) {
   const uid = state.users.get(storageKey) ?? null;
+  const hdr = `select set_config('request.headers', ${lit(requestHeaders(storageKey))}, false) \\g /dev/null
+`;
   if (serviceKeys.has(storageKey)) {
     return `\\set VERBOSITY verbose
 select set_config('request.jwt.claim.sub', '', false), set_config('request.jwt.claims', '{"role":"service_role"}', false),
        set_config('app.now', ${lit(state.now ?? '')}, false), set_config('role', 'service_role', false) \\g /dev/null
-`;
+` + hdr;
   }
   const claims = uid ? { sub: uid, role: 'authenticated' } : { role: 'anon' };
   return `\\set VERBOSITY verbose
 select set_config('request.jwt.claim.sub', ${lit(uid ?? '')}, false), set_config('request.jwt.claims', ${lit(JSON.stringify(claims))}, false),
        set_config('app.now', ${lit(state.now ?? '')}, false), set_config('role', ${lit(uid ? 'authenticated' : 'anon')}, false) \\g /dev/null
-`;
+` + hdr;
 }
 
 function run(storageKey, sql) {
@@ -111,6 +119,7 @@ class Query {
   gte(c, v) { this.where.push(`t.${ident(c)} >= ${lit(v)}`); return this; }
   ilike(c, v) { this.where.push(`t.${ident(c)} ilike ${lit(v)}`); return this; }
   in(c, vs) { this.where.push(`t.${ident(c)} = any(${lit(vs)})`); return this; }
+  contains(c, vs) { this.where.push(`t.${ident(c)} @> ${lit(vs)}`); return this; }
   is(c, v) { this.where.push(`t.${ident(c)} is ${v === null ? 'null' : String(v)}`); return this; }
   not(c, op, v) {
     if (op !== 'is') throw new Error(`fake: not(${op}) unsupported`);
@@ -191,6 +200,7 @@ export function createClient(url, _key, opts = {}) {
   const key = `${opts.auth?.storageKey ?? 'default'}#${(state.instances = (state.instances ?? 0) + 1)}`;
   // Edge functions: the service role key acts as service_role; a user's 'Bearer <user id>' acts as them.
   if (_key === 'test-service-role-key') serviceKeys.add(key);
+  if (opts.global?.headers) headersOf.set(key, opts.global.headers);
   const bearer = /^Bearer (.+)$/.exec(opts.global?.headers?.Authorization ?? '')?.[1];
   if (bearer) state.users.set(key, bearer);
   const listeners = new Set();

@@ -167,7 +167,7 @@ function SessionCard({ s, ct, mine, onOpen, i }: { s: SessionWithCounts; ct?: Cl
   const dim = st === 'cancelled' || st === 'finished' || st === 'started';
   return (
     <button className={'cls' + (dim ? ' dim' : '') + (mine && mine.status !== 'waitlisted' ? ' mine' : '')} onClick={onOpen}
-      style={{ ['--c' as any]: ct?.color || 'var(--sky)', animationDelay: `${Math.min(i, 8) * 45}ms` }}>
+      style={{ ['--c' as any]: ct?.color || 'var(--accent)', animationDelay: `${Math.min(i, 8) * 45}ms` }}>
       <span className="cls-time">
         <span className="cls-hm">{t.slice(0, -2)}</span>
         <span className="cls-ap">{t.slice(-2)}</span>
@@ -392,7 +392,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
           )}
         </div>
         <div className="panel-soft row gap-12">
-          <span className="cls-bar" style={{ background: ct?.color || 'var(--sky)' }} />
+          <span className="cls-bar" style={{ background: ct?.color || 'var(--accent)' }} />
           <div><strong>{ct?.name}</strong><div className="muted">{time(s.startsAt)} {dayLong(s.startsAt)}</div></div>
         </div>
         <div className="stack">

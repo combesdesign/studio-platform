@@ -94,8 +94,8 @@ export function Schedule({ week }: { week?: string }) {
                       </>
                     );
                     return open
-                      ? <a key={s.id} href={`#/class/${s.id}`} className={cls} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>{inner}</a>
-                      : <div key={s.id} className={cls} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>{inner}</div>;
+                      ? <a key={s.id} href={`#/class/${s.id}`} className={cls} style={{ ['--ct' as string]: ct?.color ?? 'var(--accent)' }}>{inner}</a>
+                      : <div key={s.id} className={cls} style={{ ['--ct' as string]: ct?.color ?? 'var(--accent)' }}>{inner}</div>;
                   })}
                   {list.length === 0 && <span className="wk-none">{mineOnly ? 'Not teaching' : 'No classes'}</span>}
                   {can('editClass') && !past && <button className="wk-add" onClick={() => setAdding(d)} aria-label={`Add class on ${dayShort(d + 'T02:00:00Z')}`}><Icon name="plus" size={16} /></button>}
@@ -188,7 +188,7 @@ export function Timetable() {
                   const ct = typeById(t.classTypeId); const ins = staffById(t.instructorId);
                   const ended = t.endsOn && t.endsOn < today;
                   return (
-                    <button key={t.id} className={cx('tt-row', (!t.active || ended) && 'off')} onClick={() => setEdit(t)} style={{ ['--ct' as string]: ct?.color ?? 'var(--sky)' }}>
+                    <button key={t.id} className={cx('tt-row', (!t.active || ended) && 'off')} onClick={() => setEdit(t)} style={{ ['--ct' as string]: ct?.color ?? 'var(--accent)' }}>
                       <span className="tt-time">{hhmm12(t.startTime)}</span>
                       <span className="tt-t"><strong>{ct?.name ?? 'Class'}</strong><span>{ins?.name ?? 'No instructor'} · {t.capacity ?? ct?.defaultCapacity} spots{t.endsOn ? ` · until ${dayShort(t.endsOn + 'T02:00:00Z')}` : ''}{!t.active ? ' · paused' : ''}</span></span>
                       <Icon name="edit" size={18} />

@@ -1,61 +1,37 @@
 /**
- * Demo DataStore: the whole studio in localStorage, seeded with realistic fake data.
- * - One versioned key (STATE_KEY) + a revision key for cheap cross-tab sync.
- * - Auth lives in a separate key per app (client app at /, studio app at /studio/).
+ * Demo DataStore bound to one studio: that studio's data in the shared demo database (./db.ts), seeded with
+ * realistic fake data. Snowy is seeded exactly as before; Harbour Reformer Co. is the second sample studio.
  * - Permissions follow RULES.md › Staff permissions (see src/domain/permissions.ts).
  * - Business rules live in src/domain; operations in ./engine.ts.
+ * - Feature modules plug in through ./features.ts (registerDemoFeature) and appear as store.features.<name>.
+ * - Every call runs with the studio's own timezone / currency (withStudioFormat).
  */
 import { StoreError } from '../../shared/store';
 import type {
-  BookingWithDetails, CreditSummary, DataStore, PurchaseResult, RosterEntry, Unsubscribe,
+  BookingWithDetails, CreditSummary, DataStore, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod,
-  Product, ReportRange, Sale, ScheduleTemplate, SessionWithCounts, Staff, StudioReport, StudioSettings,
+  Product, ReportRange, Sale, ScheduleTemplate, SessionWithCounts, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
-import { dayShort, studioToUTC } from '../../shared/format';
+import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
 import {
   FINANCIAL_SETTINGS_KEYS, buildReport, can, clientsCsv, comparePassPriority, computePassStatus, creditLabel, isIntroEligible,
-  isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, type StaffAction,
+  isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, type FeatureAction, type StaffAction,
 } from '../../domain';
-import { Engine, STATE_VERSION, type Actor, type DemoState } from './engine';
-import { PERSONA_EMAILS, seedState } from './seed';
+import type { Actor, DemoState, Engine } from './engine';
+import { PERSONA_EMAILS } from './seed';
+import { AUTH_KEYS, DemoDb, REV_KEY, STATE_KEY, memoryStorage, type DemoDbOptions, type StorageLike } from './db';
+import { demoFeatures, type DemoFeatureContext } from './features';
+import { createDemoPlatform } from './platform';
+import '../../features/demo';
 
-export const STATE_KEY = 'spc-demo-v3';
-export const REV_KEY = 'spc-demo-v3:rev';
-export const AUTH_KEYS = { client: 'spc-demo-auth-client', studio: 'spc-demo-auth-studio' } as const;
-export { PERSONA_EMAILS };
+export { STATE_KEY, REV_KEY, AUTH_KEYS, PERSONA_EMAILS, memoryStorage, DemoDb, createDemoPlatform };
+export type { StorageLike };
 
-export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-
-export interface DemoStoreOptions {
-  /** Injectable clock (tests). Default: real time. */
-  now?: () => Date;
-  /** Where state + auth are kept. Default: localStorage, falling back to memory. */
-  storage?: StorageLike;
-  /** Simulated latency per call. Default: random 80–150ms. 0 = none. */
-  latencyMs?: number;
-  /** Which app's auth key to use. Default: from location.pathname ('/studio' → studio). */
-  app?: 'client' | 'studio';
-  /** Use this state instead of seeding (tests). */
-  initialState?: DemoState;
-}
-
-export function memoryStorage(): StorageLike {
-  const m = new Map<string, string>();
-  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } };
-}
-
-function defaultStorage(): StorageLike {
-  try {
-    const ls = (globalThis as { localStorage?: Storage }).localStorage;
-    if (!ls) return memoryStorage();
-    ls.setItem('spc-demo-probe', '1');
-    ls.removeItem('spc-demo-probe');
-    return ls;
-  } catch {
-    return memoryStorage();
-  }
+export interface DemoStoreOptions extends DemoDbOptions {
+  /** Which studio (slug or id). Default: the first studio (Snowy). */
+  studio?: string;
 }
 
 /** Which emailed link the user opened: an invite (new staff, imported clients) or forgot password. */
@@ -65,121 +41,122 @@ const clone = <T>(x: T): T => (x === undefined ? x : (JSON.parse(JSON.stringify(
 const err = (code: string, msg: string) => new StoreError(code, msg);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Settings fields that mirror the studio record (kept in step both ways). */
+const MIRROR: [keyof StudioSettings, keyof Studio][] = [['name', 'name'], ['timezone', 'timezone'], ['address', 'address'], ['email', 'email'], ['phone', 'phone'], ['abn', 'taxId'], ['gstRegistered', 'taxRegistered']];
 
+/** A demo store for one studio (tests and simple callers). The apps go through createDemoPlatform().forStudio(). */
 export function createDemoStore(opts: DemoStoreOptions = {}): DataStore {
-  return new DemoStore(opts);
+  const db = new DemoDb(opts);
+  const key = opts.studio;
+  const studio = (key ? db.ps.studios.find((s) => s.slug === key || s.id === key) : undefined) ?? db.ps.studios[0];
+  if (!studio) throw new Error('The demo has no studios.');
+  return new DemoStore(db, studio.id);
 }
 
-class DemoStore implements DataStore {
+export class DemoStore implements DataStore {
   readonly mode = 'demo' as const;
-  private storage: StorageLike;
-  private persistent = true;
-  private now: () => Date;
-  private latency: () => number;
-  private authKey: string;
+  readonly features: Partial<FeatureStores> = {};
   private listeners = new Set<() => void>();
-  private state!: DemoState;
-  private engine!: Engine;
-  private rev = '';
-  private memAuth: string | null = null;
   /** The app's "Choose a new password" screen (onPasswordRecovery). */
   private recoveryHandler: ((kind?: PasswordLinkKind) => void) | null = null;
   /** Whose reset / invite link was "opened" (demoOpenPasswordLink). setNewPassword signs them in, like a live link does. */
   private linkEmail: string | null = null;
+  private now: () => Date;
 
-  constructor(opts: DemoStoreOptions) {
-    this.storage = opts.storage ?? defaultStorage();
-    this.now = opts.now ?? (() => new Date());
-    this.latency = opts.latencyMs !== undefined ? () => opts.latencyMs as number : () => 80 + Math.random() * 70;
-    const app = opts.app ?? (typeof location !== 'undefined' && location.pathname.includes('/studio') ? 'studio' : 'client');
-    this.authKey = AUTH_KEYS[app];
-    this.memAuth = this.get(this.authKey);
-    if (opts.initialState) { this.setState(clone(opts.initialState)); this.save(); }
-    else this.load();
-    if (!opts.storage && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('storage', (e: StorageEvent) => {
-        if (e.key === REV_KEY || e.key === STATE_KEY || e.key === null) { this.rev = '__stale__'; this.sync(); this.emit(); }
-        else if (e.key === this.authKey) { this.memAuth = this.get(this.authKey); this.emit(); }
-      });
-    }
+  constructor(private db: DemoDb, readonly studioId: ID) {
+    this.now = db.now;
+    if (!db.studio(studioId)) throw new Error(`Unknown studio ${studioId}`);
+    db.subscribe(() => this.emit());
+    for (const f of demoFeatures()) (this.features as Record<string, unknown>)[f.name] = f.create(this.featureContext(f.name));
   }
+
+  private get state(): DemoState { return this.db.state(this.studioId); }
+  private get engine(): Engine { return this.db.engine(this.studioId); }
+  private get studioRec(): Studio { return this.db.studio(this.studioId)!; }
+  private get authKey(): string { return this.db.authKey; }
 
   // ---------------------------------------------------------------- persistence
-  private setState(s: DemoState): void {
-    this.state = s;
-    this.engine = new Engine(s, this.now);
-  }
-  private get(key: string): string | null {
-    try { return this.storage.getItem(key); } catch { return null; }
-  }
-  private set(key: string, v: string): void {
-    if (!this.persistent) return;
-    try { this.storage.setItem(key, v); } catch { this.persistent = false; }
-  }
-  private load(): void {
-    const raw = this.get(STATE_KEY);
-    let s: DemoState | undefined;
-    if (raw) {
-      try { const parsed = JSON.parse(raw) as DemoState; if (parsed?.version === STATE_VERSION && Array.isArray(parsed.sessions)) s = parsed; } catch { /* reseed */ }
-    }
-    if (s) { this.setState(s); this.rev = this.get(REV_KEY) ?? ''; }
-    else { this.setState(seedState(this.now())); this.save(); }
-  }
-  private save(): void {
-    this.rev = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-    this.set(STATE_KEY, JSON.stringify(this.state));
-    this.set(REV_KEY, this.rev);
-  }
-  private sync(): void {
-    if (!this.persistent) return;
-    const r = this.get(REV_KEY);
-    if (r !== null && r !== this.rev) this.load();
-  }
   private emit(): void {
     for (const l of [...this.listeners]) { try { l(); } catch (e) { console.error(e); } }
   }
-  private emitSoon(): void { setTimeout(() => this.emit(), 0); }
-  private async delay(): Promise<void> {
-    const ms = this.latency();
-    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+  private inFormat<T>(fn: () => T): T {
+    const f = this.db.formatOf(this.studioId);
+    return f ? withStudioFormat(f, fn) : fn();
   }
+  private delay(): Promise<void> { return this.db.delay(); }
+  private save(): void { this.db.save(); }
   /** Sync from other tabs and apply lazy time-based updates. */
   private prepare(): void {
-    this.sync();
-    if (this.engine.housekeeping()) { this.save(); this.emitSoon(); }
+    this.db.sync();
+    if (this.inFormat(() => this.engine.housekeeping())) { this.save(); this.db.emitSoon(); }
   }
   private async read<T>(fn: () => T): Promise<T> {
     await this.delay();
     this.prepare();
-    return clone(fn());
+    return clone(this.inFormat(fn));
   }
   private async write<T>(fn: () => T): Promise<T> {
     await this.delay();
     this.prepare();
     const snap = JSON.stringify(this.state);
+    const studioSnap = JSON.stringify(this.studioRec);
     let out: T;
     try {
-      out = fn();
+      if (this.studioRec.status === 'suspended' && !this.db.isPlatformAdmin(this.db.readAuth()?.email)) {
+        throw err('STUDIO_SUSPENDED', `${this.studioRec.name} is paused on the platform right now. Please contact the studio.`);
+      }
+      out = this.inFormat(fn);
     } catch (e) {
-      this.setState(JSON.parse(snap) as DemoState);
+      this.db.replaceState(this.studioId, JSON.parse(snap) as DemoState);
+      Object.assign(this.studioRec, JSON.parse(studioSnap));
       throw e;
     }
     this.save();
     const result = clone(out);
-    this.emit();
+    this.db.emit();
     return result;
   }
 
+  /** What feature modules get (see ./features.ts). */
+  private featureContext(name: string): DemoFeatureContext {
+    return {
+      studioId: this.studioId,
+      studio: () => clone(this.studioRec),
+      now: () => this.now(),
+      slice: <T>() => { const f = (this.state.features ??= {}); return ((f[name] ??= {}) as T); },
+      read: (fn) => this.read(fn),
+      write: (fn) => this.write(fn),
+      me: () => this.me(),
+      requireStaff: (action) => this.requireStaff(action as StaffAction),
+      requireSelfOrStaff: (clientId, action) => this.requireSelfOrStaff(clientId, (action ?? 'clients_view') as StaffAction),
+      core: () => ({ state: this.state, engine: this.engine }),
+      newId: (prefix) => this.engine.newId(prefix),
+      error: (code, msg) => err(code, msg),
+    };
+  }
   // ---------------------------------------------------------------- auth helpers
+  /** The signed-in person as this studio sees them (their client or staff record here), or null. */
   private readAuth(): AuthUser | null {
-    const raw = this.memAuth;
-    if (!raw) return null;
-    try { return this.freshUser(JSON.parse(raw) as AuthUser); } catch { return null; }
+    const a = this.db.readAuth();
+    if (!a) return null;
+    if (a.user && (a.studioId ?? this.studioId) === this.studioId) {
+      const u = this.freshUser(a.user);
+      if (u) return u;
+    }
+    return this.byEmail(a.email);
   }
   private writeAuth(u: AuthUser | null): void {
-    const v = u ? JSON.stringify(u) : null;
-    this.memAuth = v;
-    try { if (v) this.storage.setItem(this.authKey, v); else this.storage.removeItem(this.authKey); } catch { /* memory only */ }
+    this.db.writeAuth(u ? { email: u.email, name: u.name, studioId: this.studioId, user: u } : null);
+  }
+  /** A person's record here by email: staff first in the studio app, client first in the client app. */
+  private byEmail(email: string): AuthUser | null {
+    const e = (email ?? '').trim().toLowerCase();
+    if (!e) return null;
+    const st = this.state.staff.find((s) => s.active && s.email.toLowerCase() === e);
+    const c = this.state.clients.find((x) => !x.archived && x.email.toLowerCase() === e);
+    const staffU: AuthUser | null = st ? { kind: 'staff', staffId: st.id, email: st.email, name: st.name, role: st.role } : null;
+    const clientU: AuthUser | null = c ? { kind: 'client', clientId: c.id, email: c.email, name: `${c.firstName} ${c.lastName}`.trim() } : null;
+    return this.db.app === 'client' ? clientU ?? staffU : staffU ?? clientU;
   }
   /** Re-derive a user from current state (null if gone/archived/inactive). */
   private freshUser(u: AuthUser): AuthUser | null {
@@ -202,13 +179,13 @@ class DemoStore implements DataStore {
     if (!st) throw err('AUTH_REQUIRED', 'Please sign in first.');
     return st;
   }
-  private requireStaff(action: StaffAction): Staff {
+  private requireStaff(action: StaffAction | FeatureAction): Staff {
     const st = this.staffMe();
     if (!can(st.role, action)) throw err('NOT_ALLOWED', "Your role doesn't have access to that.");
     return st;
   }
   /** Client acting on their own data, or staff with `action`. */
-  private requireSelfOrStaff(clientId: ID, action: StaffAction = 'clients_view'): AuthUser {
+  private requireSelfOrStaff(clientId: ID, action: StaffAction | FeatureAction = 'clients_view'): AuthUser {
     const u = this.me();
     if (u.kind === 'client') {
       if (u.clientId !== clientId) throw err('NOT_ALLOWED', 'You can only see your own account.');
@@ -269,16 +246,36 @@ class DemoStore implements DataStore {
       if (!e || !password) throw err('INVALID_LOGIN', 'Enter your email and password.');
       const st = this.state.staff.find((s) => s.active && s.email.toLowerCase() === e);
       const c = this.state.clients.find((x) => !x.archived && x.email.toLowerCase() === e);
-      const studio = this.authKey === AUTH_KEYS.studio;
+      const studio = this.db.app !== 'client';
       let u: AuthUser | null = null;
       if (studio && st) u = { kind: 'staff', staffId: st.id, email: st.email, name: st.name, role: st.role };
       else if (!studio && c) u = { kind: 'client', clientId: c.id, email: c.email, name: `${c.firstName} ${c.lastName}`.trim() };
-      else if (studio && c) throw err('NOT_ALLOWED', 'This sign-in is for studio staff. Clients can use the Snowy Pilates Club app.');
+      else if (studio && c) throw err('NOT_ALLOWED', `This sign-in is for studio staff. Clients can use the ${this.studioRec.name} app.`);
       else if (!studio && st) throw err('NOT_ALLOWED', 'Staff accounts sign in to the studio app.');
+      if (!u && !studio) u = this.joinFromPlatform(e);
       if (!u) throw err('INVALID_LOGIN', "We couldn't find an account with that email.");
       this.writeAuth(u);
       return u;
     });
+  }
+
+  /**
+   * One login, many studios: someone who's a client at another studio on the platform signing in here for the
+   * first time becomes a client here too (name, email and phone only: no waiver, passes or history carry over).
+   */
+  private joinFromPlatform(email: string): AuthUser | null {
+    for (const [id, st] of Object.entries(this.db.ps.data)) {
+      if (id === this.studioId) continue;
+      const other = st.clients.find((x) => !x.archived && x.email.toLowerCase() === email);
+      if (!other) continue;
+      const c: Client = {
+        id: this.engine.newId('cl'), firstName: other.firstName, lastName: other.lastName, email: other.email, createdAt: this.now().toISOString(),
+        marketingOptIn: false, source: 'app', ...(other.phone ? { phone: other.phone } : {}),
+      };
+      this.engine.addClient(c);
+      return { kind: 'client', clientId: c.id, email: c.email, name: `${c.firstName} ${c.lastName}`.trim() };
+    }
+    return null;
   }
 
   async signUpClient(input: { firstName: string; lastName: string; email: string; phone?: string; password: string; marketingOptIn?: boolean }): Promise<AuthUser> {
@@ -302,7 +299,7 @@ class DemoStore implements DataStore {
   async signOut(): Promise<void> {
     await this.delay();
     this.writeAuth(null);
-    this.emit();
+    this.db.emit();
   }
 
   async requestPasswordReset(email: string): Promise<void> {
@@ -341,7 +338,7 @@ class DemoStore implements DataStore {
     this.prepare();
     let e = (email ?? '').trim().toLowerCase();
     if (!e && kind === 'invite') {
-      e = this.authKey === AUTH_KEYS.studio
+      e = this.db.app !== 'client'
         ? (this.state.staff.filter((s) => s.active).at(-1)?.email ?? '')
         : (() => {
           // An imported Momence client who hasn't used the new app yet (no waiver signed in it) shows it best.
@@ -358,7 +355,7 @@ class DemoStore implements DataStore {
   /** The account this app would sign in for an email (staff in the studio app, clients in the client app). */
   private accountFor(email: string): AuthUser | null {
     const e = email.trim().toLowerCase();
-    if (this.authKey === AUTH_KEYS.studio) {
+    if (this.db.app !== 'client') {
       const st = this.state.staff.find((s) => s.active && s.email.toLowerCase() === e);
       return st ? { kind: 'staff', staffId: st.id, email: st.email, name: st.name, role: st.role } : null;
     }
@@ -369,7 +366,7 @@ class DemoStore implements DataStore {
   async demoPersonas(): Promise<AuthUser[]> {
     return this.read(() => {
       const out: AuthUser[] = [];
-      for (const email of [PERSONA_EMAILS.newClient, PERSONA_EMAILS.member, PERSONA_EMAILS.pack, PERSONA_EMAILS.intro]) {
+      for (const email of this.state.personas ?? []) {
         const c = this.state.clients.find((x) => x.email === email && !x.archived);
         if (c) out.push({ kind: 'client', clientId: c.id, email: c.email, name: `${c.firstName} ${c.lastName}` });
       }
@@ -387,12 +384,37 @@ class DemoStore implements DataStore {
     });
   }
 
+  /** Demo only: wipe and re-seed every studio on the platform (sign-in is kept if the person still exists here). */
   async demoReset(): Promise<void> {
     await this.delay();
-    this.setState(seedState(this.now()));
-    this.save();
+    this.db.reseed();
     if (!this.readAuth()) this.writeAuth(null);
-    this.emit();
+    this.db.emit();
+  }
+
+  // ---------------------------------------------------------------- studio (details + branding)
+  async getStudio(): Promise<Studio> {
+    return this.read(() => this.studioRec);
+  }
+
+  async updateStudio(patch: StudioPatch): Promise<Studio> {
+    return this.write(() => {
+      const st = this.requireStaff('settings');
+      const s = this.studioRec;
+      const financial = (['taxId', 'taxRegistered', 'taxRate', 'taxName', 'taxIdLabel', 'currency'] as const).some((k) => k in patch && patch[k] !== s[k]);
+      if (financial && !can(st.role, 'settings_financial')) throw err('NOT_ALLOWED', 'Only the owner can change tax and currency details.');
+      if (patch.status !== undefined) {
+        if (st.role !== 'owner') throw err('NOT_ALLOWED', 'Only the owner can open the studio.');
+        if (patch.status !== 'live' || s.status !== 'onboarding') throw err('INVALID', 'Only a studio that is setting up can go live.');
+      }
+      if (patch.name !== undefined && !patch.name.trim()) throw err('INVALID', 'Please enter the studio name.');
+      if (patch.email !== undefined && patch.email && !EMAIL_RE.test(patch.email.trim())) throw err('INVALID', 'Please enter a valid email address.');
+      if (patch.taxRate !== undefined && !(patch.taxRate >= 0 && patch.taxRate < 1)) throw err('INVALID', 'Tax rate must be between 0 and 1 (0.1 = 10%).');
+      if (patch.timezone !== undefined) { try { new Intl.DateTimeFormat('en', { timeZone: patch.timezone }); } catch { throw err('INVALID', 'That timezone isn’t recognised.'); } }
+      Object.assign(s, clone(patch));
+      for (const [k, sk] of MIRROR) if (sk in patch) (this.state.settings as unknown as Record<string, unknown>)[k] = s[sk];
+      return s;
+    });
   }
 
   // ---------------------------------------------------------------- settings
@@ -410,6 +432,8 @@ class DemoStore implements DataStore {
         if (v !== undefined && !(typeof v === 'number' && v >= 0 && Number.isFinite(v))) throw err('INVALID', `${k} must be zero or more.`);
       }
       Object.assign(this.state.settings, patch);
+      const studio = this.studioRec;
+      for (const [k, sk] of MIRROR) if (k in patch) (studio as unknown as Record<string, unknown>)[sk] = this.state.settings[k];
       return this.state.settings;
     });
   }
