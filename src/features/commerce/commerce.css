@@ -1,0 +1,48 @@
+/* Commerce: pieces both apps use (the e-card, code chips, small meters). Theme tokens only, no fixed studio colours. */
+
+.cm-ecard {
+  position: relative; isolation: isolate; overflow: hidden; color: #fff; border-radius: 22px; padding: 22px 22px 18px; min-height: 236px;
+  display: grid; grid-template-rows: auto 1fr auto; gap: 14px;
+  background: linear-gradient(155deg, var(--primary) 0%, var(--ink) 135%);
+  box-shadow: 0 26px 48px -28px rgba(var(--ink-rgb), .75), inset 0 0 0 1px rgba(255, 255, 255, .1);
+}
+.cm-ec-photo { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center; opacity: .2; mix-blend-mode: luminosity; }
+.cm-ecard::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(90% 70% at 0% 0%, rgba(255, 255, 255, .13), transparent 60%); }
+.cm-ec-mark { position: absolute !important; right: -46px; bottom: -58px; opacity: .1; z-index: -1; pointer-events: none; }
+.cm-ec-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cm-ec-kind { font-size: 14px; letter-spacing: .12em; text-transform: uppercase; color: var(--highlight); opacity: .92; white-space: nowrap; }
+.cm-ec-mid { display: grid; align-content: center; gap: 6px; }
+.cm-ec-amount { font-size: clamp(56px, 16vw, 74px); line-height: .95; color: #fff; font-variant-numeric: lining-nums; }
+.cm-ec-of { font-size: 15px; color: rgba(255, 255, 255, .72); }
+.cm-ec-msg { font-family: var(--display); font-style: italic; font-size: 20px; line-height: 1.25; color: var(--highlight); max-width: 28em; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cm-ec-msg.full { -webkit-line-clamp: unset; display: block; }
+.cm-ec-foot { display: grid; gap: 10px; }
+.cm-ec-names { display: flex; gap: 8px 26px; flex-wrap: wrap; font-size: 17px; line-height: 1.25; }
+.cm-ec-names span { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.cm-ec-names small { font-size: 14px; color: rgba(255, 255, 255, .66); }
+.cm-ec-code { padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, .32); font-size: 18px; letter-spacing: .14em; font-variant-numeric: tabular-nums; color: #fff; }
+.cm-ec-fine { font-size: 14px; color: rgba(255, 255, 255, .7); }
+.cm-ecard.dead { filter: saturate(.35); }
+.cm-ec-stamp { position: absolute; top: 50%; right: 18px; transform: translateY(-50%) rotate(-8deg); padding: 6px 16px; border: 2px solid rgba(255, 255, 255, .85); border-radius: 12px;
+  font-family: var(--display); font-size: 26px; color: #fff; background: rgba(var(--ink-rgb), .35); backdrop-filter: blur(2px); }
+
+/* a code you can copy */
+.cm-code { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: 10px; background: var(--soft); color: var(--ink);
+  font-size: 15px; letter-spacing: .08em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cm-code.promo { background: var(--highlight-2); letter-spacing: .06em; }
+
+/* tone chips that don't depend on which app they are in */
+.cm-tone { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px; border-radius: 999px; font-size: 14px; line-height: 1; background: var(--soft); color: var(--ink); white-space: nowrap; }
+.cm-tone.ok { background: var(--ok-bg); color: var(--ok); }
+.cm-tone.warn { background: var(--warn-bg); color: var(--warn); }
+.cm-tone.danger { background: var(--danger-bg); color: var(--danger); }
+
+/* thin meter, e.g. balance left */
+.cm-meter { display: block; height: 6px; border-radius: 6px; background: var(--soft-2); overflow: hidden; }
+.cm-meter > span { display: block; height: 100%; border-radius: 6px; background: var(--accent); }
+
+@media (max-width: 420px) {
+  .cm-ecard { padding: 20px 18px 16px; min-height: 224px; }
+  .cm-ec-msg { font-size: 19px; }
+}

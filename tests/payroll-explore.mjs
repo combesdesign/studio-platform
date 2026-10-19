@@ -1,0 +1,31 @@
+import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+import { localFonts } from './_fonts.mjs';
+const OUT = process.argv[2] || '/tmp/claude-0/scratch/shots/';
+mkdirSync(OUT, { recursive: true });
+const T0 = new Date('2026-10-15T01:30:00Z');
+const slug = process.argv[3] || 'snowy';
+const who = process.argv[4] || 'Libby';
+const W = Number(process.argv[5] || 1024);
+const H = W < 500 ? 844 : 768;
+const routes = (process.argv[6] || '/,/cover,/payroll,/payroll/timesheets,/payroll/rules,/settings/payroll,/timesheet').split(',');
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: W, height: H }, locale: 'en-AU', timezoneId: 'Australia/Sydney', hasTouch: W < 500 });
+await localFonts(ctx);
+const p = await ctx.newPage();
+await p.clock.install({ time: T0 });
+const errs = [];
+p.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g|ERR_TUNNEL|ERR_NAME|net::ERR/.test(m.text())) errs.push(m.text()); });
+p.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+await p.goto(`http://localhost:4304/studio/?studio=${slug}`);
+await p.waitForSelector('.persona');
+await p.locator('.persona', { hasText: who }).first().click();
+await p.waitForSelector('.today .stats');
+await p.waitForTimeout(600);
+for (const r of routes) {
+  await p.evaluate((h) => { location.hash = h; }, r);
+  await p.waitForTimeout(900);
+  await p.screenshot({ path: `${OUT}${slug}-${who.split(' ')[0]}-${W}-${r.replace(/\W+/g, '_')}.png`, fullPage: true });
+}
+console.log('errors:', errs);
+await browser.close();
