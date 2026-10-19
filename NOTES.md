@@ -412,3 +412,17 @@ Phase A (A1–A6) is in, plus the feature-module convention for the four feature
 - Per-studio PWA manifest/icons on the multi-studio build (single-studio builds already get them at build time).
 - Billing status for studios in the admin (A4 mentions it): not built, there's no platform billing yet.
 - Studio-level analytics in the admin beyond the three stats.
+
+## commerce
+Gift cards, promo codes, referral rewards and retail stock with barcodes (ROADMAP B3). Code in `src/features/commerce/`, SQL in `supabase/migrations/1300–1302_commerce_*.sql`, tests in `tests/commerce.test.ts` and `supabase/tests/commerce_{flow,isolation}.sql`.
+- **Staff**: Shop (`#/shop/<tab>`: gift cards, promo codes, referrals, retail stock + report), Settings › Shop, a low-stock Today widget, a gift-card/credit card on the client profile, and POS extras (barcode/SKU entry, camera scan where supported, gift card tiles, a promo/gift-card box on the cart).
+- **Clients**: Profile › Gift cards (list, balance check, buy with an e-card preview), Profile › Bring a friend (code + friends), "Have a code?" on the Passes tab, and `?ref=CODE` links are claimed once signed in.
+- **Rules** live in `logic.ts` (demo + UI + tests) and are mirrored in SQL. Permissions: `commerce.view/sell/manage/stock` (same map in `app.commerce_need`).
+- **Till holds**: `holdCodes` reserves a promo/gift card for a cart and returns a note containing `ref <token>`; put it on the sale (`checkoutCart` note), then `settleHold(token)`. The hold becomes a redemption once a sale with that ref exists, and is dropped if abandoned or after 30 minutes. Balance = posted + held entries, so two tills can't spend the same money.
+- **Referral reward** is paid (credit or gift card, per settings) when the referred friend's first non-comp paid pass exists; checked on every commerce call.
+- **Live**: all RPCs are `public.commerce_*` (studio-scoped, security definer, `authenticated` only); tables are readable by staff only and written only through the RPCs. `live.ts` was checked against a real migrated database with the fake supabase client.
+- **Gaps / requests for the lead**
+  - Online payment for gift cards: `buyGiftCard` makes a *pending* card and calls an edge function `commerce-checkout` (`{cardId, studioId, returnUrl}` -> `{url}`) that doesn't exist yet; until then it fails with `PAYMENT_UNAVAILABLE`. The Stripe webhook should call `public.commerce_activate_gift_card(card_id, payment_intent, checkout_session)` (service role; records the sale, switches the card on, queues the email, idempotent).
+  - Promo/gift card + card payment online: `purchaseWithCodes` only completes when the codes cover the whole price, otherwise `PAYMENT_REQUIRED`. It needs `create-checkout` to take a held quote (or a Stripe coupon).
+  - Gift card emails: rows go to `commerce_outbox` (kind `gift_card`, payload has code/amount/message); a sender edge function or cron needs to drain it, like `notifications`.
+  - Refunds of a sale don't put gift card or promo use back, or stock back; `refund_sale` is core.
