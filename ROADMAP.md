@@ -55,10 +55,10 @@ Every feature built from here lands in both.
 - [ ] Push notifications (Capacitor and web push)
 
 ### B3 Selling extras
-- [ ] Gift cards: buy, send and redeem, with balance tracking
-- [ ] Promo codes: % or $ off, limits, expiry, per product
-- [ ] Referral rewards
-- [ ] Retail stock: inventory counts, low-stock alerts, barcode scanning at the POS
+- [x] Gift cards: buy, send and redeem, with balance tracking
+- [x] Promo codes: % or $ off, limits, expiry, per product
+- [x] Referral rewards
+- [x] Retail stock: inventory counts, low-stock alerts, barcode scanning at the POS
 
 ### B4 Staff and payroll
 - [x] Sub and cover requests (post a class, staff claim it, the owner approves)
