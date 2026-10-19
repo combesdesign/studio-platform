@@ -412,3 +412,11 @@ Phase A (A1–A6) is in, plus the feature-module convention for the four feature
 - Per-studio PWA manifest/icons on the multi-studio build (single-studio builds already get them at build time).
 - Billing status for studios in the admin (A4 mentions it): not built, there's no platform billing yet.
 - Studio-level analytics in the admin beyond the three stats.
+
+## payroll
+Staff and payroll (ROADMAP B4), all in `src/features/payroll/`; short spec in `docs/features/payroll.md`.
+- **Built**: cover/sub requests (post, claim, approve or auto-approve, approval swaps the class's instructor), pay rules (flat, per head, tiered, hourly, session-type rate), timesheets with clock in/out and owner approval, weekly or fortnightly pay periods with adjustments, mark paid (saved snapshot) and reopen, Xero-friendly CSV. Studio screens: Cover, Payroll (Pay periods / Timesheets / Pay rules), Settings > Payroll, clock widget. Demo seed for both Snowy and Harbour.
+- **One calculation**: `calc.ts` is used by the demo and live stores, so they agree. Live reads inputs from `payroll_period_inputs` and the RLS-protected tables; every change goes through an RPC (`1401_payroll_rpcs.sql`) with the same error codes as the demo.
+- **Tests**: `tests/payroll.test.ts` (calc, CSV, demo for both studios), `supabase/tests/payroll_flow.sql` (RPC rules, roles, cross-studio isolation).
+- **Gaps / to know**: no client-app UI (it's staff-only, `client/index.tsx` is intentionally empty); cover notifications are in-app on demo and queued in `payroll_outbox` on live, but no edge function sends them yet; no core slots or hooks were needed; the live store is exercised through the SQL tests, not the fake-supabase live test.
+
