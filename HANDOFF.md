@@ -37,7 +37,6 @@
   - Stripe Connect per studio, so only Snowy can take card payments for now
   - platform billing
   - per-studio app icons
-  - custom-domain admin screen
 - **Waiting on Pete or Libby:**
   - the Momence export
   - Supabase, Stripe and Resend accounts in Libby's business name

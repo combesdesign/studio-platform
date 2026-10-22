@@ -72,3 +72,12 @@ a.ad-tr:hover { background: var(--soft-light); }
 }
 .ad-main .back-pill { justify-self: start; }
 .ad-brand { flex: none; }
+.ad-doms { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.ad-dom { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px; background: var(--soft); }
+.ad-dom b { overflow-wrap: anywhere; }
+.ad-dnsrec { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0 0; padding: 10px 14px; border-radius: 12px; background: var(--soft); font-size: 14.5px; }
+.ad-dnsrec dt { color: var(--muted); }
+.ad-dnsrec dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.ad-steps { display: grid; gap: 14px; margin: 14px 0 0; padding-left: 22px; }
+.ad .stack > .tabs { min-width: 0; max-width: 100%; width: fit-content; box-sizing: border-box; }
+@media (max-width: 600px) { .ad .tabs a { padding: 10px 14px; } }

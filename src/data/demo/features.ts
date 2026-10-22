@@ -12,7 +12,7 @@
  */
 import type { StoreError } from '../../shared/store';
 import type { FeatureStores } from '../../shared/store';
-import type { AuthUser, ID, Staff, Studio } from '../../shared/types';
+import type { AuthUser, ID, Sale, Staff, Studio } from '../../shared/types';
 import type { DemoState, Engine } from './engine';
 
 export interface DemoFeatureContext {
@@ -41,6 +41,8 @@ export interface DemoFeature<K extends keyof FeatureStores = keyof FeatureStores
   name: K;
   seed?(args: { studio: Studio; state: DemoState; now: Date; newId: (prefix: string) => ID }): unknown;
   create(ctx: DemoFeatureContext): FeatureStores[K];
+  /** After staff refund a sale (inside the same write): put back anything the feature took for it. Must be safe to repeat. */
+  afterRefund?(ctx: DemoFeatureContext, sale: Sale): void;
 }
 
 const features: DemoFeature[] = [];

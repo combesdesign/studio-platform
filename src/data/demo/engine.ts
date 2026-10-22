@@ -634,6 +634,10 @@ export class Engine {
     if (amount > 0) {
       sale.refundedCents = (sale.refundedCents ?? 0) + amount;
       sale.refundedAt = this.now().toISOString();
+    } else if (sale.totalCents === 0 && amount === 0) {
+      // Paid entirely with a gift card / promo: nothing to hand back, but it can still be undone (once).
+      if (sale.refundedAt) throw err('INVALID', 'This sale has already been refunded.');
+      sale.refundedAt = this.now().toISOString();
     }
     if (opts.reason) sale.note = [sale.note, `Refund: ${opts.reason}`].filter(Boolean).join(' · ');
     if (opts.cancelPass) {

@@ -11,6 +11,7 @@ import { BUILD_STUDIO, PLATFORM_DOMAIN, bindStudio, platform } from '../data';
 import { applyBranding, PLATFORM_BRANDING, PLATFORM_NAME, setAssetBase } from './branding';
 import { slugFromHash, studioHints, stripStudioPath, type StudioHint } from './resolve';
 import { Flower } from './brand';
+import { applyPwaIdentity } from './pwa';
 
 export type AppKind = 'client' | 'studio' | 'admin';
 
@@ -89,6 +90,8 @@ export async function bootApp(app: AppKind, opts: BootOptions): Promise<void> {
       title: app === 'studio' ? `Studio · ${b.appName || studio.name}` : b.appName || studio.name,
       themeColor: app === 'studio' ? b.colors.ink : b.colors.primary,
     });
+    // Multi-studio build: the manifest and home screen icon follow the studio. (A single-studio build has them from build.mjs.)
+    if (!BUILD_STUDIO && app !== 'admin' && studio.branding?.colors) void applyPwaIdentity(studio.branding, app, studio);
     const shut = opts.closed?.(studio);
     if (shut) { root.render(shut); return; }
     root.render(<BootSplash />);

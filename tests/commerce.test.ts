@@ -540,3 +540,31 @@ test('studios keep their own gift cards, codes, stock and settings', async () =>
   await b.asOwner();
   assert.notEqual((await b.c.getSettings()).referralRewardCents, 7777);
 });
+
+test('refunds: a fully refunded sale puts the stock and the gift card amount back, once', async () => {
+  const p = platform();
+  for (const slug of SLUGS) {
+    const d = await desk(p, slug);
+    const { s, c } = d;
+    const item = (await c.listRetail()).find((r) => r.stock != null && r.stock >= 4)!;
+    const start = item.stock!;
+    const card = (await c.sellGiftCard({ amountCents: 20000, method: 'cash' })).card;
+    const guest = await d.newClient('Refunder');
+    const cart = [{ productId: item.productId, qty: 2 }];
+    const hold = await c.holdCodes({ clientId: guest.id, items: cart, giftCodes: [card.code] });
+    assert.equal(hold.quote.totalCents, 0, `${slug}: the card covers the socks`);
+    const { sale } = await s.checkoutCart({ clientId: guest.id, items: cart, method: 'card_reader', discountCents: hold.quote.giftCents, note: hold.note });
+    await c.settleHold(hold.token);
+    const used = hold.quote.giftCents;
+    assert.equal((await c.lookupGiftCard(card.code)).balanceCents, 20000 - used, `${slug}: the card paid`);
+    assert.equal((await c.listRetail()).find((r) => r.productId === item.productId)!.stock, start - 2, `${slug}: two off the shelf`);
+
+    await s.refundSale(sale.id, { reason: 'Wrong size' });
+    assert.equal((await c.lookupGiftCard(card.code)).balanceCents, 20000, `${slug}: the card amount is back`);
+    assert.equal((await c.listRetail()).find((r) => r.productId === item.productId)!.stock, start, `${slug}: stock is back`);
+    assert.equal((await c.stockLog({ productId: item.productId })).filter((l) => l.reason === 'returned').length, 1, `${slug}: logged`);
+    await assert.rejects(() => s.refundSale(sale.id), /already been refunded/, `${slug}: can't refund it twice`);
+    assert.equal((await c.lookupGiftCard(card.code)).balanceCents, 20000, `${slug}: nothing returned twice`);
+    assert.equal((await c.listRetail()).find((r) => r.productId === item.productId)!.stock, start);
+  }
+});

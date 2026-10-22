@@ -180,6 +180,7 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
 4. Deploy them all:
    ```
    supabase functions deploy create-checkout
+   supabase functions deploy commerce-checkout
    supabase functions deploy billing-portal
    supabase functions deploy refund-payment
    supabase functions deploy invite-user

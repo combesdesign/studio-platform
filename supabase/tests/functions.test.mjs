@@ -29,7 +29,7 @@ const id = (name) => sql(`select id from test.ids where name = '${name}'`);
 // ---------------------------------------------------------------- environment
 const ENV = {
   SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_ANON_KEY: 'anon-key', SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
-  STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', RESEND_API_KEY: 're_test',
+  STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', RESEND_API_KEY: 're_test', EMAIL_FROM: 'Studios <hello@studios.test>',
   CRON_SECRET: 'cron-secret-1234567890', APP_URL: 'https://app.example', APP_URLS: 'https://app.example,https://snowy.netlify.app',
 };
 let handler = null;
@@ -109,7 +109,7 @@ await t('emails: booking, waitlist and reminder carry the cancellation policy; r
     assert.ok(m.html.includes('If you cancel more than 3 hours') && m.text.includes('If you cancel more than 3 hours'), kind);
   }
   const r = H.render({ id: '1', kind: 'receipt', to_email: 'a@b.c', attempts: 0,
-    payload: { studio_name: 'Snowy Pilates Club', abn: '12 345 678 901', total_cents: 11000, gst_cents: 1000, items: [{ qty: 1, name: '4 class pack', unit_cents: 11000 }] } });
+    payload: { studio_name: 'Snowy Pilates Club', abn: '12 345 678 901', tax_id_label: 'ABN', tax_name: 'GST', total_cents: 11000, gst_cents: 1000, items: [{ qty: 1, name: '4 class pack', unit_cents: 11000 }] } });
   assert.ok(r.html.includes('Total includes GST of $10.00') && r.html.includes('ABN 12 345 678 901'));
   const x = H.render({ id: '1', kind: 'booking_confirmed', to_email: 'a', attempts: 0, payload: { first_name: '<script>' } });
   assert.ok(!x.html.includes('<script>'), 'escapes HTML');
@@ -293,6 +293,143 @@ await t('send-reminders: cron secret, housekeeping + reminders queued for ~2 hou
   assert.ok('tidy' in j && 'queued' in j && 'sent' in j);
 });
 
+// ---------------------------------------------------------------- gift cards online, and the feature outboxes
+const SNOWY_ID = sql(`select id from public.studios where slug = 'snowy'`);
+const issueCard = (studio, who, email, sendOn, status = 'active', purchaser = 'null') => sql(
+  `select set_config('app.studio', '${studio}', false), set_config('app.now', '2026-10-19T08:00:00+11:00', false); select (app.commerce_issue('purchase', 'gift_card', 5000, 'Bought in the app', '${status}', 'Pat', ${email ? `'${email}'` : 'null'}, 'Happy birthday', '${who}', ${purchaser === 'null' ? 'null' : `'${purchaser}'`}, null, ${sendOn ? `'${sendOn}'` : 'null'})).id`).split('\n').pop();
+let pendingCard;
+await t('commerce-checkout: the buyer gets a Stripe Checkout for the pending card (studio name, currency, metadata); nobody else can', async () => {
+  pendingCard = issueCard(SNOWY_ID, 'Cara', 'pat@example.test', null, 'pending', CARA);
+  stripeObjects['checkout/sessions'] = { id: 'cs_gift_1', url: 'https://checkout.stripe.com/c/pay/cs_gift_1' };
+  const h = await load('commerce-checkout');
+  const ask = (who, extra = {}) => post(h, { cardId: pendingCard, studioId: SNOWY_ID, returnUrl: 'https://app.example/#/gift-cards', ...extra }, who ? { Authorization: `Bearer ${who}` } : {});
+  assert.equal((await ask(null)).status, 401);
+  assert.equal((await ask(id('alice'))).status, 403, 'someone else\'s card');
+  assert.equal((await ask(FRAN_USER)).status, 403, 'staff can use the till instead');
+  assert.equal((await ask(CARA_USER, { studioId: '00000000-0000-4000-8000-00000000dead' })).status, 404, 'wrong studio');
+  const res = await ask(CARA_USER);
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).url, 'https://checkout.stripe.com/c/pay/cs_gift_1');
+  const f = form(lastStripe('checkout/sessions').body);
+  assert.equal(f.mode, 'payment');
+  assert.equal(f['line_items[0][price_data][unit_amount]'], '5000');
+  assert.equal(f['line_items[0][price_data][currency]'], 'aud');
+  assert.ok(f['line_items[0][price_data][product_data][name]'].startsWith(sql(`select name from public.studios where id = '${SNOWY_ID}'`)), 'named after the studio');
+  assert.equal(f['metadata[kind]'], 'gift_card'); assert.equal(f['metadata[card_id]'], pendingCard); assert.equal(f['metadata[studio_id]'], SNOWY_ID);
+  assert.equal(f['payment_intent_data[metadata][card_id]'], pendingCard);
+});
+
+await t('stripe-webhook: a paid gift card checkout switches the card on once (sale, ledger, email), however often it is told', async () => {
+  const ev = { id: 'evt_gift_1', type: 'checkout.session.completed', data: { object: {
+    id: 'cs_gift_1', mode: 'payment', payment_status: 'paid', amount_total: 5000, customer: 'cus_cara', payment_intent: 'pi_gift_1',
+    metadata: { kind: 'gift_card', card_id: pendingCard, studio_id: SNOWY_ID, client_id: CARA } } } };
+  assert.equal((await sendEvent(ev)).status, 200);
+  assert.equal((await (await sendEvent(ev)).json()).duplicate, true);
+  assert.equal((await sendEvent({ ...ev, id: 'evt_gift_1b' })).status, 200, 'a different event for the same checkout');
+  assert.equal(sql(`select status from public.commerce_gift_cards where id = '${pendingCard}'`), 'active');
+  assert.equal(sql(`select count(*) from public.sales where stripe_checkout_session_id = 'cs_gift_1'`), '1');
+  assert.equal(sql(`select count(*) from public.commerce_gift_entries where card_id = '${pendingCard}' and kind = 'issue'`), '1');
+  assert.equal(sql(`select count(*) from public.commerce_outbox where card_id = '${pendingCard}'`), '1', 'one e-card queued');
+  assert.equal(sql(`select count(*) from public.passes p join public.sales s on s.id = p.sale_id where s.stripe_checkout_session_id = 'cs_gift_1'`), '0', 'no pass');
+});
+
+await t('send-email: gift card e-cards go out under the card\'s own studio (name, colours, address), on the send date', async () => {
+  // a second studio with its own look
+  const harbour = sql(`insert into public.studios (slug, name, email, address, currency, status, branding) values ('harbour-fn', 'Harbour Reformer Co.', 'hello@harbour.test', '12 Bay St, Double Bay', 'AUD', 'live',
+    '{"colors":{"primary":"#1F4D3A","ink":"#10261D","soft":"#E7EFE9","bg":"#F4EFE4"}}') returning id`).split('\n')[0];
+  const sameDay = issueCard(harbour, 'Hank', 'ella@example.test', null);
+  const later = issueCard(harbour, 'Hank', 'later@example.test', '2026-12-25');
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  let j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.sent >= 2 && j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const mine = mails.find((m) => m.to[0] === 'ella@example.test');
+  assert.ok(mine, 'the Harbour e-card was sent');
+  assert.ok(mine.from.startsWith('Harbour Reformer Co. <'), mine.from);
+  assert.equal(mine.reply_to, 'hello@harbour.test');
+  assert.ok(mine.html.includes('#1F4D3A') && mine.html.includes('Harbour Reformer Co.') && mine.html.includes('12 Bay St, Double Bay'), 'their colours, name and address');
+  assert.ok(!/Snowy|Cooma|#5069AC/.test(mine.html + mine.text + mine.subject), 'nothing of Snowy in it');
+  assert.ok(mine.html.includes('$50.00') && mine.html.includes('Happy birthday') && /[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}/.test(mine.html), 'amount, message and code');
+  assert.ok(mine.subject.startsWith('Hank sent you a Harbour Reformer Co. gift card'));
+  const snowyMail = mails.find((m) => m.to[0] === 'pat@example.test');
+  assert.ok(snowyMail && snowyMail.from.includes('Snowy Pilates Club'), 'Snowy\'s own card still goes as Snowy');
+  assert.ok(!mails.some((m) => m.to[0] === 'later@example.test'), 'a card with a future send date waits');
+  assert.equal(sql(`select (sent_at is null)::text from public.commerce_outbox where card_id = '${sameDay}'`), 'false');
+  // the send date arrives
+  sql(`update public.commerce_gift_cards set send_on = '2026-10-19' where id = '${later}'`);
+  j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(calls.filter((c) => c.host === 'api.resend.com').map((c) => JSON.parse(c.body)).some((m) => m.to[0] === 'later@example.test'), 'sent once the date comes');
+  // nothing is sent twice
+  const n = calls.filter((c) => c.host === 'api.resend.com').length;
+  await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET });
+  assert.equal(calls.filter((c) => c.host === 'api.resend.com').length, n);
+});
+
+await t('emails: a second studio gets its own details in every email, and no Snowy strings or colours', async () => {
+  const studio = { studio_name: 'Harbour Reformer Co.', address: '12 Bay St, Double Bay', brand: { primary: '#1F4D3A', ink: '#10261D', soft: '#E7EFE9', bg: '#F4EFE4' },
+    currency: 'NZD', locale: 'en-NZ', timezone: 'Pacific/Auckland', tax_id_label: 'NZBN', tax_name: 'GST', abn: '9429 0000 12345' };
+  const p = { ...studio, first_name: 'Alice', class_name: 'Reformer Flow', when: '6:00pm Wed 21 Oct', cancellation_policy: 'Cancel 12 hours ahead or the credit is used.',
+    total_cents: 11500, gst_cents: 1500, items: [{ qty: 1, name: '4 class pack', unit_cents: 11500 }], sale_id: 'abcdef123456' };
+  const SNOWY = /Snowy|Cooma|5069AC|24345F|Vale Street|snowypilates/i;
+  for (const kind of ['booking_confirmed', 'waitlist_promoted', 'class_cancelled', 'class_reminder', 'receipt', 'bogus']) {
+    const m = H.render({ id: '1', kind, to_email: 'a@b.c', payload: p, attempts: 0 });
+    const all = m.html + m.text + m.subject;
+    assert.ok(!SNOWY.test(all), `${kind}: nothing of Snowy`);
+    assert.ok(m.html.includes('#1F4D3A') && m.html.includes('Harbour Reformer Co.') && m.html.includes('12 Bay St, Double Bay'), `${kind}: their colours, name and address`);
+    if (['booking_confirmed', 'waitlist_promoted', 'class_reminder'].includes(kind)) assert.ok(m.html.includes('Cancel 12 hours ahead') && m.text.includes('Cancel 12 hours ahead'), `${kind}: their policy`);
+  }
+  const r = H.render({ id: '1', kind: 'receipt', to_email: 'a@b.c', attempts: 0, payload: p });
+  assert.ok(r.html.includes('NZBN 9429 0000 12345') && !r.html.includes('ABN') && r.html.includes('Total includes GST of') && r.html.includes('$115.00') && r.subject === 'Your receipt from Harbour Reformer Co.', 'their tax label and currency');
+  // no branding at all: the neutral platform look, never Snowy's
+  for (const kind of ['booking_confirmed', 'receipt', 'bogus']) {
+    const m = H.render({ id: '1', kind, to_email: 'a@b.c', payload: { first_name: 'Al', class_name: 'Mat', when: 'now', total_cents: 1000, items: [] }, attempts: 0 });
+    assert.ok(!SNOWY.test(m.html + m.text + m.subject), `${kind}: unbranded studio has no Snowy`);
+    assert.ok(m.html.includes('#2F3B4C') && m.html.includes('Studio Platform'), `${kind}: platform defaults`);
+  }
+});
+
+await t('send-email: queued booking and receipt emails go out as their own studio (sender, reply-to, colours, address, link, tax label)', async () => {
+  const harbour = sql(`select id from public.studios where slug = 'harbour-fn'`);
+  sql(`update public.studios set tax_id = '9429 0000 12345', tax_id_label = 'NZBN' where id = '${harbour}'`);
+  const plain = sql(`insert into public.studios (slug, name, email, currency, status) values ('plain-fn', 'Plain Studio', 'hi@plain.test', 'AUD', 'live') returning id`).split('\n')[0];
+  const queue = (studio, kind, to, extra) => sql(`insert into public.notifications (studio_id, kind, to_email, payload) values ('${studio}', '${kind}', '${to}',
+    '{"first_name":"Al","class_name":"Reformer Flow","when":"6:00pm Wed 21 Oct","cancellation_policy":"Their own policy.","total_cents":5000,"gst_cents":0,"items":[{"qty":1,"name":"Drop in","unit_cents":5000}]${extra}}')`);
+  queue(harbour, 'booking_confirmed', 'hb@example.test', '');
+  queue(harbour, 'receipt', 'hr@example.test', '');
+  queue(plain, 'booking_confirmed', 'pb@example.test', '');
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  const j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.sent >= 3 && j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const SNOWY = /Snowy|Cooma|5069AC|24345F|snowypilates/i;
+  const hb = mails.find((m) => m.to[0] === 'hb@example.test'), hr = mails.find((m) => m.to[0] === 'hr@example.test'), pb = mails.find((m) => m.to[0] === 'pb@example.test');
+  assert.ok(hb && hr && pb, 'all three were sent');
+  assert.ok(hb.from.startsWith('Harbour Reformer Co. <') && hb.reply_to === 'hello@harbour.test', 'their sender name and reply-to');
+  assert.ok(hb.html.includes('#1F4D3A') && hb.html.includes('12 Bay St, Double Bay') && hb.html.includes('Their own policy.') && hb.html.includes('studio=harbour-fn'), 'their colours, address, policy and app link');
+  assert.ok(hr.html.includes('NZBN 9429 0000 12345') && !hr.html.includes('ABN'), 'receipt carries the studio tax label');
+  assert.ok(pb.from.startsWith('Plain Studio <') && pb.reply_to === 'hi@plain.test' && pb.html.includes('#2F3B4C') && !pb.html.includes('Cooma'), 'a studio with no branding gets the platform look');
+  for (const m of mails) assert.ok(!SNOWY.test(m.html + m.text + m.subject + m.from), `no Snowy in the email to ${m.to[0]}`);
+});
+
+await t('send-email: cover request emails reach the eligible staff, with the studio look', async () => {
+  const row = (kind, to) => `insert into public.payroll_outbox (studio_id, kind, to_staff_id, to_email, payload) select '${SNOWY_ID}', '${kind}', id, email,
+    jsonb_build_object('class_name', 'Mat Essentials', 'when', '6:00am Thu 22 Oct', 'requested_by', 'Grace', 'claimed_by', 'Julia', 'reason', 'Sick kid') from public.staff where email = '${to}'`;
+  sql(`${row('cover_requested', 'julia@example.test')}; ${row('cover_claimed', 'libby@example.test')}; ${row('cover_approved', 'julia@example.test')}`);
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  const j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.sent >= 3 && j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const ask = mails.find((m) => m.subject.startsWith('Cover needed'));
+  assert.deepEqual(ask.to, ['julia@example.test']);
+  assert.ok(ask.html.includes('Hi Julia') && ask.html.includes('Grace') && ask.html.includes('Sick kid') && ask.html.includes('Mat Essentials'));
+  assert.ok(mails.some((m) => m.subject.startsWith('Cover claimed') && m.to[0] === 'libby@example.test'));
+  assert.ok(mails.some((m) => m.subject.startsWith('Cover approved')));
+  assert.equal(sql(`select count(*) from public.payroll_outbox where sent_at is null`), '0');
+});
+
 await t('invite-user: owners (or platform admins) email a login link for someone already on that studio\'s team', async () => {
   const h = await load('invite-user');
   const snowy = sql(`select id from public.studios where slug = 'snowy'`);
@@ -318,6 +455,40 @@ await t('invite-user: owners (or platform admins) email a login link for someone
   r = await post(h, { studioId: snowy, email: 'nell@example.test' });
   assert.equal(r.status, 401);
   sql(`delete from public.staff where email = 'nell@example.test'`);
+});
+
+await t('partner-webhook (a stub): off by default, refuses unsigned calls, and books / cancels through the database when the check is skipped for local testing', async () => {
+  const h = await load('partner-webhook');
+  const S_THU = id('s_thu');
+  const ev = (over = {}) => ({ partner: 'classpass', event: 'booking.created', studio_id: 'CP-FN', booking_id: 'FN-1', session_id: S_THU, member: { id: 'fn-m1', first_name: 'Wendy', last_name: 'Webhook' }, ...over });
+  assert.equal((await post(h, ev())).status, 501, 'switched off unless PARTNER_WEBHOOK_ENABLED=true');
+  ENV.PARTNER_WEBHOOK_ENABLED = 'true';
+  try {
+    const unsigned = await post(h, ev());
+    assert.equal(unsigned.status, 401, 'the signature check is a TODO that rejects everything');
+    assert.equal((await unsigned.json()).code, 'BAD_SIGNATURE');
+    sql(`insert into public.integrations_partners (studio_id, partner, enabled, partner_studio_id) values ('${SNOWY_ID}', 'classpass', true, 'CP-FN');
+         insert into public.integrations_reserved (studio_id, class_type_id, partner, spots) values ('${SNOWY_ID}', '${id('mat')}', 'classpass', 1)`);
+    ENV.PARTNER_WEBHOOK_SKIP_VERIFY = 'true';
+    assert.equal((await post(h, '{not json')).status, 400);
+    const made = await post(h, ev());
+    assert.equal(made.status, 200);
+    const out = await made.json();
+    assert.equal(out.duplicate, false);
+    assert.equal(sql(`select pb.source || '/' || b.status from public.integrations_partner_bookings pb join public.bookings b on b.id = pb.booking_id where pb.booking_id = '${out.booking_id}'`), 'classpass/booked');
+    assert.equal((await (await post(h, ev())).json()).duplicate, true, 'the same booking id twice is one booking');
+    const full = await post(h, ev({ booking_id: 'FN-2', member: { id: 'fn-m2', first_name: 'Xavier', last_name: 'Extra' } }));
+    assert.equal((await full.json()).code, 'NO_PARTNER_SPOTS', 'only one spot is held');
+    assert.equal((await post(h, ev({ studio_id: 'CP-OTHER', booking_id: 'FN-3' }))).status, 400, 'an unknown studio ID is refused');
+    assert.equal((await post(h, ev({ event: 'booking.moved' }))).status, 400);
+    const cancelled = await (await post(h, ev({ event: 'booking.cancelled' }))).json();
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(sql(`select count(*) from public.bookings where id = '${out.booking_id}' and status = 'cancelled'`), '1');
+  } finally {
+    delete ENV.PARTNER_WEBHOOK_ENABLED; delete ENV.PARTNER_WEBHOOK_SKIP_VERIFY;
+    sql(`delete from public.clients where first_name = 'Wendy' and last_name = 'Webhook';
+         delete from public.integrations_reserved where studio_id = '${SNOWY_ID}'; delete from public.integrations_partners where studio_id = '${SNOWY_ID}'`);
+  }
 });
 
 await t('no secrets in the code: every key comes from the environment', () => {

@@ -6,3 +6,6 @@ import './appointments/client/index';
 import './marketing/client/index';
 import './commerce/client/index';
 import './payroll/client/index';
+import './kiosk/client/index';
+import './reviews/client/index';
+import './integrations/client/index';

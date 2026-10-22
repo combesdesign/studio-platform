@@ -56,12 +56,16 @@ Every feature built from here lands in both.
 
 ### B3 Selling extras
 - [x] Gift cards: buy, send and redeem, with balance tracking
+  - [x] Pay online (Stripe Checkout, switched on by the webhook)
+  - [x] E-card emailed on its send date, as the studio
+  - [x] Refunds put gift card amounts and retail stock back
 - [x] Promo codes: % or $ off, limits, expiry, per product
 - [x] Referral rewards
 - [x] Retail stock: inventory counts, low-stock alerts, barcode scanning at the POS
 
 ### B4 Staff and payroll
 - [x] Sub and cover requests (post a class, staff claim it, the owner approves)
+  - [x] Emails to eligible staff when posted, claimed or approved
 - [x] Pay rules: per class, per head, tiers, hourly
 - [x] Timesheets and clock-in
 - [x] Payroll export (CSV for Xero and others)
@@ -70,10 +74,12 @@ Every feature built from here lands in both.
 - [ ] On-demand video library and on-demand subscriptions
 - [ ] Family and child accounts on one profile
 - [ ] Multi-location and rooms
-- [ ] Check-in kiosk mode (an iPad clients tap themselves)
-- [ ] Reviews and NPS after class
-- [ ] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
-- [ ] Accounting export to Xero
+- [x] Check-in kiosk mode (an iPad clients tap themselves)
+  - [x] Exit lockout: 5 wrong PINs lock exit for 5 minutes
+- [x] Reviews and NPS after class
+- [x] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
+  - [x] Settings tab (partner IDs, write-only keys), spots held per class type, roster badge, webhook stub (signature check left as a TODO)
+- [x] Accounting export to Xero
 - [ ] Stripe Terminal card reader at the POS
 
 ## Phase C: launch-readiness (Snowy and platform)
