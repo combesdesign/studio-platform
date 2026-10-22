@@ -293,6 +293,96 @@ await t('send-reminders: cron secret, housekeeping + reminders queued for ~2 hou
   assert.ok('tidy' in j && 'queued' in j && 'sent' in j);
 });
 
+// ---------------------------------------------------------------- gift cards online, and the feature outboxes
+const SNOWY_ID = sql(`select id from public.studios where slug = 'snowy'`);
+const issueCard = (studio, who, email, sendOn, status = 'active', purchaser = 'null') => sql(
+  `select set_config('app.studio', '${studio}', false), set_config('app.now', '2026-10-19T08:00:00+11:00', false); select (app.commerce_issue('purchase', 'gift_card', 5000, 'Bought in the app', '${status}', 'Pat', ${email ? `'${email}'` : 'null'}, 'Happy birthday', '${who}', ${purchaser === 'null' ? 'null' : `'${purchaser}'`}, null, ${sendOn ? `'${sendOn}'` : 'null'})).id`).split('\n').pop();
+let pendingCard;
+await t('commerce-checkout: the buyer gets a Stripe Checkout for the pending card (studio name, currency, metadata); nobody else can', async () => {
+  pendingCard = issueCard(SNOWY_ID, 'Cara', 'pat@example.test', null, 'pending', CARA);
+  stripeObjects['checkout/sessions'] = { id: 'cs_gift_1', url: 'https://checkout.stripe.com/c/pay/cs_gift_1' };
+  const h = await load('commerce-checkout');
+  const ask = (who, extra = {}) => post(h, { cardId: pendingCard, studioId: SNOWY_ID, returnUrl: 'https://app.example/#/gift-cards', ...extra }, who ? { Authorization: `Bearer ${who}` } : {});
+  assert.equal((await ask(null)).status, 401);
+  assert.equal((await ask(id('alice'))).status, 403, 'someone else\'s card');
+  assert.equal((await ask(FRAN_USER)).status, 403, 'staff can use the till instead');
+  assert.equal((await ask(CARA_USER, { studioId: '00000000-0000-4000-8000-00000000dead' })).status, 404, 'wrong studio');
+  const res = await ask(CARA_USER);
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).url, 'https://checkout.stripe.com/c/pay/cs_gift_1');
+  const f = form(lastStripe('checkout/sessions').body);
+  assert.equal(f.mode, 'payment');
+  assert.equal(f['line_items[0][price_data][unit_amount]'], '5000');
+  assert.equal(f['line_items[0][price_data][currency]'], 'aud');
+  assert.ok(f['line_items[0][price_data][product_data][name]'].startsWith(sql(`select name from public.studios where id = '${SNOWY_ID}'`)), 'named after the studio');
+  assert.equal(f['metadata[kind]'], 'gift_card'); assert.equal(f['metadata[card_id]'], pendingCard); assert.equal(f['metadata[studio_id]'], SNOWY_ID);
+  assert.equal(f['payment_intent_data[metadata][card_id]'], pendingCard);
+});
+
+await t('stripe-webhook: a paid gift card checkout switches the card on once (sale, ledger, email), however often it is told', async () => {
+  const ev = { id: 'evt_gift_1', type: 'checkout.session.completed', data: { object: {
+    id: 'cs_gift_1', mode: 'payment', payment_status: 'paid', amount_total: 5000, customer: 'cus_cara', payment_intent: 'pi_gift_1',
+    metadata: { kind: 'gift_card', card_id: pendingCard, studio_id: SNOWY_ID, client_id: CARA } } } };
+  assert.equal((await sendEvent(ev)).status, 200);
+  assert.equal((await (await sendEvent(ev)).json()).duplicate, true);
+  assert.equal((await sendEvent({ ...ev, id: 'evt_gift_1b' })).status, 200, 'a different event for the same checkout');
+  assert.equal(sql(`select status from public.commerce_gift_cards where id = '${pendingCard}'`), 'active');
+  assert.equal(sql(`select count(*) from public.sales where stripe_checkout_session_id = 'cs_gift_1'`), '1');
+  assert.equal(sql(`select count(*) from public.commerce_gift_entries where card_id = '${pendingCard}' and kind = 'issue'`), '1');
+  assert.equal(sql(`select count(*) from public.commerce_outbox where card_id = '${pendingCard}'`), '1', 'one e-card queued');
+  assert.equal(sql(`select count(*) from public.passes p join public.sales s on s.id = p.sale_id where s.stripe_checkout_session_id = 'cs_gift_1'`), '0', 'no pass');
+});
+
+await t('send-email: gift card e-cards go out under the card\'s own studio (name, colours, address), on the send date', async () => {
+  // a second studio with its own look
+  const harbour = sql(`insert into public.studios (slug, name, email, address, currency, status, branding) values ('harbour-fn', 'Harbour Reformer Co.', 'hello@harbour.test', '12 Bay St, Double Bay', 'AUD', 'live',
+    '{"colors":{"primary":"#1F4D3A","ink":"#10261D","soft":"#E7EFE9","bg":"#F4EFE4"}}') returning id`).split('\n')[0];
+  const sameDay = issueCard(harbour, 'Hank', 'ella@example.test', null);
+  const later = issueCard(harbour, 'Hank', 'later@example.test', '2026-12-25');
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  let j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.sent >= 2 && j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const mine = mails.find((m) => m.to[0] === 'ella@example.test');
+  assert.ok(mine, 'the Harbour e-card was sent');
+  assert.ok(mine.from.startsWith('Harbour Reformer Co. <'), mine.from);
+  assert.equal(mine.reply_to, 'hello@harbour.test');
+  assert.ok(mine.html.includes('#1F4D3A') && mine.html.includes('Harbour Reformer Co.') && mine.html.includes('12 Bay St, Double Bay'), 'their colours, name and address');
+  assert.ok(!/Snowy|Cooma|#5069AC/.test(mine.html + mine.text + mine.subject), 'nothing of Snowy in it');
+  assert.ok(mine.html.includes('$50.00') && mine.html.includes('Happy birthday') && /[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}/.test(mine.html), 'amount, message and code');
+  assert.ok(mine.subject.startsWith('Hank sent you a Harbour Reformer Co. gift card'));
+  const snowyMail = mails.find((m) => m.to[0] === 'pat@example.test');
+  assert.ok(snowyMail && snowyMail.from.includes('Snowy Pilates Club'), 'Snowy\'s own card still goes as Snowy');
+  assert.ok(!mails.some((m) => m.to[0] === 'later@example.test'), 'a card with a future send date waits');
+  assert.equal(sql(`select (sent_at is null)::text from public.commerce_outbox where card_id = '${sameDay}'`), 'false');
+  // the send date arrives
+  sql(`update public.commerce_gift_cards set send_on = '2026-10-19' where id = '${later}'`);
+  j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(calls.filter((c) => c.host === 'api.resend.com').map((c) => JSON.parse(c.body)).some((m) => m.to[0] === 'later@example.test'), 'sent once the date comes');
+  // nothing is sent twice
+  const n = calls.filter((c) => c.host === 'api.resend.com').length;
+  await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET });
+  assert.equal(calls.filter((c) => c.host === 'api.resend.com').length, n);
+});
+
+await t('send-email: cover request emails reach the eligible staff, with the studio look', async () => {
+  const row = (kind, to) => `insert into public.payroll_outbox (studio_id, kind, to_staff_id, to_email, payload) select '${SNOWY_ID}', '${kind}', id, email,
+    jsonb_build_object('class_name', 'Mat Essentials', 'when', '6:00am Thu 22 Oct', 'requested_by', 'Grace', 'claimed_by', 'Julia', 'reason', 'Sick kid') from public.staff where email = '${to}'`;
+  sql(`${row('cover_requested', 'julia@example.test')}; ${row('cover_claimed', 'libby@example.test')}; ${row('cover_approved', 'julia@example.test')}`);
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  const j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.sent >= 3 && j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const ask = mails.find((m) => m.subject.startsWith('Cover needed'));
+  assert.deepEqual(ask.to, ['julia@example.test']);
+  assert.ok(ask.html.includes('Hi Julia') && ask.html.includes('Grace') && ask.html.includes('Sick kid') && ask.html.includes('Mat Essentials'));
+  assert.ok(mails.some((m) => m.subject.startsWith('Cover claimed') && m.to[0] === 'libby@example.test'));
+  assert.ok(mails.some((m) => m.subject.startsWith('Cover approved')));
+  assert.equal(sql(`select count(*) from public.payroll_outbox where sent_at is null`), '0');
+});
+
 await t('invite-user: owners (or platform admins) email a login link for someone already on that studio\'s team', async () => {
   const h = await load('invite-user');
   const snowy = sql(`select id from public.studios where slug = 'snowy'`);

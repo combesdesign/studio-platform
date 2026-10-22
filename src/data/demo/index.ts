@@ -905,7 +905,12 @@ export class DemoStore implements DataStore {
   }
 
   async refundSale(saleId: ID, opts: { amountCents?: number; cancelPass?: boolean; reason?: string } = {}): Promise<Sale> {
-    return this.write(() => { this.requireStaff('pos_refund'); return this.engine.refund(saleId, opts); });
+    return this.write(() => {
+      this.requireStaff('pos_refund');
+      const sale = this.engine.refund(saleId, opts);
+      for (const f of demoFeatures()) f.afterRefund?.(this.featureContext(f.name), sale);
+      return sale;
+    });
   }
 
   // ---------------------------------------------------------------- reports

@@ -5,7 +5,7 @@
  * (the sale's note carries "ref <token>"), so a half-finished cart never spends anything.
  */
 import './permissions';
-import { registerDemoFeature } from '../../data/demo/features';
+import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/features';
 import { isIntroEligible } from '../../domain/rules';
 import { addDays, money, studioDate } from '../../shared/format';
 import type { Client, ID, ISODate, ISODateTime, Product, Sale } from '../../shared/types';
@@ -54,9 +54,38 @@ function mulberry(seed: number): () => number {
   return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
+// ------------------------------------------------------------------------------------------------ refunds
+/** A sale refunded in full puts its retail items back on the shelf and returns the gift card / credit used on it.
+ *  Partial refunds change nothing. Safe to repeat: the card entry and the stock log line are the memory. Mirrors app.commerce_unwind_sale. */
+function unwindRefundedSale(ctx: DemoFeatureContext, sale: Sale): void {
+  if (!sale.refundedAt || (sale.refundedCents ?? 0) < sale.totalCents) return;
+  const slice = ctx.slice<Slice>();
+  const at = ctx.now().toISOString();
+  const mark = `Sale refunded ${sale.id}`;
+  for (const card of slice.cards ?? []) {
+    if (card.status === 'void' || card.entries.some((e) => e.kind === 'refund' && e.saleId === sale.id)) continue;
+    // a till hold whose sale already exists counts as used (the hold is only settled lazily)
+    const used = card.entries.filter((e) => e.kind === 'redeem' && e.cents < 0 && (e.saleId === sale.id || (e.state === 'held' && !!e.token && (sale.note ?? '').includes(`ref ${e.token}`))));
+    const back = -used.reduce((n, e) => n + e.cents, 0);
+    if (back <= 0) continue;
+    used.forEach((e) => { if (e.state === 'held') { e.state = 'posted'; e.saleId = sale.id; delete e.token; } });
+    card.entries.push({ id: ctx.newId('ge'), at, kind: 'refund', cents: back, state: 'posted', note: 'Put back: sale refunded', saleId: sale.id });
+  }
+  const qtys = new Map<ID, number>();
+  for (const it of sale.items) if (it.productId) qtys.set(it.productId, (qtys.get(it.productId) ?? 0) + it.qty);
+  for (const [productId, qty] of qtys) {
+    const p = ctx.core().state.products.find((x) => x.id === productId && x.kind === 'retail');
+    if (!p || p.stock == null || (slice.stockLog ??= []).some((l) => l.productId === productId && l.reason === 'returned' && l.note === mark)) continue;
+    const before = p.stock;
+    p.stock = before + qty;
+    slice.stockLog.unshift({ id: ctx.newId('sl'), productId, productName: p.name, delta: qty, before, after: p.stock, reason: 'returned', note: mark, at });
+  }
+}
+
 // ------------------------------------------------------------------------------------------------ seed
 registerDemoFeature({
   name: 'commerce',
+  afterRefund: unwindRefundedSale,
   seed: ({ studio, state, now }): Slice => {
     const slice = emptySlice(studio.slug);
     if (studio.slug !== 'snowy' && studio.slug !== 'harbour') return slice;

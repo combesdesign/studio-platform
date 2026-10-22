@@ -56,12 +56,16 @@ Every feature built from here lands in both.
 
 ### B3 Selling extras
 - [x] Gift cards: buy, send and redeem, with balance tracking
+  - [x] Pay online (Stripe Checkout, switched on by the webhook)
+  - [x] E-card emailed on its send date, as the studio
+  - [x] Refunds put gift card amounts and retail stock back
 - [x] Promo codes: % or $ off, limits, expiry, per product
 - [x] Referral rewards
 - [x] Retail stock: inventory counts, low-stock alerts, barcode scanning at the POS
 
 ### B4 Staff and payroll
 - [x] Sub and cover requests (post a class, staff claim it, the owner approves)
+  - [x] Emails to eligible staff when posted, claimed or approved
 - [x] Pay rules: per class, per head, tiers, hourly
 - [x] Timesheets and clock-in
 - [x] Payroll export (CSV for Xero and others)
