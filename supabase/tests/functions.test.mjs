@@ -29,7 +29,7 @@ const id = (name) => sql(`select id from test.ids where name = '${name}'`);
 // ---------------------------------------------------------------- environment
 const ENV = {
   SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_ANON_KEY: 'anon-key', SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
-  STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', RESEND_API_KEY: 're_test',
+  STRIPE_SECRET_KEY: 'sk_test_123', STRIPE_WEBHOOK_SECRET: 'whsec_test_secret', RESEND_API_KEY: 're_test', EMAIL_FROM: 'Studios <hello@studios.test>',
   CRON_SECRET: 'cron-secret-1234567890', APP_URL: 'https://app.example', APP_URLS: 'https://app.example,https://snowy.netlify.app',
 };
 let handler = null;
@@ -109,7 +109,7 @@ await t('emails: booking, waitlist and reminder carry the cancellation policy; r
     assert.ok(m.html.includes('If you cancel more than 3 hours') && m.text.includes('If you cancel more than 3 hours'), kind);
   }
   const r = H.render({ id: '1', kind: 'receipt', to_email: 'a@b.c', attempts: 0,
-    payload: { studio_name: 'Snowy Pilates Club', abn: '12 345 678 901', total_cents: 11000, gst_cents: 1000, items: [{ qty: 1, name: '4 class pack', unit_cents: 11000 }] } });
+    payload: { studio_name: 'Snowy Pilates Club', abn: '12 345 678 901', tax_id_label: 'ABN', tax_name: 'GST', total_cents: 11000, gst_cents: 1000, items: [{ qty: 1, name: '4 class pack', unit_cents: 11000 }] } });
   assert.ok(r.html.includes('Total includes GST of $10.00') && r.html.includes('ABN 12 345 678 901'));
   const x = H.render({ id: '1', kind: 'booking_confirmed', to_email: 'a', attempts: 0, payload: { first_name: '<script>' } });
   assert.ok(!x.html.includes('<script>'), 'escapes HTML');
@@ -364,6 +364,53 @@ await t('send-email: gift card e-cards go out under the card\'s own studio (name
   const n = calls.filter((c) => c.host === 'api.resend.com').length;
   await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET });
   assert.equal(calls.filter((c) => c.host === 'api.resend.com').length, n);
+});
+
+await t('emails: a second studio gets its own details in every email, and no Snowy strings or colours', async () => {
+  const studio = { studio_name: 'Harbour Reformer Co.', address: '12 Bay St, Double Bay', brand: { primary: '#1F4D3A', ink: '#10261D', soft: '#E7EFE9', bg: '#F4EFE4' },
+    currency: 'NZD', locale: 'en-NZ', timezone: 'Pacific/Auckland', tax_id_label: 'NZBN', tax_name: 'GST', abn: '9429 0000 12345' };
+  const p = { ...studio, first_name: 'Alice', class_name: 'Reformer Flow', when: '6:00pm Wed 21 Oct', cancellation_policy: 'Cancel 12 hours ahead or the credit is used.',
+    total_cents: 11500, gst_cents: 1500, items: [{ qty: 1, name: '4 class pack', unit_cents: 11500 }], sale_id: 'abcdef123456' };
+  const SNOWY = /Snowy|Cooma|5069AC|24345F|Vale Street|snowypilates/i;
+  for (const kind of ['booking_confirmed', 'waitlist_promoted', 'class_cancelled', 'class_reminder', 'receipt', 'bogus']) {
+    const m = H.render({ id: '1', kind, to_email: 'a@b.c', payload: p, attempts: 0 });
+    const all = m.html + m.text + m.subject;
+    assert.ok(!SNOWY.test(all), `${kind}: nothing of Snowy`);
+    assert.ok(m.html.includes('#1F4D3A') && m.html.includes('Harbour Reformer Co.') && m.html.includes('12 Bay St, Double Bay'), `${kind}: their colours, name and address`);
+    if (['booking_confirmed', 'waitlist_promoted', 'class_reminder'].includes(kind)) assert.ok(m.html.includes('Cancel 12 hours ahead') && m.text.includes('Cancel 12 hours ahead'), `${kind}: their policy`);
+  }
+  const r = H.render({ id: '1', kind: 'receipt', to_email: 'a@b.c', attempts: 0, payload: p });
+  assert.ok(r.html.includes('NZBN 9429 0000 12345') && !r.html.includes('ABN') && r.html.includes('Total includes GST of') && r.html.includes('$115.00') && r.subject === 'Your receipt from Harbour Reformer Co.', 'their tax label and currency');
+  // no branding at all: the neutral platform look, never Snowy's
+  for (const kind of ['booking_confirmed', 'receipt', 'bogus']) {
+    const m = H.render({ id: '1', kind, to_email: 'a@b.c', payload: { first_name: 'Al', class_name: 'Mat', when: 'now', total_cents: 1000, items: [] }, attempts: 0 });
+    assert.ok(!SNOWY.test(m.html + m.text + m.subject), `${kind}: unbranded studio has no Snowy`);
+    assert.ok(m.html.includes('#2F3B4C') && m.html.includes('Studio Platform'), `${kind}: platform defaults`);
+  }
+});
+
+await t('send-email: queued booking and receipt emails go out as their own studio (sender, reply-to, colours, address, link, tax label)', async () => {
+  const harbour = sql(`select id from public.studios where slug = 'harbour-fn'`);
+  sql(`update public.studios set tax_id = '9429 0000 12345', tax_id_label = 'NZBN' where id = '${harbour}'`);
+  const plain = sql(`insert into public.studios (slug, name, email, currency, status) values ('plain-fn', 'Plain Studio', 'hi@plain.test', 'AUD', 'live') returning id`).split('\n')[0];
+  const queue = (studio, kind, to, extra) => sql(`insert into public.notifications (studio_id, kind, to_email, payload) values ('${studio}', '${kind}', '${to}',
+    '{"first_name":"Al","class_name":"Reformer Flow","when":"6:00pm Wed 21 Oct","cancellation_policy":"Their own policy.","total_cents":5000,"gst_cents":0,"items":[{"qty":1,"name":"Drop in","unit_cents":5000}]${extra}}')`);
+  queue(harbour, 'booking_confirmed', 'hb@example.test', '');
+  queue(harbour, 'receipt', 'hr@example.test', '');
+  queue(plain, 'booking_confirmed', 'pb@example.test', '');
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  const j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.sent >= 3 && j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const SNOWY = /Snowy|Cooma|5069AC|24345F|snowypilates/i;
+  const hb = mails.find((m) => m.to[0] === 'hb@example.test'), hr = mails.find((m) => m.to[0] === 'hr@example.test'), pb = mails.find((m) => m.to[0] === 'pb@example.test');
+  assert.ok(hb && hr && pb, 'all three were sent');
+  assert.ok(hb.from.startsWith('Harbour Reformer Co. <') && hb.reply_to === 'hello@harbour.test', 'their sender name and reply-to');
+  assert.ok(hb.html.includes('#1F4D3A') && hb.html.includes('12 Bay St, Double Bay') && hb.html.includes('Their own policy.') && hb.html.includes('studio=harbour-fn'), 'their colours, address, policy and app link');
+  assert.ok(hr.html.includes('NZBN 9429 0000 12345') && !hr.html.includes('ABN'), 'receipt carries the studio tax label');
+  assert.ok(pb.from.startsWith('Plain Studio <') && pb.reply_to === 'hi@plain.test' && pb.html.includes('#2F3B4C') && !pb.html.includes('Cooma'), 'a studio with no branding gets the platform look');
+  for (const m of mails) assert.ok(!SNOWY.test(m.html + m.text + m.subject + m.from), `no Snowy in the email to ${m.to[0]}`);
 });
 
 await t('send-email: cover request emails reach the eligible staff, with the studio look', async () => {
