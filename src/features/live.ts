@@ -6,3 +6,4 @@ import './appointments/live';
 import './marketing/live';
 import './commerce/live';
 import './payroll/live';
+import './kiosk/live';

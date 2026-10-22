@@ -74,7 +74,7 @@ Every feature built from here lands in both.
 - [ ] On-demand video library and on-demand subscriptions
 - [ ] Family and child accounts on one profile
 - [ ] Multi-location and rooms
-- [ ] Check-in kiosk mode (an iPad clients tap themselves)
+- [x] Check-in kiosk mode (an iPad clients tap themselves)
 - [ ] Reviews and NPS after class
 - [ ] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
 - [ ] Accounting export to Xero

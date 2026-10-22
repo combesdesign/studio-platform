@@ -6,3 +6,4 @@ import './appointments/demo';
 import './marketing/demo';
 import './commerce/demo';
 import './payroll/demo';
+import './kiosk/demo';
