@@ -1,6 +1,6 @@
-# Integrations: ClassPass and Gympass
+# Integrations: ClassPass and Gympass (and the Xero export)
 
-Code: `src/features/integrations/`. SQL: `supabase/migrations/1700`–`1701_integrations_*.sql`. Edge function: `supabase/functions/partner-webhook/`.
+Code: `src/features/integrations/`. SQL: `supabase/migrations/1700`–`1702_integrations_*.sql`. Edge function: `supabase/functions/partner-webhook/`.
 
 ## Read this first: a partner agreement is needed
 
@@ -40,3 +40,6 @@ Keys are saved by `integrations_save_partner` (owner only) into `integrations_se
 6. Test with the partner's sandbox before any real member books.
 
 The database functions the webhook calls (`integrations_partner_book`, `integrations_partner_cancel`) are granted to the service role only. They check the partner is switched on for that studio, the partner ID belongs to exactly one studio, spots are held, the class isn't full, cancelled or started, and they are safe to repeat (the same partner booking id twice is one booking).
+
+## Xero export
+See Settings › Xero export. Account codes are per studio (`integrations_accounting`). The CSV is built in the browser from the studio's sales (`xero.ts`), as Xero **sales invoices** (one invoice per sale, GST on each line, payment method in Reference) or **manual journals** (one balanced journal per day and payment method, GST on its own line). Check the format with your bookkeeper before the first real import.

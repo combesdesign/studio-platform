@@ -90,6 +90,7 @@ for (const slug of ['snowy', 'harbour']) {
     assert.ok((await api.listReserved()).length >= 0, 'instructors can see what is held');
     await assert.rejects(() => api.listPartners(), 'but not the partner settings');
     await assert.rejects(() => api.setReserved(heldType.id, partner, 1));
+    await assert.rejects(() => api.getAccounting());
   });
 }
 

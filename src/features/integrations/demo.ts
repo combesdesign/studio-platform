@@ -13,6 +13,7 @@ import type { DemoState } from '../../data/demo/engine';
 import type { ID, Studio } from '../../shared/types';
 import { heldFor, partnerBookError } from './partners';
 import { PARTNERS, PARTNER_LABEL, type Partner, type PartnerBooking, type PartnerSetting, type ReservedSpots, type IntegrationsStore } from './types';
+import { normaliseAccounting, type AccountingSettings } from './xero';
 
 interface Member { partner: Partner; memberRef: string; clientId: ID }
 interface Slice {
@@ -20,6 +21,7 @@ interface Slice {
   reserved?: ReservedSpots[];
   bookings?: PartnerBooking[];
   members?: Member[];
+  accounting?: Partial<AccountingSettings>;
 }
 type Full = Required<Slice>;
 
@@ -29,6 +31,7 @@ function norm(raw: Slice): Full {
   raw.reserved ??= [];
   raw.bookings ??= [];
   raw.members ??= [];
+  raw.accounting ??= {};
   return raw as Full;
 }
 
@@ -110,6 +113,15 @@ function create(ctx: DemoFeatureContext): IntegrationsStore {
       return bookPartner(ctx, s, partner, sessionId, memberName?.trim() || names[s.bookings.length % names.length]!, nextRef);
     }),
 
+    getAccounting: () => ctx.read(() => { ctx.requireStaff('integrations.accounting'); return normaliseAccounting(slice().accounting); }),
+
+    saveAccounting: (patch) => ctx.write(() => {
+      ctx.requireStaff('integrations.accounting');
+      const s = slice();
+      for (const [k, v] of Object.entries(patch)) if (typeof v === 'string' && v.trim().length > 60) throw ctx.error('INVALID', 'Keep each setting under 60 characters.');
+      s.accounting = { ...s.accounting, ...normaliseAccounting({ ...s.accounting, ...patch }) };
+      return normaliseAccounting(s.accounting);
+    }),
   };
 }
 
@@ -120,6 +132,7 @@ function seedSlice(studio: Studio, state: DemoState, now: Date, newId: (p: strin
   const out: Full = norm({});
   const cfg = partnerOf(out, partner);
   cfg.enabled = true; cfg.partnerStudioId = harbour ? 'GP-90711' : 'CP-48213'; cfg.keySet = true;
+  out.accounting = harbour ? { salesAccount: '4-1000', gstAccount: '2-1100', cardOnlineAccount: '1-1210', cardReaderAccount: '1-1220', cashAccount: '1-1010' } : {};
   // hold spots in the first two bookable class types
   const types = state.classTypes.filter((c) => c.bookable && c.active).slice(0, 2);
   types.forEach((t, i) => out.reserved.push({ classTypeId: t.id, partner, spots: i === 0 ? 2 : 1 }));

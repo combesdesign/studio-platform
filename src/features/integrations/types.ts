@@ -1,5 +1,5 @@
 /**
- * Integrations (ROADMAP B5): ClassPass / Gympass partner hooks.
+ * Integrations (ROADMAP B5): ClassPass / Gympass partner hooks, and the Xero export.
  * Everything for it lives in src/features/integrations/.
  * SQL: supabase/migrations/1700-1701_integrations_*.sql (range 1700-1799), tests supabase/tests/integrations_*.sql.
  * Edge function: supabase/functions/partner-webhook (a stub). Notes: docs/features/integrations.md.
@@ -8,6 +8,7 @@
  * plumbing, ready for when an agreement gives you a partner ID, an API key and the real webhook format.
  */
 import type { ID, ISODateTime } from '../../shared/types';
+import type { AccountingSettings } from './xero';
 
 export type Partner = 'classpass' | 'gympass';
 export const PARTNERS: readonly Partner[] = ['classpass', 'gympass'];
@@ -57,6 +58,10 @@ export interface IntegrationsStore {
    * Same rules as the database function the real webhook calls. Live: undefined.
    */
   demoPartnerBook?(partner: Partner, sessionId: ID, memberName?: string): Promise<PartnerBooking>;
+
+  /** Owner and manager: Xero account codes (defaults filled in). */
+  getAccounting(): Promise<AccountingSettings>;
+  saveAccounting(patch: Partial<AccountingSettings>): Promise<AccountingSettings>;
 }
 
 declare module '../../shared/store' {

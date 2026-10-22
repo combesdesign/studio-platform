@@ -79,7 +79,7 @@ Every feature built from here lands in both.
 - [x] Reviews and NPS after class
 - [x] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
   - [x] Settings tab (partner IDs, write-only keys), spots held per class type, roster badge, webhook stub (signature check left as a TODO)
-- [ ] Accounting export to Xero
+- [x] Accounting export to Xero
 - [ ] Stripe Terminal card reader at the POS
 
 ## Phase C: launch-readiness (Snowy and platform)

@@ -6,6 +6,7 @@
 import './permissions';
 import { registerLiveFeature } from '../../data/supabase/features';
 import { PARTNERS, type Partner, type PartnerBooking, type PartnerSetting, type ReservedSpots } from './types';
+import { normaliseAccounting } from './xero';
 
 const toPartner = (r: Record<string, unknown>): PartnerSetting => ({
   partner: String(r.partner) as Partner, enabled: r.enabled === true, partnerStudioId: String(r.partner_studio_id ?? ''), keySet: r.key_set === true,
@@ -29,5 +30,7 @@ registerLiveFeature({
         bookingId: String(r.booking_id), sessionId: String(r.session_id), source: String(r.source) as Partner, partnerBookingId: String(r.partner_booking_id),
         memberName: String(r.member_name ?? ''), createdAt: String(r.created_at),
       }))),
+    getAccounting: () => ctx.read(async () => normaliseAccounting((await ctx.rows(ctx.sb.from('integrations_accounting').select('settings')))[0]?.settings as Record<string, unknown> | undefined)),
+    saveAccounting: (patch) => ctx.write(async () => normaliseAccounting((await ctx.rpc('integrations_save_accounting', { p_settings: patch })) as Record<string, unknown>)),
   }),
 });
