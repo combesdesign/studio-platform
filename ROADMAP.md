@@ -75,6 +75,7 @@ Every feature built from here lands in both.
 - [ ] Family and child accounts on one profile
 - [ ] Multi-location and rooms
 - [x] Check-in kiosk mode (an iPad clients tap themselves)
+  - [x] Exit lockout: 5 wrong PINs lock exit for 5 minutes
 - [ ] Reviews and NPS after class
 - [ ] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
 - [ ] Accounting export to Xero

@@ -10,7 +10,7 @@ import { errorMessage, store, useData } from '../../../shared/react';
 import { time } from '../../../shared/format';
 import type { SessionWithCounts } from '../../../shared/types';
 import { Icon, cx, useStudio } from '../../../studio/ui';
-import { KIOSK_WINDOW_MIN, isPin, kioskPeople, kioskSessions, searchPeople, startsLabel, type KioskPerson } from '../logic';
+import { KIOSK_WINDOW_MIN, NO_LOCK, afterPinTry, isPin, kioskPeople, kioskSessions, lockMessage, lockMinutesLeft, searchPeople, startsLabel, type KioskPerson, type PinLock } from '../logic';
 
 // ------------------------------------------------------------------ keep the kiosk locked until someone exits
 let locked = false;
@@ -136,9 +136,23 @@ export function KioskPage() {
 }
 
 // ------------------------------------------------------------------ leaving: PIN, or the staff member's password
+// Wrong-PIN count and lockout are remembered on this device (per studio), so reloading the page doesn't reset them.
+const lockKey = (studioId: string) => `kiosk-pin-lock:${studioId}`;
+function loadLock(studioId: string): PinLock {
+  try { const v = JSON.parse(localStorage.getItem(lockKey(studioId)) ?? 'null'); if (v && typeof v.fails === 'number' && typeof v.until === 'number') return v; } catch { /* no storage */ }
+  return NO_LOCK;
+}
+function saveLock(studioId: string, lock: PinLock) {
+  try { if (lock === NO_LOCK) localStorage.removeItem(lockKey(studioId)); else localStorage.setItem(lockKey(studioId), JSON.stringify(lock)); } catch { /* no storage */ }
+}
+
 function ExitCheck({ onCancel, onDone }: { onCancel: () => void; onDone: () => void }) {
-  const { me } = useStudio();
+  const { me, studio } = useStudio();
   const kiosk = store.features.kiosk;
+  const [lock, setLock] = useState<PinLock>(() => loadLock(studio.id));
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => { if (!lock.until) return; const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, [lock.until]);
+  const minsLeft = lockMinutesLeft(lock, tick);
   const has = useData(async () => (kiosk ? kiosk.hasPin() : false), []);
   const [pin, setPin] = useState('');
   const [pw, setPw] = useState('');
@@ -148,19 +162,22 @@ function ExitCheck({ onCancel, onDone }: { onCancel: () => void; onDone: () => v
   const tryPin = async (v: string) => {
     setBusy(true);
     try {
-      if (kiosk && (await kiosk.checkPin(v))) return onDone();
-      setErr('That PIN isn\'t right.');
+      const ok = !!kiosk && (await kiosk.checkPin(v));
+      const next = afterPinTry(loadLock(studio.id), ok, Date.now());
+      saveLock(studio.id, next); setLock(next); setTick(Date.now());
+      if (ok) return onDone();
+      setErr(next.until ? '' : 'That PIN isn\'t right.');
     } catch (e) { setErr(errorMessage(e)); }
     setPin(''); setBusy(false);
   };
   const press = (d: string) => {
-    if (busy || pin.length >= 4) return;
+    if (busy || minsLeft || pin.length >= 4) return;
     const v = pin + d; setPin(v); setErr('');
     if (isPin(v)) void tryPin(v);
   };
   const tryPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pw || busy) return;
+    if (!pw || busy || minsLeft) return;
     setBusy(true); setErr('');
     try { await store.signIn(me.email, pw); onDone(); } catch { setErr('That password isn\'t right.'); setBusy(false); }
   };
@@ -172,8 +189,8 @@ function ExitCheck({ onCancel, onDone }: { onCancel: () => void; onDone: () => v
           <>
             <h2>Staff <em>PIN</em></h2>
             <div className="k-dots" aria-label={`${pin.length} of 4 digits`}>{[0, 1, 2, 3].map((i) => <span key={i} className={cx(i < pin.length && 'on')} />)}</div>
-            <p className="k-err" role="alert">{err}</p>
-            <div className="k-pad">
+            <p className="k-err" role="alert">{minsLeft ? lockMessage(minsLeft) : err}</p>
+            <div className="k-pad" style={minsLeft ? { opacity: .4, pointerEvents: 'none' } : undefined}>
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => <button key={d} onClick={() => press(d)}>{d}</button>)}
               <button className="quiet" onClick={onCancel}>Cancel</button>
               <button onClick={() => press('0')}>0</button>

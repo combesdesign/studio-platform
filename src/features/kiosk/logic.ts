@@ -59,3 +59,27 @@ export function startsLabel(s: Pick<SessionWithCounts, 'startsAt'>, now: Date): 
   if (min >= -1) return 'Starting now';
   return `Started ${-min} min ago`;
 }
+
+// ------------------------------------------------------------------ exit PIN lockout
+/** After this many wrong PINs in a row, leaving the kiosk is locked for LOCKOUT_MIN minutes. */
+export const MAX_PIN_TRIES = 5;
+export const LOCKOUT_MIN = 5;
+
+export interface PinLock { fails: number; until: number }
+export const NO_LOCK: PinLock = { fails: 0, until: 0 };
+
+/** Minutes left on the lockout (rounded up), or 0 when exit is open. */
+export function lockMinutesLeft(lock: PinLock, nowMs: number): number {
+  return lock.until > nowMs ? Math.ceil((lock.until - nowMs) / 60_000) : 0;
+}
+
+/** The state after a PIN try. A right PIN clears it; the 5th wrong one starts the lockout (and the count starts again). */
+export function afterPinTry(lock: PinLock, ok: boolean, nowMs: number): PinLock {
+  if (ok) return NO_LOCK;
+  const fails = (lock.until ? 0 : lock.fails) + 1; // a finished lockout starts a fresh count
+  return fails >= MAX_PIN_TRIES ? { fails: 0, until: nowMs + LOCKOUT_MIN * 60_000 } : { fails, until: 0 };
+}
+
+export function lockMessage(minutes: number): string {
+  return `Too many tries. Exit is locked for ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}. Please see the front desk if you need a hand.`;
+}

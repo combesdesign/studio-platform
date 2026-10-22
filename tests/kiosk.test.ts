@@ -40,3 +40,19 @@ test('kiosk search: start of the first name, any case', () => {
   assert.equal(searchPeople(people, '').length, 3);
   assert.equal(searchPeople(people, 'zzz').length, 0);
 });
+
+test('kiosk exit lockout: 5 wrong PINs lock for 5 minutes, a right PIN clears the count', async () => {
+  const { NO_LOCK, afterPinTry, lockMinutesLeft, lockMessage } = await import('../src/features/kiosk/logic');
+  let lock = NO_LOCK;
+  for (let i = 1; i <= 4; i++) { lock = afterPinTry(lock, false, NOW.getTime()); assert.equal(lockMinutesLeft(lock, NOW.getTime()), 0); }
+  assert.equal(lock.fails, 4);
+  assert.equal(afterPinTry(lock, true, NOW.getTime()), NO_LOCK);
+  lock = afterPinTry(lock, false, NOW.getTime());
+  assert.equal(lockMinutesLeft(lock, NOW.getTime()), 5);
+  assert.equal(lockMinutesLeft(lock, NOW.getTime() + 4 * 60_000 + 1), 1);
+  assert.equal(lockMinutesLeft(lock, NOW.getTime() + 5 * 60_000), 0);
+  assert.match(lockMessage(1), /1 minute\./);
+  // after the lockout ends the count starts fresh
+  const again = afterPinTry(lock, false, NOW.getTime() + 6 * 60_000);
+  assert.deepEqual(again, { fails: 1, until: 0 });
+});
