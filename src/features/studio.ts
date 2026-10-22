@@ -7,3 +7,4 @@ import './marketing/studio/index';
 import './commerce/studio/index';
 import './payroll/studio/index';
 import './kiosk/studio/index';
+import './reviews/studio/index';

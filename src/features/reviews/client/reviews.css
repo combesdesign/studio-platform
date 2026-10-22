@@ -1,0 +1,21 @@
+/* Reviews card in the client app. Theme tokens only. */
+.rv-card { display: grid; gap: 10px; margin: 0 0 18px; padding: 20px 18px 16px; border-radius: 22px; background: var(--soft); text-align: center; }
+.rv-card h3 { margin: 0; font-weight: 400; font-size: 26px; line-height: 1.15; color: var(--ink); }
+.rv-card h3 em { font-style: italic; color: var(--primary); }
+.rv-thanks { justify-items: center; }
+.rv-thanks .btn { width: 100%; }
+.rv-stars { display: flex; justify-content: center; gap: 2px; }
+.rv-stars button { width: 48px; height: 48px; display: grid; place-items: center; border: 0; background: none; padding: 0; cursor: pointer; border-radius: 50%; transition: transform .15s var(--ease, ease); }
+.rv-stars button:active { transform: scale(.9); }
+.rv-stars button.on { transform: scale(1.04); }
+.rv-label { margin: 0; min-height: 22px; font-size: 15px; color: var(--muted); }
+.rv-text { resize: vertical; min-height: 64px; text-align: left; }
+.rv-q { margin: 6px 0 0; font-size: 16px; color: var(--ink); }
+.rv-nps { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
+.rv-nps button { min-height: 44px; border-radius: 14px; border: 1px solid var(--line); background: #fff; color: var(--ink); font: inherit; font-size: 16px; cursor: pointer; }
+.rv-nps button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.rv-ends { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+.rv-problem { margin: 0; color: var(--danger); font-size: 15px; }
+.rv-actions { display: grid; gap: 4px; justify-items: center; margin-top: 4px; }
+.rv-actions .btn { width: 100%; }
+.rv-link { min-height: 44px; padding: 0 16px; border: 0; background: none; color: var(--muted); font: inherit; font-size: 15px; text-decoration: underline; cursor: pointer; }
