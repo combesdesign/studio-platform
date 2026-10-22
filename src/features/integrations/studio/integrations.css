@@ -1,0 +1,20 @@
+/* Integrations in the studio app. Theme tokens only. */
+.ig-card { display: grid; gap: 14px; margin-bottom: 16px; }
+.ig-card h3 { margin: 0; }
+.ig-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ig-switch { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.ig-switch input { width: 22px; height: 22px; accent-color: var(--primary); }
+.ig-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.ig-fields small { display: block; margin-top: 4px; font-size: 14px; }
+.ig-note { margin: 0; font-size: 14px; }
+.ig-agreement { margin-bottom: 16px; padding: 14px 16px; border-radius: 16px; background: var(--highlight); color: var(--ink); line-height: 1.45; }
+.ig-try { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: end; }
+.ig-grid { display: grid; gap: 0; }
+.ig-gh, .ig-gr { display: grid; grid-template-columns: minmax(0, 1fr) 110px 110px; gap: 12px; align-items: center; min-height: 52px; border-bottom: 1px solid var(--line); }
+.ig-gh { font-size: 14px; color: var(--muted); min-height: 36px; }
+.ig-gt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig-num { width: 100%; text-align: center; }
+.ig-result { padding: 12px 14px; border-radius: 14px; background: var(--soft); }
+.ig-badge { margin-left: 2px; }
+.ig-held { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 14px; }
+@media (max-width: 520px) { .ig-gh, .ig-gr { grid-template-columns: minmax(0, 1fr) 84px 84px; gap: 8px; } }

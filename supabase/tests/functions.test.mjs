@@ -457,6 +457,40 @@ await t('invite-user: owners (or platform admins) email a login link for someone
   sql(`delete from public.staff where email = 'nell@example.test'`);
 });
 
+await t('partner-webhook (a stub): off by default, refuses unsigned calls, and books / cancels through the database when the check is skipped for local testing', async () => {
+  const h = await load('partner-webhook');
+  const S_THU = id('s_thu');
+  const ev = (over = {}) => ({ partner: 'classpass', event: 'booking.created', studio_id: 'CP-FN', booking_id: 'FN-1', session_id: S_THU, member: { id: 'fn-m1', first_name: 'Wendy', last_name: 'Webhook' }, ...over });
+  assert.equal((await post(h, ev())).status, 501, 'switched off unless PARTNER_WEBHOOK_ENABLED=true');
+  ENV.PARTNER_WEBHOOK_ENABLED = 'true';
+  try {
+    const unsigned = await post(h, ev());
+    assert.equal(unsigned.status, 401, 'the signature check is a TODO that rejects everything');
+    assert.equal((await unsigned.json()).code, 'BAD_SIGNATURE');
+    sql(`insert into public.integrations_partners (studio_id, partner, enabled, partner_studio_id) values ('${SNOWY_ID}', 'classpass', true, 'CP-FN');
+         insert into public.integrations_reserved (studio_id, class_type_id, partner, spots) values ('${SNOWY_ID}', '${id('mat')}', 'classpass', 1)`);
+    ENV.PARTNER_WEBHOOK_SKIP_VERIFY = 'true';
+    assert.equal((await post(h, '{not json')).status, 400);
+    const made = await post(h, ev());
+    assert.equal(made.status, 200);
+    const out = await made.json();
+    assert.equal(out.duplicate, false);
+    assert.equal(sql(`select pb.source || '/' || b.status from public.integrations_partner_bookings pb join public.bookings b on b.id = pb.booking_id where pb.booking_id = '${out.booking_id}'`), 'classpass/booked');
+    assert.equal((await (await post(h, ev())).json()).duplicate, true, 'the same booking id twice is one booking');
+    const full = await post(h, ev({ booking_id: 'FN-2', member: { id: 'fn-m2', first_name: 'Xavier', last_name: 'Extra' } }));
+    assert.equal((await full.json()).code, 'NO_PARTNER_SPOTS', 'only one spot is held');
+    assert.equal((await post(h, ev({ studio_id: 'CP-OTHER', booking_id: 'FN-3' }))).status, 400, 'an unknown studio ID is refused');
+    assert.equal((await post(h, ev({ event: 'booking.moved' }))).status, 400);
+    const cancelled = await (await post(h, ev({ event: 'booking.cancelled' }))).json();
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(sql(`select count(*) from public.bookings where id = '${out.booking_id}' and status = 'cancelled'`), '1');
+  } finally {
+    delete ENV.PARTNER_WEBHOOK_ENABLED; delete ENV.PARTNER_WEBHOOK_SKIP_VERIFY;
+    sql(`delete from public.clients where first_name = 'Wendy' and last_name = 'Webhook';
+         delete from public.integrations_reserved where studio_id = '${SNOWY_ID}'; delete from public.integrations_partners where studio_id = '${SNOWY_ID}'`);
+  }
+});
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');

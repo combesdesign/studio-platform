@@ -77,7 +77,8 @@ Every feature built from here lands in both.
 - [x] Check-in kiosk mode (an iPad clients tap themselves)
   - [x] Exit lockout: 5 wrong PINs lock exit for 5 minutes
 - [x] Reviews and NPS after class
-- [ ] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
+- [x] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
+  - [x] Settings tab (partner IDs, write-only keys), spots held per class type, roster badge, webhook stub (signature check left as a TODO)
 - [ ] Accounting export to Xero
 - [ ] Stripe Terminal card reader at the POS
 

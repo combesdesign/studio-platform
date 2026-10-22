@@ -16,3 +16,7 @@ verify_jwt = false
 
 [functions.manage-membership]
 verify_jwt = false
+
+# A stub: off unless PARTNER_WEBHOOK_ENABLED=true, and it rejects everything until its signature check is written.
+[functions.partner-webhook]
+verify_jwt = false

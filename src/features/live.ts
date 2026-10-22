@@ -8,3 +8,4 @@ import './commerce/live';
 import './payroll/live';
 import './kiosk/live';
 import './reviews/live';
+import './integrations/live';
