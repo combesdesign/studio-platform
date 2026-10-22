@@ -25,7 +25,10 @@ serve(async (req) => {
   }
 
   const client = must(await admin.from('clients').select('id, email, first_name, last_name, phone').eq('id', clientId).single());
-  const studioName: string = (must(await admin.from('clients').select('studios(name)').eq('id', clientId).single()) as any)?.studios?.name ?? 'Studio';
+  const clientStudio = must(await admin.from('clients').select('studio_id').eq('id', clientId).single()) as { studio_id?: string };
+  const studioName: string = clientStudio?.studio_id
+    ? ((must(await admin.from('studios').select('name').eq('id', clientStudio.studio_id).maybeSingle()) as { name?: string } | null)?.name ?? 'Studio')
+    : 'Studio';
 
   // One Stripe customer per client (so cards are remembered and the billing portal works).
   let customerId: string | undefined = must(await admin.from('stripe_customers').select('stripe_customer_id').eq('client_id', clientId).maybeSingle())?.stripe_customer_id;
