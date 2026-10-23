@@ -319,6 +319,30 @@ When nobody has needed Momence for a week or so, and every member is billing thr
 
 **Check current pricing** for both developer accounts before signing up.
 
+## Linking from the website
+
+The marketing website can send people straight into the right spot in the booking app. These links all open directly. If the person is signed out they're asked to sign in or join first, then carry on to the page they clicked.
+
+| Link | What it does |
+|---|---|
+| `https://book.snowypilatesclub.com/` | The timetable |
+| `https://book.snowypilatesclub.com/#/class/<sessionId>` | Opens that class, ready to book |
+| `https://book.snowypilatesclub.com/#/passes` | The passes and memberships page |
+| `https://book.snowypilatesclub.com/#/passes?product=<productId>` | Opens that product's checkout |
+| `https://book.snowypilatesclub.com/#/passes?intro=1` | Opens the intro offer (new clients only, otherwise it just shows the passes) |
+| `https://book.snowypilatesclub.com/#/signup` | The join / create account screen |
+
+Example: `https://book.snowypilatesclub.com/#/passes?product=3f2b1c9e-0000-0000-0000-000000000000`. Product IDs are the `id` column of the `products` table and class IDs the `id` of `class_sessions` in Supabase.
+
+**Website button to link**
+
+| Website button | Link |
+|---|---|
+| Book a class | `https://book.snowypilatesclub.com/` |
+| Join today (on each membership) | `https://book.snowypilatesclub.com/#/passes?product=<that membership's productId>` |
+| Buy now (on each pack) | `https://book.snowypilatesclub.com/#/passes?product=<that pack's productId>` |
+| Claim your intro offer | `https://book.snowypilatesclub.com/#/passes?intro=1` |
+
 ## 14. Backups
 
 - **Supabase Pro (about US$25/month)** includes daily backups kept for 7 days, and the project never gets "paused". Once real money and bookings are flowing, it's worth it. **Check current pricing.**

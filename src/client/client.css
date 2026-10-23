@@ -623,3 +623,34 @@ h1, h2, h3 { letter-spacing: -.025em; line-height: .98; text-wrap: balance; }
 .fs-demo { margin-top: 10px; }
 .fs.closed .btn { margin-top: 10px; max-width: 320px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- desktop website layout (1024px and up). Phone and tablet layouts above are untouched. */
+.tabbar-logo { display: none; }
+@media (min-width: 1024px) {
+  body:has(.app.has-tabs) { background: var(--bg); }
+  .app.has-tabs { max-width: none; box-shadow: none; }
+  .has-tabs .view { padding: 72px 0 56px; }
+  .has-tabs .view > .screen { max-width: 720px; margin: 0 auto; padding-top: 24px; }
+  .has-tabs .view > .screen.tt { max-width: 960px; }
+
+  /* Top navigation bar: logo left, tabs as text links */
+  .tabbar { left: 0; right: 0; top: 0; bottom: auto; transform: none; width: 100%; padding: 0; z-index: 40; background: rgba(var(--bg-rgb), .92); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 1px 0 var(--line); pointer-events: auto; }
+  .tabbar::before, .tab-glow { display: none; }
+  .tabbar-inner { display: flex; align-items: center; gap: 4px; max-width: 960px; height: 72px; margin: 0 auto; padding: 0 20px; border-radius: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .tabbar-logo { display: block; margin: 0 auto 0 0; padding: 0; border: 0; background: none; cursor: pointer; }
+  .tab { position: relative; flex-direction: row; min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 16px; color: var(--muted); }
+  .tab > :not(span) { display: none; }
+  .tab:hover { color: var(--ink); background: var(--soft); }
+  .tab.on { color: var(--primary); }
+  .tab.on::after { content: ''; position: absolute; left: 16px; right: 16px; bottom: 4px; height: 2px; border-radius: 2px; background: var(--primary); }
+
+  /* Timetable: logo lives in the nav bar now; classes in two columns; date strip sticks under the bar */
+  .tt .topbar { justify-content: flex-end; min-height: 0; margin-bottom: 0; }
+  .tt .topbar .logo { display: none; }
+  .tt .strip-wrap { top: 72px; padding-top: 8px; }
+  .tt .cls-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .bk { grid-template-columns: 84px 1fr auto; gap: 20px; padding: 14px 20px 14px 14px; }
+  .bk-date { height: 92px; }
+
+  .toast { bottom: 28px; }
+}

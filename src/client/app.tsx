@@ -18,7 +18,7 @@ import { Waiver } from './waiver';
 import { Ctx, ErrorBlock, Flower, Icon, Logo } from './ui';
 import type { AppCtx } from './ui';
 import {
-  arrivingFromLink, dropFlow, endPasswordLink, goFlow, hasLinkProblem, isNative, markLaunched, onPasswordLink, passwordLinkKind, pathOnly, shouldLaunch,
+  arrivingFromLink, dropFlow, isDeepLink, rememberLink, takeRememberedLink, endPasswordLink, goFlow, hasLinkProblem, isNative, markLaunched, onPasswordLink, passwordLinkKind, pathOnly, shouldLaunch,
   takeLinkOrigin, type PasswordLinkKind,
 } from './lib';
 
@@ -65,6 +65,9 @@ function App() {
       </div>
     );
   }
+  const signedOut = auth.data === null || (auth.data === undefined && !!auth.error);
+  useEffect(() => { if (signedOut && isDeepLink(path)) rememberLink(path); }, [signedOut, path]);
+
   if (link.arriving || (auth.data === undefined && !auth.error)) return <Splash tone="navy" />;
   if (auth.error && auth.data === undefined) return <div className="app"><div className="screen"><ErrorBlock error={auth.error} onRetry={auth.reload} /></div></div>;
 
@@ -72,7 +75,7 @@ function App() {
   if (!user) {
     return (
       <div className="app signed-out">
-        <AuthScreens path={path} nav={nav} onSignedIn={() => { auth.reload(); nav('/', { replace: true }); }} />
+        <AuthScreens path={path} nav={nav} onSignedIn={() => { auth.reload(); nav(takeRememberedLink() ?? '/', { replace: true }); }} />
       </div>
     );
   }
@@ -185,6 +188,7 @@ function TabBar({ active, nav }: { active: string; nav: Nav }) {
   return (
     <nav className="tabbar" aria-label="Main">
       <div className={'tabbar-inner' + (i < 0 ? ' no-active' : '')} style={{ ['--i' as any]: Math.max(0, i), ['--tabs' as any]: list.length }}>
+        <button className="tabbar-logo" aria-label="Timetable" onClick={() => nav('/')}><Logo width={112} /></button>
         <span className="tab-glow" aria-hidden="true" />
         {list.map((t) => (
           <button key={t.path} className={'tab' + (t.path === active ? ' on' : '')} aria-current={t.path === active ? 'page' : undefined}

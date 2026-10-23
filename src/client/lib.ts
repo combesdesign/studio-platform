@@ -287,3 +287,13 @@ export function demoOpenPasswordLink(kind: PasswordLinkKind, email?: string): Pr
   const s = store as unknown as { demoOpenPasswordLink?: (k: PasswordLinkKind, e?: string) => Promise<boolean> };
   return s.demoOpenPasswordLink ? s.demoOpenPasswordLink(kind, email) : Promise.resolve(false);
 }
+
+// ------------------------------------------------------------------ deep links
+// A link from the website (#/class/<id>, #/passes?product=<id>, #/passes?intro=1) opened while signed out is
+// remembered here, so signing in or signing up carries on to it instead of dropping onto the timetable.
+const PENDING_KEY = 'spc-pending-link';
+export function rememberLink(path: string) { try { sessionStorage.setItem(PENDING_KEY, path); } catch { /* private mode */ } }
+export function takeRememberedLink(): string | null {
+  try { const p = sessionStorage.getItem(PENDING_KEY); sessionStorage.removeItem(PENDING_KEY); return p; } catch { return null; }
+}
+export const isDeepLink = (path: string) => /^\/class\/[^/?]+/.test(path) || /^\/passes\?.*\b(product|intro)=/.test(path);
