@@ -94,18 +94,6 @@ select test.throws($$select public.marketing_send_campaign((select v::uuid from 
 select test.throws($$select public.marketing_delete_segment((select (s ->> 'id')::uuid from jsonb_array_elements(public.marketing_list_segments()) s where s ->> 'name' = 'Pack running low'))$$,
                    'INVALID', 'a segment used by a draft can''t be deleted');
 
--- Scheduling: the scheduler sends it when it's due.
-insert into mk select 'c_sched', public.marketing_save_campaign(jsonb_build_object('name', 'Members news', 'channel', 'email', 'subject', 'For members',
-  'segmentId', (select v from mk where k = 'seg'), 'blocks', '[{"type":"text","text":"Hello members"}]'::jsonb)) ->> 'id';
-select test.throws($$select public.marketing_schedule_campaign((select v::uuid from mk where k = 'c_sched'), '2026-10-19 07:00+11')$$, 'INVALID', 'can''t schedule in the past');
-select test.eq(public.marketing_schedule_campaign((select v::uuid from mk where k = 'c_sched'), '2026-10-20 09:00+11') ->> 'status', 'scheduled', 'scheduled');
-select test.throws($$select public.marketing_save_campaign(jsonb_build_object('id', (select v from mk where k = 'c_sched'), 'name', 'x', 'channel', 'email'))$$,
-                   'INVALID', 'unschedule before editing');
-select test.service();
-select test.eq((public.marketing_tick('2026-10-19 09:00+11') ->> 'campaigns')::int, 0, 'not due yet');
-select test.eq((public.marketing_tick('2026-10-20 09:01+11') ->> 'campaigns')::int, 1, 'due: the scheduler sends it');
-select test.eq((select count(*)::int from public.marketing_messages where campaign_id = (select v::uuid from mk where k = 'c_sched')), 1, 'to the segment: Bob (member, opted in)');
-
 -- ---------------------------------------------------------------- automations
 select test.login('libby');
 select test.at('2026-10-19 08:00+11');
@@ -129,6 +117,20 @@ select test.eq((select count(*)::int from public.marketing_messages where source
 select test.eq(jsonb_array_length(public.marketing_run_automations(true) -> 'items'), 0, 'run again: nothing new (the sent log stops repeats)');
 select test.service();
 select test.eq((public.marketing_tick('2026-10-19 08:30+11') ->> 'automations')::int, 0, 'the scheduler doesn''t repeat them either');
+
+-- Scheduling: the scheduler sends it when it's due. (After the automations block: a tick also queues automations, which would use up the dry run.)
+select test.login('libby');
+select test.at('2026-10-19 08:00+11');
+insert into mk select 'c_sched', public.marketing_save_campaign(jsonb_build_object('name', 'Members news', 'channel', 'email', 'subject', 'For members',
+  'segmentId', (select v from mk where k = 'seg'), 'blocks', '[{"type":"text","text":"Hello members"}]'::jsonb)) ->> 'id';
+select test.throws($$select public.marketing_schedule_campaign((select v::uuid from mk where k = 'c_sched'), '2026-10-19 07:00+11')$$, 'INVALID', 'can''t schedule in the past');
+select test.eq(public.marketing_schedule_campaign((select v::uuid from mk where k = 'c_sched'), '2026-10-20 09:00+11') ->> 'status', 'scheduled', 'scheduled');
+select test.throws($$select public.marketing_save_campaign(jsonb_build_object('id', (select v from mk where k = 'c_sched'), 'name', 'x', 'channel', 'email'))$$,
+                   'INVALID', 'unschedule before editing');
+select test.service();
+select test.eq((public.marketing_tick('2026-10-19 09:00+11') ->> 'campaigns')::int, 0, 'not due yet');
+select test.eq((public.marketing_tick('2026-10-20 09:01+11') ->> 'campaigns')::int, 1, 'due: the scheduler sends it');
+select test.eq((select count(*)::int from public.marketing_messages where campaign_id = (select v::uuid from mk where k = 'c_sched')), 1, 'to the segment: Bob (member, opted in)');
 
 -- ---------------------------------------------------------------- queue, tracking, unsubscribe
 select test.service();
@@ -165,7 +167,7 @@ select public.marketing_finish((j ->> 'id')::uuid, 'Resend 500') from jsonb_arra
 select test.eq((select status from public.marketing_messages where dedupe_key = 'test:gus'), 'queued', 'a failed send goes back in the queue');
 
 select test.login('libby');
-select test.throws($$select public.marketing_claim(array['email'])$$, 'NOT_ALLOWED', 'staff can''t claim the queue');
+select test.throws($$select public.marketing_claim(array['email'])$$, '42501', 'staff can''t claim the queue');
 select test.throws($$select public.marketing_track(gen_random_uuid(), 'open')$$, '42501', 'trackers are service only');
 select test.ok(jsonb_array_length(public.marketing_message_log(20)) > 0, 'message log lists sends');
 
