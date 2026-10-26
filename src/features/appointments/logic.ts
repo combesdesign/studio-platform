@@ -12,7 +12,16 @@ import type {
 export const MINUTE_MS = 60_000;
 export const HOUR_MS = 3_600_000;
 
-export const DEFAULT_SETTINGS: AppointmentSettings = { slotStepMin: 30, minNoticeHours: 4, horizonDays: 28, waitlistClaimHours: 12 };
+export const DEFAULT_SETTINGS: AppointmentSettings = { slotStepMin: 30, minNoticeHours: 4, horizonDays: 28, waitlistClaimHours: 12, reminderHours: 24 };
+
+/** The lead times a studio can pick for reminder emails (Settings › Appointments). */
+export const REMINDER_HOURS: readonly number[] = [2, 12, 24, 48];
+
+/** Is a reminder due: the session is still ahead and starts within `hours` from now? (The SQL appointments_queue_reminders does the same.) */
+export function reminderDue(startsAt: ISODateTime, now: Date, hours: number): boolean {
+  const t = Date.parse(startsAt);
+  return t > now.getTime() && t <= now.getTime() + hours * HOUR_MS;
+}
 
 /** Statuses that occupy the instructor's time. Cancelled and late-cancelled sessions free the slot. */
 export const BUSY_STATUSES: readonly Appointment['status'][] = ['booked', 'completed', 'no_show', 'pending_payment'];

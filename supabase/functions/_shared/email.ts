@@ -350,7 +350,7 @@ async function drainOne(admin: Db, rows: OutboxRow[], finish: string, prep: (r: 
 /** Queue gift cards whose send date has come, then send both feature outboxes. Safe to call every couple of minutes. */
 export async function drainFeatureOutboxes(admin: Db, limit = 25): Promise<{ sent: number; failed: number }> {
   must(await admin.rpc('commerce_send_due'));
-  must(await admin.rpc('appointments_queue_reminders', { p_hours: 24 }));
+  must(await admin.rpc('appointments_queue_reminders'));   // each studio's own reminder lead time (Settings › Appointments)
   must(await admin.rpc('appointments_waitlist_sweep'));   // lapse waitlist offers by the clock and offer the place to the next person
   const base = (_r: OutboxRow, st: StudioInfo) => studioPayload(st);
 

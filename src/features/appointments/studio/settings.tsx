@@ -4,6 +4,7 @@ import { Sheet, useAction, useData, useToast } from '../../../shared/react';
 import { money } from '../../../shared/format';
 import { Empty, Icon, Loading, SheetHead, cx, toCents, toDollars, useStudio } from '../../../studio/ui';
 import { needAppts, price } from '../api';
+import { REMINDER_HOURS } from '../logic';
 import type { AppointmentPack, AppointmentSettings, AppointmentType } from '../types';
 
 export function AppointmentSettingsTab() {
@@ -13,22 +14,22 @@ export function AppointmentSettingsTab() {
   const cur = useData(() => ap.getSettings(), []);
   const types = useData(() => ap.listTypes({ includeInactive: true }), []);
   const packs = useData(() => ap.listPacks({ includeInactive: true }), []);
-  const [s, setS] = useState<{ slotStepMin: string; minNoticeHours: string; horizonDays: string; waitlistClaimHours: string } | null>(null);
+  const [s, setS] = useState<{ slotStepMin: string; minNoticeHours: string; horizonDays: string; waitlistClaimHours: string; reminderHours: string } | null>(null);
   const [type, setType] = useState<AppointmentType | 'new' | null>(null);
   const [pack, setPack] = useState<AppointmentPack | 'new' | null>(null);
-  useEffect(() => { if (cur.data) setS({ slotStepMin: String(cur.data.slotStepMin), minNoticeHours: String(cur.data.minNoticeHours), horizonDays: String(cur.data.horizonDays), waitlistClaimHours: String(cur.data.waitlistClaimHours) }); }, [cur.data]);
+  useEffect(() => { if (cur.data) setS({ slotStepMin: String(cur.data.slotStepMin), minNoticeHours: String(cur.data.minNoticeHours), horizonDays: String(cur.data.horizonDays), waitlistClaimHours: String(cur.data.waitlistClaimHours), reminderHours: String(cur.data.reminderHours) }); }, [cur.data]);
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     if (!s) return;
-    const patch: Partial<AppointmentSettings> = { slotStepMin: Number(s.slotStepMin), minNoticeHours: Number(s.minNoticeHours), horizonDays: Number(s.horizonDays), waitlistClaimHours: Number(s.waitlistClaimHours) };
+    const patch: Partial<AppointmentSettings> = { slotStepMin: Number(s.slotStepMin), minNoticeHours: Number(s.minNoticeHours), horizonDays: Number(s.horizonDays), waitlistClaimHours: Number(s.waitlistClaimHours), reminderHours: Number(s.reminderHours) };
     void run(async () => { await ap.updateSettings(patch); cur.reload(); }, 'Saved');
   };
-  const dirty = !!cur.data && !!s && (String(cur.data.slotStepMin) !== s.slotStepMin || String(cur.data.minNoticeHours) !== s.minNoticeHours || String(cur.data.horizonDays) !== s.horizonDays || String(cur.data.waitlistClaimHours) !== s.waitlistClaimHours);
+  const dirty = !!cur.data && !!s && (String(cur.data.slotStepMin) !== s.slotStepMin || String(cur.data.minNoticeHours) !== s.minNoticeHours || String(cur.data.horizonDays) !== s.horizonDays || String(cur.data.waitlistClaimHours) !== s.waitlistClaimHours || String(cur.data.reminderHours) !== s.reminderHours);
   return (
     <div className="stack lg">
       <section className="card pad">
         <h3>Booking <em>rules</em></h3>
-        <p className="muted">Instructors’ weekly hours turn into bookable times using these. The cancellation window is your studio’s one in Policies.</p>
+        <p className="muted">Instructors’ weekly hours turn into bookable times using these. The cancellation window is your studio’s one in Policies. Reminder emails go out the number of hours you pick before a session, workshop or event.</p>
         {!s ? <Loading /> : (
           <form onSubmit={save}>
             <div className="form-grid">
@@ -36,6 +37,10 @@ export function AppointmentSettingsTab() {
               <label className="field"><span>Minimum notice (hours)</span><input className="input" inputMode="numeric" value={s.minNoticeHours} onChange={(e) => setS({ ...s, minNoticeHours: e.target.value })} /></label>
               <label className="field"><span>Clients can book up to (days ahead)</span><input className="input" inputMode="numeric" value={s.horizonDays} onChange={(e) => setS({ ...s, horizonDays: e.target.value })} /></label>
               <label className="field"><span>Waitlist offers stay open for (hours)</span><input className="input" inputMode="numeric" value={s.waitlistClaimHours} onChange={(e) => setS({ ...s, waitlistClaimHours: e.target.value })} /></label>
+              <label className="field"><span>Send reminders</span>
+                <select className="select" value={s.reminderHours} onChange={(e) => setS({ ...s, reminderHours: e.target.value })}>
+                  {REMINDER_HOURS.map((h) => <option key={h} value={String(h)}>{h} hours before</option>)}
+                </select></label>
             </div>
             <div className="ap-actions"><button className="btn" disabled={busy || !dirty}>Save</button></div>
           </form>

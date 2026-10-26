@@ -24,6 +24,8 @@ export interface AppointmentSettings {
   horizonDays: number;
   /** Hours a client has to claim a workshop or event place once the waitlist offers it to them. */
   waitlistClaimHours: number;
+  /** How long before a session, workshop or event the reminder email goes out: 2, 12, 24 or 48 hours (REMINDER_HOURS). */
+  reminderHours: number;
 }
 
 export interface AppointmentType {

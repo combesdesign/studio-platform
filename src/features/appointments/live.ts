@@ -65,9 +65,9 @@ registerLiveFeature({ name: 'appointments', create: (ctx) => createStore(ctx) })
 function createStore(ctx: LiveFeatureContext): AppointmentsStore {
   const rpc = (name: string, args: Row = {}) => ctx.rpc(name, args);
   const readSettings = async (): Promise<AppointmentSettings> => {
-    const [r] = await ctx.rows(ctx.sb.from('appointment_settings').select('slot_step_min, min_notice_hours, horizon_days, waitlist_claim_hours').limit(1));
+    const [r] = await ctx.rows(ctx.sb.from('appointment_settings').select('slot_step_min, min_notice_hours, horizon_days, waitlist_claim_hours, reminder_hours').limit(1));
     return r
-      ? { slotStepMin: num(r.slot_step_min), minNoticeHours: num(r.min_notice_hours), horizonDays: num(r.horizon_days), waitlistClaimHours: num(r.waitlist_claim_hours, DEFAULT_SETTINGS.waitlistClaimHours) }
+      ? { slotStepMin: num(r.slot_step_min), minNoticeHours: num(r.min_notice_hours), horizonDays: num(r.horizon_days), waitlistClaimHours: num(r.waitlist_claim_hours, DEFAULT_SETTINGS.waitlistClaimHours), reminderHours: num(r.reminder_hours, DEFAULT_SETTINGS.reminderHours) }
       : { ...DEFAULT_SETTINGS };
   };
 
@@ -77,7 +77,7 @@ function createStore(ctx: LiveFeatureContext): AppointmentsStore {
       const next: AppointmentSettings = { ...(await readSettings()), ...patch };
       return (await rpc('appointments_update_settings', {
         p_slot_step_min: Math.round(next.slotStepMin), p_min_notice_hours: Math.round(next.minNoticeHours), p_horizon_days: Math.round(next.horizonDays),
-        p_waitlist_claim_hours: Math.round(next.waitlistClaimHours),
+        p_waitlist_claim_hours: Math.round(next.waitlistClaimHours), p_reminder_hours: Math.round(next.reminderHours),
       })) as AppointmentSettings;
     }),
 

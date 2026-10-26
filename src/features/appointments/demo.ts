@@ -15,7 +15,7 @@ import type {
   BookAppointmentInput, EventRegistration, RegisterInput, StudioEvent, StudioEventSummary, TimeOff, WaitlistEntry,
 } from './types';
 import {
-  DEFAULT_SETTINGS, HOUR_MS, allocateCredits, availabilityProblem, computeSlots, creditStatus, creditsLastUntil, eventEnd, eventProblem, eventStart, isLateCancel, moveProblem, planWaitlist,
+  DEFAULT_SETTINGS, HOUR_MS, allocateCredits, availabilityProblem, computeSlots, creditStatus, creditsLastUntil, REMINDER_HOURS, eventEnd, eventProblem, eventStart, isLateCancel, moveProblem, planWaitlist, reminderDue,
 } from './logic';
 import { seedAppointments } from './seed';
 
@@ -38,8 +38,10 @@ export interface Slice {
   registrations: StoredRegistration[];
   /** Event waitlists (added after the first demos: may be missing). */
   waitlist?: StoredWaitlist[];
+  /** Reminders already recorded (one per session and time), so the sweep doesn't repeat them. Capped. */
+  reminded?: string[];
   /** Emails the live system would send (confirmations, cancellations, waitlist offers); the demo just records them, newest last, capped. */
-  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'event_registered' | 'event_cancelled' | 'waitlist_offer'; text: string }[];
+  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder' | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer'; text: string }[];
 }
 
 const err = (code: string, message: string) => new StoreError(code, message);
@@ -120,6 +122,26 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     }
   };
   const advanceAll = () => { for (const id of new Set(waitlist().map((w) => w.eventId))) advance(id); };
+  /**
+   * What the live email drain does every few minutes, done lazily: lapse waitlist offers, and record a reminder for every session
+   * starting within the studio's reminder lead time (once per session and time, so a moved session is reminded again).
+   */
+  const housekeeping = (): void => {
+    advanceAll();
+    const now = ctx.now(), hours = settings().reminderHours;
+    const done = (S().reminded ??= []);
+    const remind = (key: string, clientId: ID, kind: 'appointment_reminder' | 'event_reminder', text: string) => {
+      if (done.includes(key)) return;
+      done.push(key);
+      if (done.length > 500) done.splice(0, done.length - 500);
+      queueEmail(clientId, kind, text);
+    };
+    for (const a of S().appointments) if (a.status === 'booked' && reminderDue(a.startsAt, now, hours)) remind(`${a.id}@${a.startsAt}`, a.clientId, 'appointment_reminder', `Reminder: ${a.typeName} at ${a.startsAt}`);
+    for (const r of S().registrations) {
+      const e = r.status === 'registered' ? S().events.find((x) => x.id === r.eventId) : undefined;
+      if (e && !e.cancelled) for (const s of e.sessions) if (reminderDue(s.startsAt, now, hours)) remind(`${r.id}@${s.startsAt}`, r.clientId, 'event_reminder', `Reminder: ${e.title} at ${s.startsAt}`);
+    }
+  };
   const summary = (e: StudioEvent, clientId?: ID): StudioEventSummary => {
     advance(e.id);
     const registered = registeredCount(e.id);
@@ -181,9 +203,10 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (!(next.minNoticeHours >= 0 && next.minNoticeHours <= 336)) throw err('INVALID', 'Minimum notice can be 0 to 336 hours.');
       if (!(next.horizonDays >= 1 && next.horizonDays <= 365)) throw err('INVALID', 'Clients can book 1 to 365 days ahead.');
       if (!(next.waitlistClaimHours >= 1 && next.waitlistClaimHours <= 72)) throw err('INVALID', 'A waitlist offer can be open for 1 to 72 hours.');
+      if (!REMINDER_HOURS.includes(next.reminderHours)) throw err('INVALID', 'Reminders can go out 2, 12, 24 or 48 hours before.');
       S().settings = {
         slotStepMin: Math.round(next.slotStepMin), minNoticeHours: Math.round(next.minNoticeHours), horizonDays: Math.round(next.horizonDays),
-        waitlistClaimHours: Math.round(next.waitlistClaimHours),
+        waitlistClaimHours: Math.round(next.waitlistClaimHours), reminderHours: next.reminderHours,
       };
       return S().settings;
     }),
@@ -396,6 +419,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
 
     listAppointments: (q) => ctx.read(() => {
       const w = who();
+      housekeeping();
       let staffId = q?.staffId, clientId = q?.clientId;
       const family = w.kind === 'client' ? familyOf(w.clientId) : undefined;   // a parent sees their dependants' sessions too
       if (w.kind === 'client') clientId = undefined;
@@ -438,6 +462,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     // ---------------------------------------------------------- events
     listEvents: (opts) => ctx.read(() => {
       const w = who();
+      housekeeping();
       const nowIso = ctx.now().toISOString();
       if (w.kind === 'client') {
         return S().events.filter((e) => e.published && !e.cancelled && eventEnd(e) > nowIso)
@@ -599,7 +624,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     }),
     listWaitlist: (q) => ctx.read(() => {
       const w = who();
-      advanceAll();
+      housekeeping();
       let rows: StoredWaitlist[];
       if ('clientId' in q) {
         if (w.kind === 'client') { if (q.clientId !== w.clientId && guardianOf(q.clientId) !== w.clientId) throw err('NOT_ALLOWED', 'You can only see your own waitlist spots.'); }

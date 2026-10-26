@@ -212,6 +212,52 @@ select test.login('fran');
 select test.throws(format($$select public.appointments_move(%L, '2026-10-31 09:00+11')$$, :'ap1'), 'INVALID', 'a finished session can''t be moved');
 select test.at('2026-10-19 08:00+11');
 
+-- ================================================================ reminder lead time (a studio setting; the drain reads it)
+select test.at('2026-10-19 08:00+11');
+select test.login('mia');
+select test.eq((public.appointments_update_settings(30, 4, 28) ->> 'reminderHours')::int, 24, 'reminders go out 24 hours before unless the studio says otherwise');
+select test.throws($$select public.appointments_update_settings(30, 4, 28, null, 6)$$, 'INVALID', 'only 2, 12, 24 or 48 hours');
+select test.login('alice');
+select test.throws($$select public.appointments_update_settings(30, 4, 28, null, 2)$$, 'NOT_ALLOWED', 'clients can''t change it');
+select test.throws($$select public.appointments_upsert_type('{"name":"Sneaky","durationMin":55,"priceCents":0,"capacity":1,"bufferMin":0,"staffIds":[]}')$$, 'NOT_ALLOWED', 'or the session types');
+select test.throws(format($$select public.appointments_cancel_event(%L, 'nope')$$, :'social'), 'NOT_ALLOWED', 'or cancel an event');
+select test.login('fran');
+select public.appointments_book(:'tm', test.id('libby_staff'), '2026-10-31 08:00+11', 1, test.id('cara_client'), null, 'cash') -> 'appointment' ->> 'id' as capt \gset
+select public.appointments_book(:'tm', test.id('libby_staff'), '2026-11-07 10:00+11', 1, test.id('dan_client'), null, 'cash') -> 'appointment' ->> 'id' as dant \gset
+
+-- default (24 hours): nothing 30 hours out
+select test.at('2026-10-30 02:00+11');
+select test.service();
+select public.appointments_queue_reminders();
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'capt'), 0, '30 hours out: no reminder yet');
+-- the studio picks 48 hours: the same sweep now sends it
+select test.login('mia');
+select public.appointments_update_settings(30, 4, 28, null, 48);
+select test.service();
+select public.appointments_queue_reminders();
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'capt'), 1, '48 hours: it goes out');
+select test.service();
+select public.appointments_queue_reminders();
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'capt'), 1, 'and only once');
+-- 2 hours: nothing a day ahead, then it goes out inside the last 2 hours
+select test.login('mia');
+select test.eq((public.appointments_update_settings(30, 4, 28, null, 2) ->> 'reminderHours')::int, 2, 'the studio picks 2 hours');
+select test.at('2026-11-06 11:00+11');
+select test.service();
+select public.appointments_queue_reminders();
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'dant'), 0, '2 hours: nothing a day ahead');
+select test.at('2026-11-07 08:30+11');
+select test.service();
+select public.appointments_queue_reminders();
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'dant'), 1, 'but 90 minutes out it goes');
+select test.eq(public.appointments_queue_reminders(24), 0, '(forcing a lead time still works for the sweep itself)') ;
+select test.at('2026-10-19 08:00+11');
+
 -- ================================================================ another studio can't see or use any of it
 select test.admin();
 insert into public.studios (slug, name, timezone, currency) values ('bayside', 'Bayside Test', 'Australia/Sydney', 'AUD') returning id as bay \gset

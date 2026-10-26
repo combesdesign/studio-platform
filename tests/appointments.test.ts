@@ -1,11 +1,11 @@
 // Appointments feature: slot rules (pure), pack credits, and the demo store (booking, paying, cancelling, events, permissions, studio isolation).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDemoStore, memoryStorage } from '../src/data/demo';
+import { createDemoStore, memoryStorage, STATE_KEY } from '../src/data/demo';
 import { studioToUTC, studioDate, addDays, weekday } from '../src/shared/format';
 import type { AuthUser, ID } from '../src/shared/types';
 import type { DataStore } from '../src/shared/store';
-import { allocateCredits, availabilityProblem, computeSlots, creditStatus, creditsLastUntil, isLateCancel, moveProblem, planWaitlist, DEFAULT_SETTINGS, type WaitlistLine } from '../src/features/appointments/logic';
+import { allocateCredits, availabilityProblem, computeSlots, creditStatus, creditsLastUntil, isLateCancel, moveProblem, planWaitlist, reminderDue, DEFAULT_SETTINGS, type WaitlistLine } from '../src/features/appointments/logic';
 import type { AppointmentCredit } from '../src/features/appointments/types';
 import { asClient, at, rejects } from './helpers';
 
@@ -327,6 +327,59 @@ test('workshops and courses: register, pay, capacity, cancel with the refund cut
   assert.equal((await a.listEvents()).find((e) => e.id === workshop.id)!.cancelled, true, 'staff still see it, marked cancelled');
   await as(asClient(hannah));
   assert.ok(!(await a.listEvents()).some((e) => e.id === workshop.id), 'clients no longer see it');
+});
+
+// ---------------------------------------------------------------- reminder lead time
+test('reminders: due when the session is ahead and within the lead time', () => {
+  const start = iso('2026-10-20', '10:00');
+  assert.equal(reminderDue(start, at('2026-10-19', '10:00'), 24), true, 'exactly 24 hours out');
+  assert.equal(reminderDue(start, at('2026-10-19', '09:59'), 24), false);
+  assert.equal(reminderDue(start, at('2026-10-19', '09:59'), 48), true, 'a 48 hour lead time starts earlier');
+  assert.equal(reminderDue(start, at('2026-10-20', '08:00'), 2), true);
+  assert.equal(reminderDue(start, at('2026-10-20', '07:59'), 2), false);
+  assert.equal(reminderDue(start, at('2026-10-20', '10:00'), 24), false, 'not once it has started');
+});
+
+test('reminders: the studio picks the lead time, the drain follows it, once per time (a moved session is reminded again)', async () => {
+  // a Snowy demo with a private booked a few days out; returns how many reminder emails the demo has recorded after the clock moves
+  async function run(hours: number | null, beforeStart: number[]) {
+    let t = NOW;
+    const storage = memoryStorage();
+    const store = createDemoStore({ now: () => t, latencyMs: 0, storage, app: 'studio', studio: 'snowy' });
+    await store.demoSignInAs!(owner('snowy'));
+    const a = store.features.appointments!;
+    if (hours != null) assert.equal((await a.updateSettings({ reminderHours: hours })).reminderHours, hours);
+    const priv = (await a.listTypes()).find((x) => x.name === 'Private Session')!;
+    const slots = await a.listSlots({ typeId: priv.id, from: addDays(studioDate(NOW), 3), to: addDays(studioDate(NOW), 8) });
+    const slot = slots[0]!;
+    const booked = await a.bookAppointment({ typeId: priv.id, staffId: slot.staffId, startsAt: slot.startsAt, clientId: await clientId(store, 'Chloe'), pay: { method: 'cash' } });
+    const track = [slot.startsAt];   // only this booking's reminders (the seed has other sessions that fall due too)
+    const sent = async () => {
+      await a.listAppointments();   // the lazy sweep runs when the studio looks
+      await a.updateSettings({});   // (a write persists what the sweep recorded)
+      const state = JSON.parse(storage.getItem(STATE_KEY)!).data[store.studioId];
+      return (state.features.appointments.outbox as { kind: string; text: string }[]).filter((e) => e.kind === 'appointment_reminder' && track.some((x) => e.text.includes(x))).length;
+    };
+    const counts: number[] = [];
+    for (const h of beforeStart) { t = new Date(Date.parse(slot.startsAt) - h * 3_600_000); counts.push(await sent()); }
+    return { counts, a, setNow: (d: Date) => { t = d; }, sent, booked, slots, store, track };
+  }
+  assert.deepEqual((await run(null, [30, 23, 22])).counts, [0, 1, 1], 'default: 24 hours before, and only once');
+  assert.deepEqual((await run(2, [12, 3, 1.5, 1])).counts, [0, 0, 1, 1], '2 hours');
+  assert.deepEqual((await run(12, [13, 11])).counts, [0, 1], '12 hours');
+  assert.deepEqual((await run(48, [50, 40])).counts, [0, 1], '48 hours');
+  const r = await run(null, []);
+  await rejects(r.a.updateSettings({ reminderHours: 6 }), 'INVALID');
+  assert.equal((await r.a.getSettings()).reminderHours, 24, 'default is 24 hours');
+
+  // moved to a later time: the old reminder doesn't cover the new time
+  const m = await run(null, [23]);
+  assert.deepEqual(m.counts, [1]);
+  const later = m.slots.find((x) => Date.parse(x.startsAt) >= Date.parse(m.booked.appointment.startsAt) + 48 * 3_600_000)!;
+  await m.a.moveAppointment(m.booked.appointment.id, { startsAt: later.startsAt, staffId: later.staffId });
+  m.track.push(later.startsAt);
+  m.setNow(new Date(Date.parse(later.startsAt) - 23 * 3_600_000));
+  assert.equal(await m.sent(), 2, 'reminded again for the new time');
 });
 
 // ---------------------------------------------------------------- moving an appointment
