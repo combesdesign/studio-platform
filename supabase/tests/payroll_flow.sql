@@ -170,6 +170,9 @@ insert into test.ids select split_part(email, '@', 1), id from auth.users where 
 insert into public.platform_admins (user_id) values (test.id('pp'));
 select test.login('pp');
 select (public.platform_create_studio('Harbour Reformer Co.', 'harbour', 'hello@harbour.test') ->> 'id') as harbour_id \gset
+select test.admin();
+update public.studios set plan_id = '9c000000-0000-4000-8000-000000000003', billing_status = 'active', billing_comped = true where slug = 'harbour';  -- billing_plans.sql covers locked plans; these tests need the features on
+select test.login('pp');
 select public.platform_invite_owner(:'harbour_id', 'Hal', 'howner@harbour.test');
 select test.login('howner');
 select test.studio('harbour');

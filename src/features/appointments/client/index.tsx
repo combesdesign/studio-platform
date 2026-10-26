@@ -10,9 +10,9 @@ import { registerClientProfileEntry, registerClientRoute, registerSlot } from '.
 import { ApptIcon, AppointmentsScreen, TimetableBanner } from './screens';
 import '../appointments.css';
 
-registerClientRoute({ id: 'appointments.home', path: '/appointments', tab: '/profile', render: ({ nav, path }) => <AppointmentsScreen nav={nav} path={path} /> });
-registerClientProfileEntry({ id: 'appointments.home', label: 'Privates and events', sub: 'Book a one on one, workshops and courses', icon: <ApptIcon />, path: '/appointments', order: 15 });
-registerSlot('client.timetable', { id: 'appointments.banner', order: 40, render: () => <TimetableBannerSlot /> });
+registerClientRoute({ id: 'appointments.home', feature: 'appointments', path: '/appointments', tab: '/profile', render: ({ nav, path }) => <AppointmentsScreen nav={nav} path={path} /> });
+registerClientProfileEntry({ id: 'appointments.home', feature: 'appointments', label: 'Privates and events', sub: 'Book a one on one, workshops and courses', icon: <ApptIcon />, path: '/appointments', order: 15 });
+registerSlot('client.timetable', { id: 'appointments.banner', feature: 'appointments', order: 40, render: () => <TimetableBannerSlot /> });
 
 function TimetableBannerSlot() {
   const nav = (to: string) => { location.hash = '#' + to; };

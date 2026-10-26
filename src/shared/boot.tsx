@@ -7,7 +7,9 @@
 import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Studio } from './types';
-import { BUILD_STUDIO, PLATFORM_DOMAIN, bindStudio, platform } from '../data';
+import { BUILD_STUDIO, PLATFORM_DOMAIN, bindStudio, platform, refreshStudio, setStaffReadOnly } from '../data';
+import { DEFAULT_BILLING_SETTINGS, billingState } from './plans';
+import { setRegistryStudio } from './registry';
 import { applyBranding, PLATFORM_BRANDING, PLATFORM_NAME, setAssetBase } from './branding';
 import { slugFromHash, studioHints, stripStudioPath, type StudioHint } from './resolve';
 import { Flower } from './brand';
@@ -24,6 +26,9 @@ export function rememberStudio(app: AppKind, slug: string | null): void {
 }
 
 /** Is this a single-studio deployment (STUDIO_SLUG set at build time)? Then there's no studio switching. */
+/** The studio's record changed (a new plan): point the data layer and the registries at the fresh one. */
+export function refreshBoundStudio(studio: Studio): void { refreshStudio(studio); setRegistryStudio(studio); }
+
 export const isSingleStudio = () => !!BUILD_STUDIO;
 
 let resolvedBy: StudioHint | undefined;
@@ -85,6 +90,12 @@ export async function bootApp(app: AppKind, opts: BootOptions): Promise<void> {
   const root = createRoot(el);
   const start = async (studio: Studio) => {
     bindStudio(studio);
+    setRegistryStudio(studio);
+    // The studio app, once the plan payment is overdue past the grace period: staff can look but not change (clients are never affected).
+    if (app === 'studio') {
+      const settings = await platform.getBillingSettings().catch(() => DEFAULT_BILLING_SETTINGS);
+      setStaffReadOnly(billingState(studio, settings, new Date()).readOnly);
+    }
     const b = studio.branding?.colors ? studio.branding : PLATFORM_BRANDING;
     applyBranding(b, {
       title: app === 'studio' ? `Studio · ${b.appName || studio.name}` : b.appName || studio.name,

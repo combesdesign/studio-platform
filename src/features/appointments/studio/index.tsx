@@ -13,9 +13,9 @@ import { AppointmentSettingsTab } from './settings';
 import { ClientAppointmentsCard, TodaysAppointments } from './widgets';
 import '../appointments.css';
 
-registerStudioNav({ id: 'appointments', label: 'Appointments', short: 'Appts', icon: 'calendar', href: '#/appointments', order: 25, perm: 'appointments.view' });
-registerStudioRoute({ id: 'appointments', path: '/appointments', nav: 'appointments', perm: 'appointments.view', render: () => <AppointmentsPage /> });
-registerStudioRoute({ id: 'appointments.tab', path: '/appointments/:tab', nav: 'appointments', perm: 'appointments.view', render: ({ params }) => <AppointmentsPage tab={params.tab} /> });
-registerSettingsTab({ id: 'appointments', label: 'Appointments', order: 35, perm: 'appointments.manage', render: () => <AppointmentSettingsTab /> });
-registerTodayWidget({ id: 'appointments.today', column: 'side', order: 20, perm: 'appointments.view', render: () => <TodaysAppointments /> });
-registerSlot('client.profile', { id: 'appointments.client', order: 35, perm: 'appointments.book', render: ({ client }) => <ClientAppointmentsCard client={client} /> });
+registerStudioNav({ id: 'appointments', feature: 'appointments', label: 'Appointments', short: 'Appts', icon: 'calendar', href: '#/appointments', order: 25, perm: 'appointments.view' });
+registerStudioRoute({ id: 'appointments', feature: 'appointments', path: '/appointments', nav: 'appointments', perm: 'appointments.view', render: () => <AppointmentsPage /> });
+registerStudioRoute({ id: 'appointments.tab', feature: 'appointments', path: '/appointments/:tab', nav: 'appointments', perm: 'appointments.view', render: ({ params }) => <AppointmentsPage tab={params.tab} /> });
+registerSettingsTab({ id: 'appointments', feature: 'appointments', label: 'Appointments', order: 35, perm: 'appointments.manage', render: () => <AppointmentSettingsTab /> });
+registerTodayWidget({ id: 'appointments.today', feature: 'appointments', column: 'side', order: 20, perm: 'appointments.view', render: () => <TodaysAppointments /> });
+registerSlot('client.profile', { id: 'appointments.client', feature: 'appointments', order: 35, perm: 'appointments.book', render: ({ client }) => <ClientAppointmentsCard client={client} /> });

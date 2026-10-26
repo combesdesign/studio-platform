@@ -12,6 +12,8 @@
 import { StoreError, type DataStore, type PlatformStore } from '../shared/store';
 import type { Studio } from '../shared/types';
 import { setStudioFormat } from '../shared/format';
+import { hasFeature } from '../shared/plans';
+import { readOnlyStore } from './readonly';
 import { createDemoPlatform } from './demo';
 import { createSupabasePlatform } from './supabase';
 
@@ -40,11 +42,20 @@ function unbound(): DataStore {
 }
 
 export let store: DataStore = unbound();
+let boundStore: DataStore = store;
 export let currentStudio: Studio | null = null;
+/** hasFeature for the bound studio: the data-layer / non-React callers' shortcut. */
+export const featureOn = (key?: string): boolean => hasFeature(currentStudio, key);
+/** The bound studio's record changed (its plan, for one). The UI also re-points the registries (shared/boot.tsx refreshBoundStudio). */
+export function refreshStudio(studio: Studio): void { currentStudio = studio; }
 
 export function bindStudio(studio: Studio): DataStore {
   currentStudio = studio;
-  store = platform.forStudio(studio);
+  boundStore = platform.forStudio(studio);
+  store = boundStore;
   setStudioFormat({ timezone: studio.timezone, locale: studio.locale, currency: studio.currency, taxRate: studio.taxRate });
   return store;
 }
+
+/** The studio app, for a studio that is read-only for staff: reads work, writes say why not (data/readonly.ts). Pass false to lift it. */
+export function setStaffReadOnly(on: boolean): void { store = on ? readOnlyStore(boundStore) : boundStore; }

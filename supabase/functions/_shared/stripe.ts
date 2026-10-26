@@ -28,9 +28,9 @@ export function formEncode(params: Params, prefix = '', out: URLSearchParams = n
 // deno-lint-ignore no-explicit-any
 export type StripeObject = Record<string, any>;
 
-/** `account` = a connected account id (acct_...): the call is made on that account (Stripe-Account header, a direct charge). Omit for the platform's own account. */
-export async function stripe(method: 'GET' | 'POST' | 'DELETE', path: string, params: Params = {}, idempotencyKey?: string, account?: string): Promise<StripeObject> {
-  const key = env('STRIPE_SECRET_KEY');
+/** `secretKey` = use this key instead of STRIPE_SECRET_KEY (platform billing uses its own, see _shared/platformBilling.ts). `account` = a connected account id (acct_...): the call is made on that account (Stripe-Account header, a direct charge). Omit for the platform's own account. */
+export async function stripe(method: 'GET' | 'POST' | 'DELETE', path: string, params: Params = {}, idempotencyKey?: string, account?: string, secretKey?: string): Promise<StripeObject> {
+  const key = secretKey ?? env('STRIPE_SECRET_KEY');
   const body = formEncode(params);
   const url = `https://api.stripe.com/v1/${path}${method === 'GET' && [...body].length ? `?${body}` : ''}`;
   const headers: Record<string, string> = { Authorization: `Bearer ${key}`, 'Stripe-Version': STRIPE_VERSION };

@@ -39,6 +39,53 @@ export interface PaymentsStatus {
   detailsSubmitted: boolean;
 }
 
+/** Where a studio is with its platform plan (what it pays Pete). */
+export type BillingStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
+
+/** A platform plan: edited by Pete in the admin (a table, not code). `features` are feature keys (see FEATURE_CATALOG in plans.ts). */
+export interface Plan {
+  id: ID;
+  /** Short stable handle: 'studio', 'studio_plus', 'signature'. */
+  key: string;
+  name: string;
+  /** Monthly price in cents (AUD). */
+  priceCents: number;
+  /** The Stripe Price on the platform's own Stripe account. Empty until Pete creates it. */
+  stripePriceId?: string;
+  features: string[];
+  sortOrder: number;
+  /** Inactive plans can't be picked by studios any more; studios already on one keep it. */
+  active: boolean;
+}
+
+/** The plan a studio is on, as the apps need it (name + the feature keys it switches on). */
+export interface StudioPlan { id: ID; name: string; priceCents: number; features: string[] }
+
+/** Platform-wide billing settings, edited in the admin. */
+export interface PlatformBillingSettings {
+  /** Free trial for a new studio: 14 or 30 days. */
+  trialDays: 14 | 30;
+  /** Days a past-due (or trial-ended) studio keeps full access before staff go read-only. */
+  graceDays: number;
+}
+
+/** What a studio owner sees on Settings > Plan & billing. */
+export interface BillingInfo {
+  /** False on a single-studio build (Snowy): no plan, nothing to pay. */
+  enabled: boolean;
+  planId?: ID;
+  status: BillingStatus;
+  trialEndsAt?: ISODateTime;
+  pastDueSince?: ISODateTime;
+  /** Set by Pete (comp / free): no Stripe subscription. */
+  comped: boolean;
+  /** Has a Stripe subscription, so there's a billing portal to open. */
+  hasSubscription: boolean;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd?: ISODateTime;
+  settings: PlatformBillingSettings;
+}
+
 /** One studio on the platform. */
 export interface Studio {
   id: ID;
@@ -70,6 +117,14 @@ export interface Studio {
   /** Extra hostnames that open this studio, e.g. 'app.snowypilatesclub.com'. */
   customDomains?: string[];
   createdAt: ISODateTime;
+  /** Platform plan (absent = not on a plan yet: nothing is locked). */
+  planId?: ID;
+  plan?: StudioPlan;
+  billingStatus?: BillingStatus;
+  trialEndsAt?: ISODateTime;
+  pastDueSince?: ISODateTime;
+  /** Plan was set by hand (comp / free), not paid through Stripe. */
+  billingComped?: boolean;
 }
 
 /** Colour roles. The apps only use the CSS variables these become (--primary, --ink, --accent, --soft, --highlight, --bg). */

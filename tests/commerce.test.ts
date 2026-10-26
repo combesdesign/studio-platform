@@ -124,7 +124,7 @@ test('till holds: the note carries the reference that finds the sale', () => {
 let NOW = new Date('2026-10-18T21:00:00Z'); // Mon 19 Oct 2026, 8am Sydney
 function platform() {
   NOW = new Date('2026-10-18T21:00:00Z');
-  return createDemoPlatform({ now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  return createDemoPlatform({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
 }
 interface Desk { s: DataStore; c: CommerceStore; owner: AuthUser; asOwner(): Promise<void>; as(u: AuthUser): Promise<void>; today(): string; newClient(first: string): Promise<Client>; member(first: string, productKind?: Product['kind']): Promise<Client> }
 async function desk(p: ReturnType<typeof createDemoPlatform>, slug: string): Promise<Desk> {

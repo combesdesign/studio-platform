@@ -4,6 +4,7 @@ import { store } from '../data';
 import { StoreError } from './store';
 
 export { store };
+export { featureOn } from '../data';
 
 /**
  * Run an async loader and re-run it whenever the store changes (any tab) or deps change.

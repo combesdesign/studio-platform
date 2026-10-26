@@ -16,6 +16,6 @@ const tablet = (
     <rect x="4.5" y="3" width="15" height="18" rx="2.5" /><path d="M10.5 17.5h3" /><path d="m9 10.5 2.2 2.2L15.5 8.5" />
   </svg>
 );
-registerStudioNav({ id: 'kiosk', label: 'Kiosk mode', short: 'Kiosk', icon: tablet, href: '#/kiosk', order: 45, perm: 'kiosk.use' });
-registerStudioRoute({ id: 'kiosk', path: '/kiosk', nav: 'kiosk', perm: 'kiosk.use', render: () => <KioskPage /> });
-registerSettingsTab({ id: 'kiosk', label: 'Kiosk', order: 85, perm: 'kiosk.manage', render: () => <KioskSettingsTab /> });
+registerStudioNav({ id: 'kiosk', feature: 'kiosk', label: 'Kiosk mode', short: 'Kiosk', icon: tablet, href: '#/kiosk', order: 45, perm: 'kiosk.use' });
+registerStudioRoute({ id: 'kiosk', feature: 'kiosk', path: '/kiosk', nav: 'kiosk', perm: 'kiosk.use', render: () => <KioskPage /> });
+registerSettingsTab({ id: 'kiosk', feature: 'kiosk', label: 'Kiosk', order: 85, perm: 'kiosk.manage', render: () => <KioskSettingsTab /> });

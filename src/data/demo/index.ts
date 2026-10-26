@@ -11,7 +11,7 @@ import type {
   BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
-  AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod, PaymentsStatus,
+  AuthUser, BillingInfo, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod, PaymentsStatus, Plan,
   Product, ReportRange, Sale, ScheduleTemplate, SessionWithCounts, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
@@ -21,11 +21,12 @@ import {
 } from '../../domain';
 import type { Actor, DemoState, Engine } from './engine';
 import { PERSONA_EMAILS } from './seed';
-import { AUTH_KEYS, DemoDb, REV_KEY, STATE_KEY, memoryStorage, type DemoDbOptions, type StorageLike } from './db';
+import { AUTH_KEYS, DemoDb, REV_KEY, resolvePlans, STATE_KEY, memoryStorage, type DemoDbOptions, type StorageLike } from './db';
 import { demoFeatures, type DemoFeatureContext } from './features';
 import { createDemoPlatform } from './platform';
 import { SNOWY_ID } from '../studios';
 import '../../features/demo';
+import { DEFAULT_BILLING_SETTINGS, gateFeatures } from '../../shared/plans';
 
 export { STATE_KEY, REV_KEY, AUTH_KEYS, PERSONA_EMAILS, memoryStorage, DemoDb, createDemoPlatform };
 export type { StorageLike };
@@ -56,7 +57,8 @@ export function createDemoStore(opts: DemoStoreOptions = {}): DataStore {
 
 export class DemoStore implements DataStore {
   readonly mode = 'demo' as const;
-  readonly features: Partial<FeatureStores> = {};
+  /** Feature stores, minus any the studio's plan doesn't include (gateFeatures). */
+  readonly features: Partial<FeatureStores> = gateFeatures({}, () => this.db.studio(this.studioId));
   private listeners = new Set<() => void>();
   /** The app's "Choose a new password" screen (onPasswordRecovery). */
   private recoveryHandler: ((kind?: PasswordLinkKind) => void) | null = null;
@@ -440,6 +442,46 @@ export class DemoStore implements DataStore {
       if (st.role !== 'owner') throw err('NOT_ALLOWED', 'Only the studio owner can connect Stripe.');
       if (this.studioId === SNOWY_ID) throw err('CONNECT_OFF', 'This app takes card payments on its own Stripe account, so there’s nothing to connect.');
       (this.db.ps.connected ??= {})[this.studioId] = true;
+      return null;
+    });
+  }
+
+  // ---------------------------------------------------------------- plan + billing (fake Stripe)
+  async listPlans(): Promise<Plan[]> {
+    return this.read(() => (this.db.ps.plans ?? []).filter((p) => p.active || p.id === this.studioRec.planId).sort((a, b) => a.sortOrder - b.sortOrder || a.priceCents - b.priceCents));
+  }
+
+  async getBilling(): Promise<BillingInfo> {
+    return this.read(() => {
+      if (this.staffMe().role !== 'owner') throw err('NOT_ALLOWED', 'Only the studio owner can see plan and billing.');
+      const s = this.studioRec;
+      const settings = this.db.ps.billingSettings ?? DEFAULT_BILLING_SETTINGS;
+      return {
+        enabled: !!s.billingStatus && s.id !== SNOWY_ID, status: s.billingStatus ?? 'active', ...(s.planId ? { planId: s.planId } : {}),
+        ...(s.trialEndsAt ? { trialEndsAt: s.trialEndsAt } : {}), ...(s.pastDueSince ? { pastDueSince: s.pastDueSince } : {}),
+        comped: !!s.billingComped, hasSubscription: !!this.db.ps.subscribed?.[s.id], cancelAtPeriodEnd: false, settings: { ...settings },
+      };
+    });
+  }
+
+  /** Demo: no Stripe to visit, so "choosing" a plan just puts the studio on it as a paying studio. */
+  async startPlanCheckout(planId: ID): Promise<{ url: string } | null> {
+    return this.write(() => {
+      if (this.staffMe().role !== 'owner') throw err('NOT_ALLOWED', 'Only the studio owner can change the plan.');
+      const plan = this.db.ps.plans?.find((p) => p.id === planId && p.active);
+      if (!plan) throw err('NOT_FOUND', 'That plan isn’t available.');
+      const s = this.studioRec;
+      s.planId = plan.id; s.billingStatus = 'active'; s.billingComped = false;
+      delete s.pastDueSince; delete s.trialEndsAt;
+      (this.db.ps.subscribed ??= {})[s.id] = true;
+      resolvePlans(this.db.ps);
+      return null;
+    });
+  }
+
+  async openBillingPortal(): Promise<{ url: string } | null> {
+    return this.read(() => {
+      if (this.staffMe().role !== 'owner') throw err('NOT_ALLOWED', 'Only the studio owner can manage billing.');
       return null;
     });
   }

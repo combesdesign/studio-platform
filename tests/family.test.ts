@@ -206,7 +206,7 @@ test('staff find dependants in Clients (by their name or their parent’s) and c
 });
 
 test('the Snowy demo seed has a parent with a baby dependant booked into Mums + Bubs', async () => {
-  const store = createDemoStore({ now: () => new Date(), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const store = createDemoStore({ sampleBilling: false, now: () => new Date(), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   await store.demoSignInAs!(OWNER);
   const sophie = (await store.listClients({ search: 'sophie archer' })).find((c) => c.firstName === 'Sophie')!;
   const [poppy] = await store.listDependants!(sophie.id);
@@ -219,7 +219,7 @@ test('the Snowy demo seed has a parent with a baby dependant booked into Mums + 
 });
 
 test('workshops: a parent registers and cancels for a dependant, and nobody else can', async () => {
-  const store = createDemoStore({ now: () => new Date(), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const store = createDemoStore({ sampleBilling: false, now: () => new Date(), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   await store.demoSignInAs!(OWNER);
   const clients = await store.listClients();
   const sophie = clients.find((c) => c.firstName === 'Sophie' && c.lastName === 'Archer')!;

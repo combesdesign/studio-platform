@@ -9,6 +9,6 @@ import { OnDemandPage } from './page';
 import { OnDemandSettingsTab } from './settings';
 import './ondemand.css';
 
-registerStudioNav({ id: 'ondemand', label: 'Online classes', short: 'Online', icon: 'play', href: '#/online', order: 56, perm: 'ondemand.manage' });
-registerStudioRoute({ id: 'ondemand', path: '/online', nav: 'ondemand', perm: 'ondemand.manage', render: () => <OnDemandPage /> });
-registerSettingsTab({ id: 'online', label: 'Online classes', order: 56, perm: 'ondemand.manage', render: () => <OnDemandSettingsTab /> });
+registerStudioNav({ id: 'ondemand', feature: 'ondemand', label: 'Online classes', short: 'Online', icon: 'play', href: '#/online', order: 56, perm: 'ondemand.manage' });
+registerStudioRoute({ id: 'ondemand', feature: 'ondemand', path: '/online', nav: 'ondemand', perm: 'ondemand.manage', render: () => <OnDemandPage /> });
+registerSettingsTab({ id: 'online', feature: 'ondemand', label: 'Online classes', order: 56, perm: 'ondemand.manage', render: () => <OnDemandSettingsTab /> });

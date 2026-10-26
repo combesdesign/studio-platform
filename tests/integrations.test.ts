@@ -21,7 +21,7 @@ test('partner spot rules: held spots, class full, cancelled, started', () => {
 
 async function open(slug: string) {
   const NOW = new Date('2026-10-15T01:30:00Z');
-  const p = createDemoPlatform({ now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const p = createDemoPlatform({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   const s = p.forStudio((await p.findStudio({ slug }))!);
   const personas = await s.demoPersonas();
   const as = async (role: string) => { const u = personas.find((p) => p.kind === 'staff' && p.role === role); if (u) await s.demoSignInAs!(u); return !!u; };

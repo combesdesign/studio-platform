@@ -109,7 +109,7 @@ test('inbox order: urgent unresolved first, then newest', () => {
 test('demo store: staff send and follow up, the admin side sees every studio, instant promise numbers', async () => {
   demoDb.reset();
   const NOW = new Date('2026-10-21T01:30:00Z'); // Wed 12:30pm Sydney
-  const p = createDemoPlatform({ now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const p = createDemoPlatform({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   const snowy = p.forStudio((await p.findStudio({ slug: 'snowy' }))!);
   const harbour = p.forStudio((await p.findStudio({ slug: 'harbour' }))!);
   const login = async (s: typeof snowy, role: string) => { const u = (await s.demoPersonas!()).find((x) => x.kind === 'staff' && x.role === role)!; await s.demoSignInAs!(u); };
@@ -173,7 +173,7 @@ test('help assistant without AI: first steps of the best article plus a link; a 
   assert.equal(none.link, undefined);
 
   demoDb.reset();
-  const p = createDemoPlatform({ now: () => new Date('2026-10-21T01:30:00Z'), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const p = createDemoPlatform({ sampleBilling: false, now: () => new Date('2026-10-21T01:30:00Z'), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   const snowy = p.forStudio((await p.findStudio({ slug: 'snowy' }))!);
   const u = (await snowy.demoPersonas!()).find((x) => x.kind === 'staff' && x.role === 'front_desk')!; await snowy.demoSignInAs!(u);
   assert.equal((await snowy.features.support!.assist({ question: 'how do I refund a sale', page: '#/pos' })).link?.href, '#/help/refund-a-sale');

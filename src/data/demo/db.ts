@@ -11,7 +11,9 @@ import { Engine, type DemoState } from './engine';
 import { seedState, PERSONA_EMAILS } from './seed';
 import { seedHarbour } from './harbour';
 import { seedFeatures } from './features';
-import { BUILTIN_STUDIOS, DEMO_PLATFORM_ADMINS, SNOWY_ID, SNOWY_STUDIO } from '../studios';
+import { BUILTIN_STUDIOS, DEMO_PLATFORM_ADMINS, HARBOUR_ID, SNOWY_ID, SNOWY_STUDIO } from '../studios';
+import { DEFAULT_BILLING_SETTINGS, DRAFT_PLANS, planOf } from '../../shared/plans';
+import type { Plan, PlatformBillingSettings } from '../../shared/types';
 
 /** Bumped for the platform (v3 was one studio; v4 holds every studio). */
 export const STATE_KEY = 'spc-demo-v4';
@@ -29,6 +31,34 @@ export interface PlatformDemoState {
   platformAdmins: { email: string; name: string }[];
   /** Fake Stripe Connect: studios whose owner has run the demo "Connect Stripe" flow. Missing in older saved demos = none. */
   connected?: Record<ID, boolean>;
+  /** Platform plans (edited in the admin). Missing in older saved demos: ensureBilling seeds them. */
+  plans?: Plan[];
+  billingSettings?: PlatformBillingSettings;
+  /** Fake Stripe subscriptions: studios that subscribed through the demo checkout (so there is a billing portal to "open"). */
+  subscribed?: Record<ID, boolean>;
+}
+
+const DAY = 86_400_000;
+/** Plans + billing for a platform state: Snowy on Signature (comped), Harbour on a Studio trial, anyone else on the first plan's trial. Safe to repeat. */
+export function ensureBilling(ps: PlatformDemoState, now: Date, sample = true): void {
+  ps.plans ??= clone(DRAFT_PLANS);
+  ps.billingSettings ??= { ...DEFAULT_BILLING_SETTINGS };
+  const first = [...ps.plans].filter((p) => p.active).sort((a, b) => a.sortOrder - b.sortOrder)[0];
+  for (const s of ps.studios) {
+    if (s.billingStatus === undefined && s.planId === undefined) {
+      if (!sample) Object.assign(s, { planId: 'plan_signature', billingStatus: 'active', billingComped: true });   // tests: every feature on
+      else if (s.id === SNOWY_ID) Object.assign(s, { planId: 'plan_signature', billingStatus: 'active', billingComped: true });
+      else if (first) Object.assign(s, { planId: s.id === HARBOUR_ID ? 'plan_studio' : first.id, billingStatus: 'trialing', trialEndsAt: new Date(now.getTime() + (s.id === HARBOUR_ID ? 11 : ps.billingSettings.trialDays) * DAY).toISOString() });
+    }
+  }
+  resolvePlans(ps);
+}
+/** Keep every studio's `plan` (name + feature keys) in line with the plans table. */
+export function resolvePlans(ps: PlatformDemoState): void {
+  for (const s of ps.studios) {
+    const p = s.planId ? ps.plans?.find((x) => x.id === s.planId) : undefined;
+    if (p) s.plan = planOf(p); else delete s.plan;
+  }
 }
 
 /** What's kept under the app's auth key: the person, plus the studio record they signed in as (if any). */
@@ -62,7 +92,7 @@ const clone = <T>(x: T): T => (x === undefined ? x : (JSON.parse(JSON.stringify(
 const fmtOf = (s: Studio) => ({ timezone: s.timezone, locale: s.locale, currency: s.currency, taxRate: s.taxRate });
 
 /** Seed every built-in studio (Snowy exactly as before, plus Harbour) and Pete as platform admin. */
-export function seedPlatform(now: Date): PlatformDemoState {
+export function seedPlatform(now: Date, sample = true): PlatformDemoState {
   const studios = clone(BUILTIN_STUDIOS);
   const data: Record<ID, DemoState> = {};
   for (const s of studios) {
@@ -79,15 +109,19 @@ export function seedPlatform(now: Date): PlatformDemoState {
       return st;
     });
   }
-  return { platformVersion: PLATFORM_STATE_VERSION, seededAt: now.toISOString(), studios, data, platformAdmins: clone(DEMO_PLATFORM_ADMINS) };
+  const ps: PlatformDemoState = { platformVersion: PLATFORM_STATE_VERSION, seededAt: now.toISOString(), studios, data, platformAdmins: clone(DEMO_PLATFORM_ADMINS) };
+  ensureBilling(ps, now, sample);
+  return ps;
 }
 
 /** Accept a whole platform state, or (tests, older callers) one studio's state, which becomes Snowy's. */
-export function toPlatformState(x: PlatformDemoState | DemoState, now: Date): PlatformDemoState {
-  if ((x as PlatformDemoState).studios) return x as PlatformDemoState;
+export function toPlatformState(x: PlatformDemoState | DemoState, now: Date, sample = true): PlatformDemoState {
+  if ((x as PlatformDemoState).studios) { ensureBilling(x as PlatformDemoState, now, sample); return x as PlatformDemoState; }
   const st = x as DemoState;
   const snowy: Studio = { ...clone(SNOWY_STUDIO), name: st.settings.name || SNOWY_STUDIO.name, timezone: st.settings.timezone || SNOWY_STUDIO.timezone };
-  return { platformVersion: PLATFORM_STATE_VERSION, seededAt: now.toISOString(), studios: [snowy], data: { [snowy.id]: st }, platformAdmins: clone(DEMO_PLATFORM_ADMINS) };
+  const ps: PlatformDemoState = { platformVersion: PLATFORM_STATE_VERSION, seededAt: now.toISOString(), studios: [snowy], data: { [snowy.id]: st }, platformAdmins: clone(DEMO_PLATFORM_ADMINS) };
+  ensureBilling(ps, now, sample);
+  return ps;
 }
 
 export interface DemoDbOptions {
@@ -96,6 +130,8 @@ export interface DemoDbOptions {
   latencyMs?: number;
   app?: DemoApp;
   initialState?: PlatformDemoState | DemoState;
+  /** Seed the sample billing (Snowy on Signature, Harbour on a Studio trial). False (tests that need every feature) puts every studio on Signature. Default true. */
+  sampleBilling?: boolean;
 }
 
 export class DemoDb {
@@ -105,6 +141,7 @@ export class DemoDb {
   readonly app: DemoApp;
   readonly authKey: string;
   private persistent = true;
+  private sample = true;
   private listeners = new Set<() => void>();
   private engines = new Map<ID, Engine>();
   private rev = '';
@@ -112,6 +149,7 @@ export class DemoDb {
   ps!: PlatformDemoState;
 
   constructor(opts: DemoDbOptions = {}) {
+    this.sample = opts.sampleBilling !== false;
     this.storage = opts.storage ?? defaultStorage();
     this.now = opts.now ?? (() => new Date());
     this.latency = opts.latencyMs !== undefined ? () => opts.latencyMs as number : () => 80 + Math.random() * 70;
@@ -119,7 +157,7 @@ export class DemoDb {
       : typeof location !== 'undefined' && location.pathname.includes('/studio') ? 'studio' : 'client');
     this.authKey = AUTH_KEYS[this.app];
     this.memAuth = this.get(this.authKey);
-    if (opts.initialState) { this.ps = clone(toPlatformState(opts.initialState, this.now())); this.engines.clear(); this.save(); }
+    if (opts.initialState) { this.ps = clone(toPlatformState(opts.initialState, this.now(), this.sample)); this.engines.clear(); this.save(); }
     else this.load();
     if (!opts.storage && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('storage', (e: StorageEvent) => {
@@ -141,11 +179,11 @@ export class DemoDb {
     const raw = this.get(STATE_KEY);
     let s: PlatformDemoState | undefined;
     if (raw) {
-      try { const p = JSON.parse(raw) as PlatformDemoState; if (p?.platformVersion === PLATFORM_STATE_VERSION && Array.isArray(p.studios) && p.data) s = p; } catch { /* reseed */ }
+      try { const p = JSON.parse(raw) as PlatformDemoState; if (p?.platformVersion === PLATFORM_STATE_VERSION && Array.isArray(p.studios) && p.data) { s = p; ensureBilling(s, this.now(), this.sample); } } catch { /* reseed */ }
     }
     this.engines.clear();
     if (s) { this.ps = s; this.rev = this.get(REV_KEY) ?? ''; }
-    else { this.ps = this.withFirstStudioFormat(() => seedPlatform(this.now())); this.save(); }
+    else { this.ps = this.withFirstStudioFormat(() => seedPlatform(this.now(), this.sample)); this.save(); }
   }
   private withFirstStudioFormat<T>(fn: () => T): T {
     const f = BUILTIN_STUDIOS[0]!;
@@ -162,7 +200,7 @@ export class DemoDb {
     if (r !== null && r !== this.rev) this.load();
   }
   reseed(): void {
-    this.ps = seedPlatform(this.now());
+    this.ps = seedPlatform(this.now(), this.sample);
     this.engines.clear();
     this.save();
   }

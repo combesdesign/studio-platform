@@ -8,7 +8,7 @@ import type { AuthUser, Studio } from '../shared/types';
 import { clientRoutesList, clientTabsList } from '../shared/registry';
 import { getBranding } from '../shared/branding';
 import '../features/client';
-import { store, useData, useRoute, match, ToastProvider, DemoBadge, useToast } from '../shared/react';
+import { store, featureOn, useData, useRoute, match, ToastProvider, DemoBadge, useToast } from '../shared/react';
 import { AuthScreens, NewPassword } from './auth';
 import { Timetable } from './timetable';
 import { Bookings } from './bookings';
@@ -163,7 +163,7 @@ function SignedIn({ user, path, nav, refreshAuth }: { user: Extract<AuthUser, { 
   let m: Record<string, string> | null = null;
   const feature = clientRoutesList().find((r) => (m = match(r.path, p)));
   if (p === '/waiver') { screen = <Waiver nav={nav} path={path} />; chrome = false; }
-  else if (p === '/family') { screen = <Family nav={nav} path={path} />; chrome = false; }
+  else if (p === '/family' && featureOn('family')) { screen = <Family nav={nav} path={path} />; chrome = false; }
   else if (p === '/bookings') { screen = <Bookings nav={nav} />; tab = p; }
   else if (p === '/passes') { screen = <Passes nav={nav} path={path} />; tab = p; }
   else if (p === '/profile') { screen = <Profile nav={nav} />; tab = p; }

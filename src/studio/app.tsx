@@ -5,7 +5,8 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import type { Root } from 'react-dom/client';
-import { studioNavItems, studioRoutesList } from '../shared/registry';
+import { isFeatureLocked, studioNavItems, studioRoutesAll, studioRoutesList } from '../shared/registry';
+import { BillingBanner, Upsell } from './billing';
 import { isSingleStudio } from '../shared/boot';
 import { StudioSwitcher } from './choose';
 import { Onboarding } from './onboarding';
@@ -147,7 +148,10 @@ function Shell() {
   else {
     let fm: Record<string, string> | null = null;
     const feature = studioRoutesList().find((r) => (fm = match(r.path, p)));
-    page = feature ? (!feature.perm || can(feature.perm) ? feature.render({ params: fm ?? {}, path }) : <NoAccess />) : <NoAccess title="Page not found" />;
+    // A page the plan doesn't include: a calm "Available on Studio Plus", not "not found".
+    const locked = feature ? undefined : studioRoutesAll().find((r) => r.feature && isFeatureLocked(r.feature) && match(r.path, p));
+    page = feature ? (!feature.perm || can(feature.perm) ? feature.render({ params: fm ?? {}, path }) : <NoAccess />)
+      : locked ? (!locked.perm || can(locked.perm) ? <Upsell feature={locked.feature!} /> : <NoAccess />) : <NoAccess title="Page not found" />;
   }
 
   return (
@@ -198,7 +202,7 @@ function Shell() {
         </div>
       </Sheet>
 
-      <main className="main" key={p}>{page}</main>
+      <main className="main" key={p}><BillingBanner />{page}</main>
     </div>
   );
 }

@@ -25,6 +25,7 @@ select test.login('pete');
 select (public.platform_create_studio('Harbour Reformer Co.', 'harbour', 'hello@harbour.test', 'Australia/Sydney', 'AUD', 'en-AU', null, '12 Bay St', '{}'::jsonb) ->> 'id') as harbour_id \gset
 select test.admin();
 insert into test.ids values ('harbour', :'harbour_id');
+update public.studios set plan_id = '9c000000-0000-4000-8000-000000000003', billing_status = 'active', billing_comped = true where slug = 'harbour';  -- billing_plans.sql covers locked plans; these tests need the features on
 select test.login('pete');
 select public.platform_invite_owner(test.id('harbour'), 'Hank', 'hank@harbour.test');
 select test.admin();

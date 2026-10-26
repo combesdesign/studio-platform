@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Sheet, leaveSheets, match, store, useAction, useData, useToast } from '../shared/react';
+import { Sheet, featureOn, leaveSheets, match, store, useAction, useData, useToast } from '../shared/react';
 import { Slot } from '../shared/slots';
 import { addDays, money, studioDate, time, LOCALE } from '../shared/format';
 import type { Client, Pass, Sale } from '../shared/types';
@@ -76,7 +76,7 @@ export function ClientProfile({ id }: { id: string }) {
       store.listClientBookings(id, { when: 'upcoming' }), store.listClientBookings(id, { when: 'past' }),
     ]);
     // family accounts: a parent's dependants, or a dependant's parent
-    const deps = client.guardianClientId || !store.listDependants ? [] : await store.listDependants(id);
+    const deps = client.guardianClientId || !store.listDependants || !featureOn('family') ? [] : await store.listDependants(id);
     const parent = client.guardianClientId ? await store.getClient(client.guardianClientId).catch(() => undefined) : undefined;
     return { client, passes, credits, upcoming, past, deps, ...(parent ? { parent } : {}) };
   }, [id]);
@@ -217,7 +217,7 @@ export function ClientProfile({ id }: { id: string }) {
               <p className="small muted" style={{ marginTop: 8 }}>Books and pays for {c.firstName}, and signed their waiver.</p>
             </section>
           )}
-          {!c.guardianClientId && (deps.length > 0 || (can('editClients') && store.saveDependant)) && (
+          {!c.guardianClientId && featureOn('family') && (deps.length > 0 || (can('editClients') && store.saveDependant)) && (
             <section className="card pad fam-card">
               <div className="sec-head"><h3>Family</h3>{can('editClients') && store.saveDependant && <button className="linkish" onClick={() => setSheet('dependant')}>Add dependant</button>}</div>
               {deps.length === 0 ? <p className="small muted">No dependants. Kids or a partner without a login can be added here, or by {c.firstName} in the app (Profile, then Family).</p> : (

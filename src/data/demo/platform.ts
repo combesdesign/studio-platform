@@ -4,10 +4,11 @@
  */
 import { StoreError } from '../../shared/store';
 import type { DataStore, NewStudioInput, PlatformStore, Unsubscribe } from '../../shared/store';
-import type { ID, PlatformUser, Staff, Studio, StudioMembership, StudioStatus } from '../../shared/types';
+import type { BillingStatus, ID, Plan, PlatformBillingSettings, PlatformUser, Staff, Studio, StudioMembership, StudioStatus } from '../../shared/types';
+import { DEFAULT_BILLING_SETTINGS, FEATURE_CATALOG } from '../../shared/plans';
 import { defaultBranding } from '../../shared/branding';
 import { withStudioFormat } from '../../shared/format';
-import { DemoDb, type DemoDbOptions } from './db';
+import { DemoDb, resolvePlans, type DemoDbOptions } from './db';
 import { emptyStudioState } from './harbour';
 import { seedFeatures } from './features';
 import { DemoStore } from './index';
@@ -170,7 +171,14 @@ export class DemoPlatform implements PlatformStore {
       const fmt = { timezone, locale: studio.locale, currency: studio.currency, taxRate: studio.taxRate };
       const state = withStudioFormat(fmt, () => emptyStudioState(this.db.now(), { name, timezone, address: studio.address, email, ...(input.phone ? { phone: input.phone } : {}) }));
       seedFeatures(studio, state, this.db.now());
+      // A new studio starts on the first (cheapest) plan with a free trial.
+      const first = [...(this.db.ps.plans ?? [])].filter((p) => p.active).sort((a, b) => a.sortOrder - b.sortOrder)[0];
+      if (first) {
+        const days = (this.db.ps.billingSettings ?? DEFAULT_BILLING_SETTINGS).trialDays;
+        Object.assign(studio, { planId: first.id, billingStatus: 'trialing', trialEndsAt: new Date(this.db.now().getTime() + days * 86_400_000).toISOString() });
+      }
       this.db.ps.studios.push(studio);
+      resolvePlans(this.db.ps);
       this.db.ps.data[id] = state;
       return studio;
     });
@@ -204,6 +212,76 @@ export class DemoPlatform implements PlatformStore {
       if (!['onboarding', 'live', 'suspended'].includes(status)) throw err('INVALID', 'Unknown status.');
       const s = this.studioOrThrow(id);
       s.status = status;
+      return s;
+    });
+  }
+
+  // ---------------------------------------------------------------- plans + billing
+  async listPlans(opts: { includeInactive?: boolean } = {}): Promise<Plan[]> {
+    return this.read(() => (this.db.ps.plans ?? []).filter((p) => p.active || (opts.includeInactive && this.db.isPlatformAdmin(this.person()?.email))).sort((a, b) => a.sortOrder - b.sortOrder || a.priceCents - b.priceCents));
+  }
+
+  async savePlan(input: Partial<Plan> & { name: string }): Promise<Plan> {
+    return this.write(() => {
+      this.requireAdmin();
+      const plans = (this.db.ps.plans ??= []);
+      const name = input.name?.trim();
+      if (!name) throw err('INVALID', 'Please give the plan a name.');
+      if (input.priceCents !== undefined && (!Number.isInteger(input.priceCents) || input.priceCents < 0)) throw err('INVALID', 'The monthly price needs to be a dollar amount of zero or more.');
+      const known = new Set(FEATURE_CATALOG.map((f) => f.key).concat('core'));
+      const feats = input.features ? [...new Set(input.features.map((f) => String(f).trim()).filter(Boolean))] : undefined;
+      if (feats?.some((f) => !known.has(f))) throw err('INVALID', 'One of those features isn’t recognised.');
+      const priceId = input.stripePriceId?.trim();
+      if (priceId && !/^price_[A-Za-z0-9]+$/.test(priceId)) throw err('INVALID', 'A Stripe price id looks like price_1AbC…');
+      let plan = input.id ? plans.find((p) => p.id === input.id) : undefined;
+      if (input.id && !plan) throw err('NOT_FOUND', 'That plan could not be found.');
+      if (!plan) {
+        const key = (input.key ?? name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'plan';
+        if (plans.some((p) => p.key === key)) throw err('INVALID', 'There is already a plan with that name.');
+        plan = { id: `plan_${key}`, key, name, priceCents: 0, features: ['core'], sortOrder: (Math.max(0, ...plans.map((p) => p.sortOrder)) + 10), active: true };
+        plans.push(plan);
+      }
+      plan.name = name;
+      if (input.priceCents !== undefined) plan.priceCents = input.priceCents;
+      if (feats) plan.features = feats.includes('core') ? feats : ['core', ...feats];
+      if (input.stripePriceId !== undefined) { if (priceId) plan.stripePriceId = priceId; else delete plan.stripePriceId; }
+      if (input.sortOrder !== undefined) plan.sortOrder = input.sortOrder;
+      if (input.active !== undefined) plan.active = input.active;
+      resolvePlans(this.db.ps);
+      return plan;
+    });
+  }
+
+  async getBillingSettings(): Promise<PlatformBillingSettings> {
+    return this.read(() => this.db.ps.billingSettings ?? { ...DEFAULT_BILLING_SETTINGS });
+  }
+
+  async saveBillingSettings(s: Partial<PlatformBillingSettings>): Promise<PlatformBillingSettings> {
+    return this.write(() => {
+      this.requireAdmin();
+      const cur = (this.db.ps.billingSettings ??= { ...DEFAULT_BILLING_SETTINGS });
+      if (s.trialDays !== undefined) { if (s.trialDays !== 14 && s.trialDays !== 30) throw err('INVALID', 'The free trial is 14 or 30 days.'); cur.trialDays = s.trialDays; }
+      if (s.graceDays !== undefined) { if (!Number.isInteger(s.graceDays) || s.graceDays < 0 || s.graceDays > 90) throw err('INVALID', 'The grace period is 0 to 90 days.'); cur.graceDays = s.graceDays; }
+      return cur;
+    });
+  }
+
+  async setStudioPlan(studioId: ID, input: { planId: ID; status?: BillingStatus; comped?: boolean }): Promise<Studio> {
+    return this.write(() => {
+      this.requireAdmin();
+      const s = this.studioOrThrow(studioId);
+      if (!this.db.ps.plans?.some((p) => p.id === input.planId)) throw err('NOT_FOUND', 'That plan could not be found.');
+      const status = input.status ?? 'active';
+      if (!['trialing', 'active', 'past_due', 'cancelled'].includes(status)) throw err('INVALID', 'Unknown billing status.');
+      const now = this.db.now();
+      s.planId = input.planId;
+      s.billingStatus = status;
+      s.billingComped = input.comped ?? true;
+      if (status === 'past_due') s.pastDueSince = s.pastDueSince ?? now.toISOString(); else delete s.pastDueSince;
+      if (status === 'trialing') s.trialEndsAt = s.trialEndsAt && Date.parse(s.trialEndsAt) > now.getTime() ? s.trialEndsAt : new Date(now.getTime() + (this.db.ps.billingSettings ?? DEFAULT_BILLING_SETTINGS).trialDays * 86_400_000).toISOString();
+      else delete s.trialEndsAt;
+      if (s.billingComped) delete (this.db.ps.subscribed ??= {})[studioId];
+      resolvePlans(this.db.ps);
       return s;
     });
   }

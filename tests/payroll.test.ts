@@ -58,7 +58,7 @@ test('calc: periods repeat from the anchor and shift', () => {
 
 test('demo: both studios are seeded; cover, clock, pay and export work end to end', async () => {
   const NOW = new Date('2026-10-15T01:30:00Z');
-  const p = createDemoPlatform({ now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const p = createDemoPlatform({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   for (const slug of ['snowy', 'harbour']) {
     const s = p.forStudio((await p.findStudio({ slug }))!);
     const personas = await s.demoPersonas();
@@ -91,7 +91,7 @@ test('demo: both studios are seeded; cover, clock, pay and export work end to en
 
 test('demo: a studio keeps its own payroll data', async () => {
   const NOW = new Date('2026-10-15T01:30:00Z');
-  const p = createDemoPlatform({ now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const p = createDemoPlatform({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   const get = async (slug: string) => {
     const s = p.forStudio((await p.findStudio({ slug }))!);
     await s.demoSignInAs!((await s.demoPersonas()).find((u) => u.kind === 'staff' && u.role === 'owner')!);

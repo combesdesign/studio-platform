@@ -10,8 +10,8 @@ import { HelpPage } from './page';
 import { Launcher } from './overlay';
 import './support.css';
 
-registerStudioRoute({ id: 'support.help', path: '/help', perm: 'support.use', render: () => <HelpPage /> });
-registerStudioRoute({ id: 'support.help.article', path: '/help/:slug', perm: 'support.use', render: ({ params }) => <HelpPage slug={params.slug} /> });
+registerStudioRoute({ id: 'support.help', feature: 'support', path: '/help', perm: 'support.use', render: () => <HelpPage /> });
+registerStudioRoute({ id: 'support.help.article', feature: 'support', path: '/help/:slug', perm: 'support.use', render: ({ params }) => <HelpPage slug={params.slug} /> });
 
 if (typeof document !== 'undefined' && !document.getElementById('support-root')) {
   const host = document.createElement('div');

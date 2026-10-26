@@ -11,8 +11,8 @@ import { MessagesIcon, MessagesScreen } from './messages';
 import { PushPrompt, PushSwitchRow } from './notify';
 import './client.css';
 
-registerClientRoute({ id: 'marketing.messages', path: '/messages', tab: '/profile', chrome: false, render: ({ nav, path }) => <MessagesScreen nav={nav} path={path} /> });
-registerClientProfileEntry({ id: 'marketing.messages', label: 'Messages', sub: 'Write to the studio', icon: <MessagesIcon />, path: '/messages', order: 15 });
+registerClientRoute({ id: 'marketing.messages', feature: 'marketing', path: '/messages', tab: '/profile', chrome: false, render: ({ nav, path }) => <MessagesScreen nav={nav} path={path} /> });
+registerClientProfileEntry({ id: 'marketing.messages', feature: 'marketing', label: 'Messages', sub: 'Write to the studio', icon: <MessagesIcon />, path: '/messages', order: 15 });
 // Notifications opt-in: a switch in Profile, and one gentle ask after a client's first booking (both hide when push can't work here).
-registerSlot('client.account', { id: 'marketing.push', order: 20, render: () => <PushSwitchRow /> });
-registerSlot('client.booked', { id: 'marketing.push-prompt', order: 20, render: () => <PushPrompt /> });
+registerSlot('client.account', { id: 'marketing.push', feature: 'marketing', order: 20, render: () => <PushSwitchRow /> });
+registerSlot('client.booked', { id: 'marketing.push-prompt', feature: 'marketing', order: 20, render: () => <PushPrompt /> });

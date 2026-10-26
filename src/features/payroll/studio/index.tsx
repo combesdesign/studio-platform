@@ -12,18 +12,18 @@ import { installPayrollStyles } from './style';
 
 installPayrollStyles();
 
-registerStudioNav({ id: 'payroll.cover', label: 'Cover', icon: 'repeat', href: '#/cover', order: 55, perm: 'payroll.cover' });
-registerStudioRoute({ id: 'payroll.cover', path: '/cover', nav: 'payroll.cover', perm: 'payroll.cover', render: () => <CoverPage /> });
+registerStudioNav({ id: 'payroll.cover', feature: 'payroll', label: 'Cover', icon: 'repeat', href: '#/cover', order: 55, perm: 'payroll.cover' });
+registerStudioRoute({ id: 'payroll.cover', feature: 'payroll', path: '/cover', nav: 'payroll.cover', perm: 'payroll.cover', render: () => <CoverPage /> });
 
-registerStudioNav({ id: 'payroll', label: 'Payroll', short: 'Pay', icon: 'cash', href: '#/payroll', order: 58, perm: 'payroll.view' });
-registerStudioRoute({ id: 'payroll', path: '/payroll', nav: 'payroll', perm: 'payroll.view', render: () => <PayrollPage /> });
-registerStudioRoute({ id: 'payroll.tab', path: '/payroll/:tab', nav: 'payroll', perm: 'payroll.view', render: ({ params }) => <PayrollPage tab={params.tab} /> });
-registerStudioRoute({ id: 'payroll.timesheet', path: '/timesheet', nav: 'payroll', perm: 'payroll.clock', render: () => <MyTimesheet /> });
+registerStudioNav({ id: 'payroll', feature: 'payroll', label: 'Payroll', short: 'Pay', icon: 'cash', href: '#/payroll', order: 58, perm: 'payroll.view' });
+registerStudioRoute({ id: 'payroll', feature: 'payroll', path: '/payroll', nav: 'payroll', perm: 'payroll.view', render: () => <PayrollPage /> });
+registerStudioRoute({ id: 'payroll.tab', feature: 'payroll', path: '/payroll/:tab', nav: 'payroll', perm: 'payroll.view', render: ({ params }) => <PayrollPage tab={params.tab} /> });
+registerStudioRoute({ id: 'payroll.timesheet', feature: 'payroll', path: '/timesheet', nav: 'payroll', perm: 'payroll.clock', render: () => <MyTimesheet /> });
 
-registerSettingsTab({ id: 'payroll', label: 'Pay + cover', order: 55, perm: 'payroll.cover_approve', render: () => <PayrollSettingsTab /> });
+registerSettingsTab({ id: 'payroll', feature: 'payroll', label: 'Pay + cover', order: 55, perm: 'payroll.cover_approve', render: () => <PayrollSettingsTab /> });
 
-registerTodayWidget({ id: 'payroll.clock', column: 'side', order: 10, perm: 'payroll.clock', render: () => <ClockWidget /> });
-registerTodayWidget({ id: 'payroll.cover', column: 'side', order: 20, perm: 'payroll.cover', render: () => <CoverToday /> });
+registerTodayWidget({ id: 'payroll.clock', feature: 'payroll', column: 'side', order: 10, perm: 'payroll.clock', render: () => <ClockWidget /> });
+registerTodayWidget({ id: 'payroll.cover', feature: 'payroll', column: 'side', order: 20, perm: 'payroll.cover', render: () => <CoverToday /> });
 
-registerSlot('roster.header', { id: 'payroll.cover', perm: 'payroll.cover', render: ({ session }) => <RosterCover session={session} /> });
-registerSlot('staff.card', { id: 'payroll.pay', perm: 'payroll.view', render: ({ staff }) => <StaffPayLine staff={staff} /> });
+registerSlot('roster.header', { id: 'payroll.cover', feature: 'payroll', perm: 'payroll.cover', render: ({ session }) => <RosterCover session={session} /> });
+registerSlot('staff.card', { id: 'payroll.pay', feature: 'payroll', perm: 'payroll.view', render: ({ staff }) => <StaffPayLine staff={staff} /> });

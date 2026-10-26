@@ -87,7 +87,7 @@ test('push: with no browser or native shell, nothing is supported and subscribin
 let CLOCK = new Date('2026-10-18T21:00:00Z'); // Mon 19 Oct 2026, 8am Sydney
 function platform() {
   CLOCK = new Date('2026-10-18T21:00:00Z');
-  return createDemoPlatform({ now: () => CLOCK, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  return createDemoPlatform({ sampleBilling: false, now: () => CLOCK, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
 }
 interface Desk { s: DataStore; m: MarketingStore; owner: AuthUser; staff(role: string): Promise<AuthUser>; as(u: AuthUser): Promise<unknown>; asOwner(): Promise<unknown> }
 async function desk(p: ReturnType<typeof createDemoPlatform>, slug: string): Promise<Desk> {

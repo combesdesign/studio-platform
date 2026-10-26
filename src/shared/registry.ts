@@ -9,12 +9,16 @@
  *
  * Permissions: `perm` is either a core studio permission ('pos', 'reports', 'settings', …: see Perm in
  * src/studio/ui.tsx) or a feature action registered with registerPermissions ('payroll.view').
+ * Plan gating: every entry takes an optional `feature` key ('payroll'). The list functions below skip entries whose key the studio's
+ * plan lacks (hasFeature in ./plans), judged against the studio set with setRegistryStudio (bindStudio does it). studioRoutesAll()
+ * and settingsTabsAll() keep the locked ones so the studio app can show "Available on Studio Plus" instead of "not found".
  * Icons: a core icon name (see the Icon set in each app's ui.tsx) or your own <svg> element.
  * OWNED BY THE LEAD / PLATFORM.
  */
 import type React from 'react';
 import type { RosterEntry } from './store';
 import type { Client, SessionWithCounts, Staff } from './types';
+import { hasFeature, type PlanSubject } from './plans';
 
 type Node = React.ReactNode;
 export type IconRef = string | React.ReactElement;
@@ -23,6 +27,12 @@ type Nav = (to: string, opts?: { replace?: boolean }) => void;
 function sorted<T extends { order?: number; id: string }>(list: T[]): T[] {
   return [...list].sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.id.localeCompare(b.id));
 }
+/** The studio the lists are filtered for (set at boot by bindStudio, and again when the plan changes). Unset = nothing is filtered. */
+let activeStudio: PlanSubject = null;
+export const setRegistryStudio = (s: PlanSubject): void => { activeStudio = s; };
+const unlocked = <T extends { feature?: string }>(list: T[]): T[] => list.filter((e) => hasFeature(activeStudio, e.feature));
+export const isFeatureLocked = (key?: string): boolean => !hasFeature(activeStudio, key);
+
 function upsert<T extends { id: string }>(list: T[], item: T): void {
   const i = list.findIndex((x) => x.id === item.id);
   if (i >= 0) list[i] = item; else list.push(item);
@@ -38,6 +48,8 @@ export interface ClientTab {
   icon: IconRef;
   /** Core tabs are 10 Timetable, 20 Bookings, 30 Passes, 40 Profile. */
   order?: number;
+  /** Plan feature key; the tab is skipped when the studio's plan lacks it. */
+  feature?: string;
 }
 export interface ClientRoute {
   id: string;
@@ -48,6 +60,7 @@ export interface ClientRoute {
   chrome?: boolean;
   /** Which tab is highlighted (its path). Default: the route's own path if it's a tab, else none. */
   tab?: string;
+  feature?: string;
 }
 export interface ClientProfileEntry {
   id: string;
@@ -57,6 +70,7 @@ export interface ClientProfileEntry {
   /** Where it goes (a registered client route). */
   path: string;
   order?: number;
+  feature?: string;
 }
 const clientTabs: ClientTab[] = [];
 const clientRoutes: ClientRoute[] = [];
@@ -64,9 +78,9 @@ const clientProfile: ClientProfileEntry[] = [];
 export const registerClientTab = (t: ClientTab) => upsert(clientTabs, t);
 export const registerClientRoute = (r: ClientRoute) => upsert(clientRoutes, r);
 export const registerClientProfileEntry = (e: ClientProfileEntry) => upsert(clientProfile, e);
-export const clientTabsList = () => sorted(clientTabs);
-export const clientRoutesList = () => [...clientRoutes];
-export const clientProfileEntries = () => sorted(clientProfile);
+export const clientTabsList = () => sorted(unlocked(clientTabs));
+export const clientRoutesList = () => unlocked(clientRoutes);
+export const clientProfileEntries = () => sorted(unlocked(clientProfile));
 
 // ------------------------------------------------------------------ studio app
 export interface StudioNavItem {
@@ -80,6 +94,8 @@ export interface StudioNavItem {
   /** Core items: 10 Today, 20 Schedule, 30 Clients, 40 Point of sale, 50 Reports, 60 Settings. */
   order?: number;
   perm?: string;
+  /** Plan feature key; skipped when the studio's plan lacks it. */
+  feature?: string;
 }
 export interface StudioRoute {
   id: string;
@@ -89,6 +105,7 @@ export interface StudioRoute {
   perm?: string;
   /** Which nav item is highlighted (its id). */
   nav?: string;
+  feature?: string;
 }
 export interface SettingsTab {
   /** Also the URL: '#/settings/<id>'. */
@@ -98,6 +115,7 @@ export interface SettingsTab {
   perm?: string;
   /** Core tabs: 10 Studio, 15 Branding, 20 Policies, 30 Class types, 40 Products, 50 Staff, 90 Demo. */
   order?: number;
+  feature?: string;
 }
 export interface TodayWidget {
   id: string;
@@ -106,6 +124,7 @@ export interface TodayWidget {
   /** 'main' sits under today's classes; 'side' sits with Heads up. */
   column?: 'main' | 'side';
   order?: number;
+  feature?: string;
 }
 const studioNav: StudioNavItem[] = [];
 const studioRoutes: StudioRoute[] = [];
@@ -115,10 +134,13 @@ export const registerStudioNav = (n: StudioNavItem) => upsert(studioNav, n);
 export const registerStudioRoute = (r: StudioRoute) => upsert(studioRoutes, r);
 export const registerSettingsTab = (t: SettingsTab) => upsert(settingsTabs, t);
 export const registerTodayWidget = (w: TodayWidget) => upsert(todayWidgets, w);
-export const studioNavItems = () => sorted(studioNav);
-export const studioRoutesList = () => [...studioRoutes];
-export const settingsTabsList = () => sorted(settingsTabs);
-export const todayWidgetsList = () => sorted(todayWidgets);
+export const studioNavItems = () => sorted(unlocked(studioNav));
+export const studioRoutesList = () => unlocked(studioRoutes);
+export const settingsTabsList = () => sorted(unlocked(settingsTabs));
+export const todayWidgetsList = () => sorted(unlocked(todayWidgets));
+/** Every registered route / settings tab, locked ones included (for the "Available on <plan>" screen). */
+export const studioRoutesAll = () => [...studioRoutes];
+export const settingsTabsAll = () => sorted(settingsTabs);
 
 // ------------------------------------------------------------------ slots inside core screens
 /** Every extension slot and the props it renders with. Ask the lead for a new slot rather than editing a core screen. */
@@ -154,6 +176,7 @@ export interface SlotEntry<N extends SlotName> {
   render: (props: SlotProps[N]) => Node;
   perm?: string;
   order?: number;
+  feature?: string;
 }
 const slots = new Map<SlotName, SlotEntry<SlotName>[]>();
 export function registerSlot<N extends SlotName>(name: N, entry: SlotEntry<N>): void {
@@ -162,5 +185,5 @@ export function registerSlot<N extends SlotName>(name: N, entry: SlotEntry<N>): 
   slots.set(name, list);
 }
 export function slotEntries<N extends SlotName>(name: N): SlotEntry<N>[] {
-  return sorted((slots.get(name) ?? []) as unknown as SlotEntry<N>[]);
+  return sorted(unlocked((slots.get(name) ?? []) as unknown as SlotEntry<N>[]));
 }

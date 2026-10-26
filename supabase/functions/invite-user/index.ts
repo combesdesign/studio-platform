@@ -8,6 +8,7 @@
 //
 // Settings: APP_URL (the client app, e.g. https://app.snowypilatesclub.com). Optional PLATFORM_DOMAIN: when set,
 // links go to https://<slug>.<PLATFORM_DOMAIN>/studio/ instead of APP_URL/studio/?studio=<slug>.
+import { assertStudioWritable } from '../_shared/billing.ts';
 import { adminClient, must, userClient } from '../_shared/db.ts';
 import { env, HttpError, json, readJson, serve } from '../_shared/http.ts';
 
@@ -32,6 +33,7 @@ serve(async (req) => {
   if (!isAdmin) {
     const mine = must(await admin.from('staff').select('role').eq('studio_id', studio.id).eq('user_id', uid).eq('active', true)) as { role: string }[];
     if (!mine.some((s) => s.role === 'owner' || s.role === 'manager')) throw new HttpError(403, 'NOT_ALLOWED', 'Only the studio’s owner or a manager can invite staff.');
+    await assertStudioWritable(admin, studio.id);
   }
   // The person must already be on that studio's team (so this can't be used to email anyone at all).
   const onTeam = must(await admin.from('staff').select('id').eq('studio_id', studio.id).ilike('email', email).limit(1)) as unknown[];

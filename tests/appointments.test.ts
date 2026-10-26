@@ -91,7 +91,7 @@ test('cancel window: exactly on the line is still in time', () => {
 // ---------------------------------------------------------------- the demo store
 function demo(slug = 'snowy') {
   let t = NOW;
-  const store = createDemoStore({ now: () => t, latencyMs: 0, storage: memoryStorage(), app: 'studio', studio: slug });
+  const store = createDemoStore({ sampleBilling: false, now: () => t, latencyMs: 0, storage: memoryStorage(), app: 'studio', studio: slug });
   const as = (u: AuthUser) => store.demoSignInAs!(u);
   return { store, as, setNow: (d: Date) => { t = d; } };
 }
@@ -345,7 +345,7 @@ test('reminders: the studio picks the lead time, the drain follows it, once per 
   async function run(hours: number | null, beforeStart: number[]) {
     let t = NOW;
     const storage = memoryStorage();
-    const store = createDemoStore({ now: () => t, latencyMs: 0, storage, app: 'studio', studio: 'snowy' });
+    const store = createDemoStore({ sampleBilling: false, now: () => t, latencyMs: 0, storage, app: 'studio', studio: 'snowy' });
     await store.demoSignInAs!(owner('snowy'));
     const a = store.features.appointments!;
     if (hours != null) assert.equal((await a.updateSettings({ reminderHours: hours })).reminderHours, hours);
@@ -618,7 +618,7 @@ test('events: validation, free events and the single-date rule', async () => {
 
 test('isolation: Snowy and Harbour keep separate appointments data', async () => {
   const storage = memoryStorage();
-  const mk = (slug: string) => createDemoStore({ now: () => NOW, latencyMs: 0, storage, app: 'studio', studio: slug });
+  const mk = (slug: string) => createDemoStore({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage, app: 'studio', studio: slug });
   const s = mk('snowy'), h = mk('harbour');
   await s.demoSignInAs!(owner('snowy'));
   await h.demoSignInAs!(owner('harbour'));

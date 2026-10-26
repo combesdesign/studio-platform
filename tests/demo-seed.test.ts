@@ -1,4 +1,4 @@
-// The demo store as the apps use it: zero-arg createDemoStore() with a localStorage shim.
+// The demo store as the apps use it: zero-arg createDemoStore({ sampleBilling: false }) with a localStorage shim.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -16,7 +16,7 @@ const { createDemoStore, STATE_KEY } = await import('../src/data/demo');
 const { weekStart, studioDate, addDays, studioToUTC } = await import('../src/shared/format');
 
 test('zero-arg demo store seeds a realistic, consistent studio', async () => {
-  const store = createDemoStore();
+  const store = createDemoStore({ sampleBilling: false });
   assert.equal(store.mode, 'demo');
   const personas = await store.demoPersonas();
   assert.equal(personas.filter((p) => p.kind === 'client').length, 5);
@@ -78,7 +78,7 @@ test('zero-arg demo store seeds a realistic, consistent studio', async () => {
   }
 
   // A second store instance (another tab) sees the same data; a booking shows up after sync.
-  const other = createDemoStore();
+  const other = createDemoStore({ sampleBilling: false });
   await other.demoSignInAs!(personas.find((p) => p.kind === 'client' && p.email === 'jess.walker@example.com')!);
   const open = week.find((s) => s.status === 'scheduled' && s.spotsLeft > 0 && Date.parse(s.startsAt) > Date.now() + 4 * 3_600_000)!;
   const booked = await other.bookClass(byEmail('jess.walker@example.com').id, open.id);

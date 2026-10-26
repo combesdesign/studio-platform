@@ -97,6 +97,7 @@ const P: Record<string, React.ReactNode> = {
   right: <path d="m9.5 6 6 6-6 6" />,
   down: <path d="m6 9.5 6 6 6-6" />,
   more: <><circle cx="5.5" cy="12" r="1.3" fill="currentColor" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /><circle cx="18.5" cy="12" r="1.3" fill="currentColor" /></>,
+  lock: <><rect x="5" y="10.5" width="14" height="10" rx="2.5" /><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5M12 14.8v2" /></>,
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   alert: <><path d="M12 3.5 21.5 20h-19L12 3.5Z" /><path d="M12 10v4.5M12 17.3v.2" /></>,
   cake: <><path d="M4.5 20.5v-7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v7M3 20.5h18" /><path d="M4.5 15.5c1.5 1.2 3 1.2 4.5 0s3-1.2 4.5 0 3 1.2 4.5 0M12 11.5V8M12 5.5c-.8-.8-.8-1.8 0-2.5.8.7.8 1.7 0 2.5Z" /></>,

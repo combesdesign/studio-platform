@@ -2,6 +2,7 @@
 // Refunds an online card payment in Stripe, then records Stripe's refunded total on the sale.
 // Stripe's charge.refunded webhook records the same total, so it's safe whichever lands first.
 import { adminClient, must, userClient, whoami } from '../_shared/db.ts';
+import { assertStudioWritable } from '../_shared/billing.ts';
 import { payAs } from '../_shared/connect.ts';
 import { HttpError, json, readJson, serve } from '../_shared/http.ts';
 import { stripe } from '../_shared/stripe.ts';
@@ -21,6 +22,7 @@ serve(async (req) => {
   // Staff refund their own studio's sales only.
   const mine = must(await admin.from('staff').select('studio_id').eq('id', me.staff_id).maybeSingle()) as { studio_id: string } | null;
   if (mine && sale.studio_id && mine.studio_id !== sale.studio_id) throw new HttpError(404, 'NOT_FOUND', 'We couldn’t find that sale.');
+  await assertStudioWritable(admin, sale.studio_id);   // overdue plan past the grace period: staff can't change things
   const pay = await payAs(admin, sale.studio_id, 'This studio’s Stripe account isn’t connected, so card payments can’t be refunded from here.');
 
   const left = sale.total_cents - (sale.refunded_cents ?? 0);

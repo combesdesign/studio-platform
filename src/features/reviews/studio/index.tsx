@@ -8,6 +8,6 @@ import { ReviewsPage } from './page';
 import { ReviewsSettingsTab } from './settings';
 import './reviews.css';
 
-registerStudioNav({ id: 'reviews', label: 'Reviews', short: 'Reviews', icon: 'flower', href: '#/reviews', order: 55, perm: 'reviews.view' });
-registerStudioRoute({ id: 'reviews', path: '/reviews', nav: 'reviews', perm: 'reviews.view', render: () => <ReviewsPage /> });
-registerSettingsTab({ id: 'reviews', label: 'Reviews', order: 55, perm: 'reviews.manage', render: () => <ReviewsSettingsTab /> });
+registerStudioNav({ id: 'reviews', feature: 'reviews', label: 'Reviews', short: 'Reviews', icon: 'flower', href: '#/reviews', order: 55, perm: 'reviews.view' });
+registerStudioRoute({ id: 'reviews', feature: 'reviews', path: '/reviews', nav: 'reviews', perm: 'reviews.view', render: () => <ReviewsPage /> });
+registerSettingsTab({ id: 'reviews', feature: 'reviews', label: 'Reviews', order: 55, perm: 'reviews.manage', render: () => <ReviewsSettingsTab /> });

@@ -951,3 +951,27 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 /* Settings -> Payments / setup wizard: Stripe Connect status */
 .pay-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .pay-list li { display: flex; align-items: center; gap: 8px; }
+
+/* ---- plan + billing (src/studio/billing.tsx) */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.billing-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; margin: 0 0 16px; border-radius: 14px; background: var(--warn-bg); color: #8a5a12; font-size: 14.5px; }
+.billing-banner.soft { background: var(--soft); color: var(--ink); }
+.billing-banner > span { flex: 1 1 260px; }
+.billing-banner .btn { flex: none; }
+.upsell-card { display: flex; gap: 18px; align-items: flex-start; max-width: 680px; }
+.upsell-lock { flex: none; width: 48px; height: 48px; border-radius: 50%; background: var(--soft); color: var(--primary); display: grid; place-items: center; }
+.upsell-blurb { font-size: 17px; margin: 0 0 6px; }
+.plan-now { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+.plan-name { margin: 2px 0 0; font-size: 30px; }
+.plan-price { font-size: 20px; font-weight: 600; }
+.plan-price span { font-size: 14px; font-weight: 400; color: var(--muted, #6b7280); }
+.plan-price.sm { font-size: 16px; }
+.plan-meta { display: grid; gap: 8px; justify-items: start; max-width: 360px; }
+.eyebrow-s { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted, #6b7280); }
+.plan-grid { display: grid; grid-template-columns: minmax(150px, 1.3fr) repeat(var(--cols, 3), minmax(110px, 1fr)); gap: 0; align-items: stretch; }
+.plan-grid > div { padding: 10px 12px; border-top: 1px solid var(--soft-2); display: flex; align-items: center; }
+.plan-grid .pg-head { flex-direction: column; align-items: flex-start; gap: 6px; border-top: 0; padding-bottom: 14px; }
+.plan-grid .pg-head.on, .plan-grid .pg-cell.on { background: var(--soft); }
+.plan-grid .pg-cell { justify-content: center; color: var(--ok-2); }
+.plan-grid .pg-no { color: var(--muted, #9ca3af); }
+@media (max-width: 700px) { .plan-grid { grid-template-columns: minmax(110px, 1.2fr) repeat(var(--cols, 3), minmax(64px, 1fr)); font-size: 13px; } .plan-grid > div { padding: 8px 6px; } .plan-grid .btn.sm { padding: 0 8px; font-size: 12px; } }

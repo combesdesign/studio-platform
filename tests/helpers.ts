@@ -45,7 +45,7 @@ export interface Harness {
 
 export async function harness(state: DemoState, now: Date): Promise<Harness> {
   let t = now;
-  const store = createDemoStore({ now: () => t, latencyMs: 0, storage: memoryStorage(), initialState: state, app: 'studio' });
+  const store = createDemoStore({ sampleBilling: false, now: () => t, latencyMs: 0, storage: memoryStorage(), initialState: state, app: 'studio' });
   const h: Harness = {
     store,
     setNow: (d) => { t = d; },

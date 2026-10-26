@@ -53,7 +53,7 @@ test('locked vs unlocked: free videos are open, paid ones need an active pass fr
 
 async function open(slug: string) {
   const NOW = new Date('2026-10-15T01:30:00Z');
-  const p = createDemoPlatform({ now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const p = createDemoPlatform({ sampleBilling: false, now: () => NOW, latencyMs: 0, storage: memoryStorage(), app: 'studio' });
   const s = p.forStudio((await p.findStudio({ slug }))!);
   const personas = await s.demoPersonas();
   return { s, personas, as: (u: (typeof personas)[number]) => s.demoSignInAs!(u) };

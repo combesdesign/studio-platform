@@ -1,7 +1,7 @@
 /** Profile tab: details, health, marketing opt-in, receipts, studio info, install hint, sign out. */
 import React, { useEffect, useState } from 'react';
 import type { Sale } from '../shared/types';
-import { store, useData, useToast, errorMessage, Sheet, useBackHandler } from '../shared/react';
+import { store, featureOn, useData, useToast, errorMessage, Sheet, useBackHandler } from '../shared/react';
 import { dateFormat, money, studioDate } from '../shared/format';
 import { getBranding } from '../shared/branding';
 import { clientProfileEntries } from '../shared/registry';
@@ -79,7 +79,7 @@ export function Profile({ nav }: { nav: Nav }) {
             </span>
             {c.waiverSignedAt ? <Icon name="chevron" size={18} className="faint" /> : <span className="tag warn">To do</span>}
           </button>
-          {store.listDependants && (
+          {store.listDependants && featureOn('family') && (
             <button className="list-row" onClick={() => goFlow(nav, '/family', { label: 'Profile', where: '/profile' })}>
               <span className="row-ic"><Icon name="users" size={20} /></span>
               <span className="list-row-main">

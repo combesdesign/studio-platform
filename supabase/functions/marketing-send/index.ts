@@ -11,6 +11,7 @@
 //
 // Settings: RESEND_API_KEY + EMAIL_FROM (shared with send-email), APP_URL / PLATFORM_DOMAIN (links), and for real texts
 // TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM (optional SMS_DEFAULT_COUNTRY_CODE, default +61). Push is not sent here (see NOTES.md).
+import { assertStudioWritable } from '../_shared/billing.ts';
 import { adminClient, must, userClient, type Db } from '../_shared/db.ts';
 import { sendViaResend } from '../_shared/email.ts';
 import { HttpError, json, readJson, requireCronSecret, serve } from '../_shared/http.ts';
@@ -26,6 +27,7 @@ async function staffOf(req: Request, admin: Db, studioId: string, roles: string[
   const mine = must(await admin.from('staff').select('role, name').eq('studio_id', studioId).eq('user_id', uid).eq('active', true)) as { role: string; name: string }[];
   const hit = mine.find((s) => roles.includes(s.role));
   if (!hit) throw new HttpError(403, 'NOT_ALLOWED', 'You don’t have permission to do that.');
+  await assertStudioWritable(admin, studioId);   // plan overdue past the grace period: staff can't send
   return { name: hit.name };
 }
 

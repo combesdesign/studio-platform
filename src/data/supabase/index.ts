@@ -15,6 +15,7 @@ import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
   Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus,
+  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan,
 } from '../../shared/types';
 import {
   StoreError,
@@ -30,6 +31,7 @@ import { can, type StaffAction } from '../../domain/permissions';
 import { studioDay } from '../../domain/time';
 import { defaultBranding } from '../../shared/branding';
 import { BUILTIN_STUDIOS } from '../studios';
+import { gateFeatures } from '../../shared/plans';
 
 // ---------------------------------------------------------------------------------------------- loose client typing
 
@@ -151,6 +153,26 @@ function toStudio(r: Row): Studio {
     status: (str(r.status) || 'live') as StudioStatus, branding: brandingOf(r),
     customDomains: Array.isArray(r.custom_domains) && r.custom_domains.length ? r.custom_domains.map(str) : undefined,
     createdAt: iso(r.created_at),
+    planId: optStr(r.plan_id), plan: toStudioPlan(r.plan), billingStatus: optStr(r.billing_status) as BillingStatus | undefined,
+    trialEndsAt: optIso(r.trial_ends_at), pastDueSince: optIso(r.past_due_since), billingComped: r.billing_comped === undefined ? undefined : bool(r.billing_comped),
+  });
+}
+/** Attach each studio's plan (name + feature keys). A second small request, because the plans table is tiny and public. */
+async function withPlans(sb: Loose, rows: unknown[]): Promise<Row[]> {
+  const list = rows.map(obj);
+  if (!list.some((r) => r.plan_id)) return list;
+  const res = (await sb.from('plans').select('id, name, price_cents, features')) as DbResult;
+  const byId = new Map(arr(res.error ? [] : res.data).map(obj).map((p) => [str(p.id), p]));
+  return list.map((r) => (r.plan_id && byId.has(str(r.plan_id)) ? { ...r, plan: byId.get(str(r.plan_id)) } : r));
+}
+function toStudioPlan(v: unknown): StudioPlan | undefined {
+  const r = obj(v);
+  return r.id ? { id: str(r.id), name: str(r.name), priceCents: num(r.price_cents), features: arr(r.features).map(str) } : undefined;
+}
+function toPlan(r: Row): Plan {
+  return clean({
+    id: str(r.id), key: str(r.key), name: str(r.name), priceCents: num(r.price_cents), stripePriceId: optStr(r.stripe_price_id),
+    features: arr(r.features).map(str), sortOrder: num(r.sort_order, 100), active: r.active === undefined ? true : bool(r.active),
   });
 }
 const STUDIO_COLS: Record<string, string> = {
@@ -412,7 +434,8 @@ export function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; type: strin
 
 class SupabaseStore implements DataStore {
   readonly mode = 'live' as const;
-  readonly features: Partial<FeatureStores> = {};
+  /** Feature stores, minus any the studio's plan doesn't include (gateFeatures). */
+  readonly features: Partial<FeatureStores> = gateFeatures({}, () => this.studio);
   private sb: Loose;
   private app: 'client' | 'studio' | 'admin';
   private shared: SharedClient;
@@ -463,7 +486,7 @@ class SupabaseStore implements DataStore {
       const res = (await this.sb.from('studios').select('*').eq('is_default', true).limit(1)) as DbResult;
       const row = arr(res.data)[0];
       if (res.error || !row) { this.studioReady = null; throw toStoreError(res.error ?? { message: 'NO_STUDIO: This app isn’t linked to a studio yet.' }); }
-      this.studio = toStudio(obj(row));
+      this.studio = toStudio((await withPlans(this.sb, [row]))[0]!);
       this.shared.hdr['x-studio'] = this.studio.id;
     })();
     return this.studioReady;
@@ -745,7 +768,46 @@ class SupabaseStore implements DataStore {
 
   async getStudio(): Promise<Studio> {
     await this.ready();
-    return toStudio(await this.one(this.sb.from('studios').select('*').eq('id', this.studioId).limit(1), 'We couldn’t find this studio.'));
+    const raw = await this.one(this.sb.from('studios').select('*').eq('id', this.studioId).limit(1), 'We couldn’t find this studio.');
+    const fresh = toStudio((await withPlans(this.sb, [raw]))[0]!);
+    this.studio = fresh;   // the plan can change under a running app: keep the feature gate on the latest
+    return fresh;
+  }
+
+  // ------------------------------------------------------------------ plan + billing (the platform's own Stripe account, owner only)
+
+  async listPlans(): Promise<Plan[]> {
+    const list = arr(await this.sb.from('plans').select('*').order('sort_order').then((r: DbResult) => { if (r.error) throw toStoreError(r.error); return r.data; })).map((r) => toPlan(obj(r)));
+    const cur = this.studio?.planId;
+    return list.filter((p) => p.active || p.id === cur).sort((a, b) => a.sortOrder - b.sortOrder || a.priceCents - b.priceCents);
+  }
+
+  async getBilling(): Promise<BillingInfo> {
+    await this.requireOwner('Only the studio owner can see plan and billing.');
+    const r = obj(await this.rpc('my_billing'));
+    return clean({
+      enabled: bool(r.enabled), planId: optStr(r.planId), status: (str(r.status) || 'active') as BillingStatus, trialEndsAt: optIso(r.trialEndsAt),
+      pastDueSince: optIso(r.pastDueSince), comped: bool(r.comped), hasSubscription: bool(r.hasSubscription), cancelAtPeriodEnd: bool(r.cancelAtPeriodEnd),
+      currentPeriodEnd: optIso(r.currentPeriodEnd), settings: { trialDays: (num(r.trialDays, 14) === 30 ? 30 : 14) as 14 | 30, graceDays: num(r.graceDays, 14) },
+    });
+  }
+
+  async startPlanCheckout(planId: ID, returnUrl: string): Promise<{ url: string } | null> {
+    await this.requireOwner('Only the studio owner can change the plan.');
+    const r = await this.invoke('platform-subscribe', { planId, returnUrl });
+    this.emit();
+    return str(r.url) ? { url: str(r.url) } : null;
+  }
+
+  async openBillingPortal(returnUrl: string): Promise<{ url: string } | null> {
+    await this.requireOwner('Only the studio owner can manage billing.');
+    const r = await this.invoke('platform-portal', { returnUrl });
+    return str(r.url) ? { url: str(r.url) } : null;
+  }
+
+  private async requireOwner(msg: string): Promise<void> {
+    const u = await this.requireMe();
+    if (u.kind !== 'staff' || u.role !== 'owner') throw new StoreError('NOT_ALLOWED', msg);
   }
 
   // ------------------------------------------------------------------ payments (Stripe Connect, owner only)
@@ -1511,7 +1573,7 @@ class SupabasePlatform implements PlatformStore {
   async listStudios(opts: { search?: string; includeAll?: boolean } = {}): Promise<Studio[]> {
     let q = this.sc.sb.from('studios').select('*').order('name');
     if (!opts.includeAll) q = q.eq('status', 'live');
-    const list = arr(await this.call(q)).map((r) => toStudio(obj(r)));
+    const list = (await withPlans(this.sc.sb, arr(await this.call(q)))).map(toStudio);
     const terms = (opts.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
     return list.filter((s) => terms.every((t) => `${s.name} ${s.slug} ${s.address}`.toLowerCase().includes(t)));
   }
@@ -1522,7 +1584,7 @@ class SupabasePlatform implements PlatformStore {
     else if (key.domain) q = q.contains('custom_domains', [key.domain.toLowerCase()]);
     else return null;
     const r = arr(await this.call(q.limit(1)))[0];
-    return r ? toStudio(obj(r)) : null;
+    return r ? toStudio((await withPlans(this.sc.sb, [r]))[0]!) : null;
   }
   forStudio(studio: Studio): DataStore {
     let s = this.stores.get(studio.id);
@@ -1577,6 +1639,34 @@ class SupabasePlatform implements PlatformStore {
   }
   async setStudioStatus(id: ID, status: StudioStatus): Promise<Studio> {
     const r = toStudio(obj(await this.rpc('platform_set_studio_status', { p_studio_id: id, p_status: status })));
+    this.emit();
+    return r;
+  }
+  async listPlans(opts: { includeInactive?: boolean } = {}): Promise<Plan[]> {
+    let q = this.sc.sb.from('plans').select('*').order('sort_order');
+    if (!opts.includeInactive) q = q.eq('active', true);
+    return arr(await this.call(q)).map((r) => toPlan(obj(r)));
+  }
+  async savePlan(plan: Partial<Plan> & { name: string }): Promise<Plan> {
+    const r = toPlan(obj(await this.rpc('platform_save_plan', {
+      p_id: plan.id ?? null, p_name: plan.name, p_price_cents: plan.priceCents ?? null, p_stripe_price_id: plan.stripePriceId?.trim() || null,
+      p_clear_price_id: plan.stripePriceId !== undefined && !plan.stripePriceId.trim(), p_features: plan.features ?? null,
+      p_sort_order: plan.sortOrder ?? null, p_active: plan.active ?? null, p_key: plan.key ?? null,
+    })));
+    this.emit();
+    return r;
+  }
+  async getBillingSettings(): Promise<PlatformBillingSettings> {
+    const r = obj(arr(await this.call(this.sc.sb.from('platform_billing_settings').select('*').limit(1)))[0]);
+    return { trialDays: num(r.trial_days, 14) === 30 ? 30 : 14, graceDays: num(r.grace_days, 14) };
+  }
+  async saveBillingSettings(s: Partial<PlatformBillingSettings>): Promise<PlatformBillingSettings> {
+    const r = obj(await this.rpc('platform_save_billing_settings', { p_trial_days: s.trialDays ?? null, p_grace_days: s.graceDays ?? null }));
+    this.emit();
+    return { trialDays: num(r.trial_days, 14) === 30 ? 30 : 14, graceDays: num(r.grace_days, 14) };
+  }
+  async setStudioPlan(studioId: ID, input: { planId: ID; status?: BillingStatus; comped?: boolean }): Promise<Studio> {
+    const r = toStudio(obj(await this.rpc('platform_set_studio_plan', { p_studio: studioId, p_plan: input.planId, p_status: input.status ?? 'active', p_comped: input.comped ?? true })));
     this.emit();
     return r;
   }

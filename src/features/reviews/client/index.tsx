@@ -8,4 +8,4 @@ import { registerSlot } from '../../../shared/registry';
 import { ReviewCard } from './card';
 import './reviews.css';
 
-registerSlot('client.timetable', { id: 'reviews.prompt', order: 10, render: () => <ReviewCard /> });
+registerSlot('client.timetable', { id: 'reviews.prompt', feature: 'reviews', order: 10, render: () => <ReviewCard /> });

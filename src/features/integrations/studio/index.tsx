@@ -12,7 +12,7 @@ import { PartnerChip, PartnerHeld } from './roster';
 import { XeroTab } from './xero';
 import './integrations.css';
 
-registerSettingsTab({ id: 'integrations', label: 'Partners', order: 60, perm: 'integrations.manage', render: () => <PartnersTab /> });
-registerSettingsTab({ id: 'integrations.xero', label: 'Xero export', order: 61, perm: 'integrations.accounting', render: () => <XeroTab /> });
-registerSlot('roster.entry', { id: 'integrations.badge', order: 20, perm: 'integrations.view', render: ({ entry, session }) => <PartnerChip bookingId={entry.id} sessionId={session.id} /> });
-registerSlot('roster.header', { id: 'integrations.held', order: 20, perm: 'integrations.view', render: ({ session }) => <PartnerHeld session={session} /> });
+registerSettingsTab({ id: 'integrations', feature: 'integrations', label: 'Partners', order: 60, perm: 'integrations.manage', render: () => <PartnersTab /> });
+registerSettingsTab({ id: 'integrations.xero', feature: 'integrations', label: 'Xero export', order: 61, perm: 'integrations.accounting', render: () => <XeroTab /> });
+registerSlot('roster.entry', { id: 'integrations.badge', feature: 'integrations', order: 20, perm: 'integrations.view', render: ({ entry, session }) => <PartnerChip bookingId={entry.id} sessionId={session.id} /> });
+registerSlot('roster.header', { id: 'integrations.held', feature: 'integrations', order: 20, perm: 'integrations.view', render: ({ session }) => <PartnerHeld session={session} /> });

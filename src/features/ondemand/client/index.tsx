@@ -7,6 +7,6 @@ import { registerClientRoute, registerClientTab } from '../../../shared/registry
 import { Library, WatchScreen } from './screens';
 import './ondemand.css';
 
-registerClientTab({ id: 'ondemand.library', path: '/online', label: 'Online', icon: 'play', order: 35 });
-registerClientRoute({ id: 'ondemand.library', path: '/online', tab: '/online', render: ({ nav }) => <Library nav={nav} /> });
-registerClientRoute({ id: 'ondemand.watch', path: '/online/:id', tab: '/online', render: ({ params, nav }) => <WatchScreen id={params.id ?? ''} nav={nav} /> });
+registerClientTab({ id: 'ondemand.library', feature: 'ondemand', path: '/online', label: 'Online', icon: 'play', order: 35 });
+registerClientRoute({ id: 'ondemand.library', feature: 'ondemand', path: '/online', tab: '/online', render: ({ nav }) => <Library nav={nav} /> });
+registerClientRoute({ id: 'ondemand.watch', feature: 'ondemand', path: '/online/:id', tab: '/online', render: ({ params, nav }) => <WatchScreen id={params.id ?? ''} nav={nav} /> });

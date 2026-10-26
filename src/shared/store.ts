@@ -15,7 +15,7 @@
  * All methods are async. Errors are thrown as StoreError with a user-friendly message.
  */
 import type {
-  PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
+  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime,
   Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff,
   StudioReport, StudioSettings, ReportRange, HealthForm,
@@ -149,6 +149,17 @@ export interface DataStore {
    * nothing to open (demo: the studio is marked connected straight away).
    */
   startPaymentsOnboarding(returnUrl: string): Promise<{ url: string } | null>;
+  /** Plans a studio can pick (active ones, plus its own current plan even if retired), cheapest first. Anyone may read. */
+  listPlans(): Promise<Plan[]>;
+  /** Owner only: this studio's plan, trial and billing status. `enabled` is false on a single-studio build. */
+  getBilling(): Promise<BillingInfo>;
+  /**
+   * Owner only: start (or change to) a plan. Returns Stripe Checkout's URL to open, or null when it was changed in place
+   * (an existing subscription, or the demo). Live: the platform-subscribe edge function, on the platform's own Stripe account.
+   */
+  startPlanCheckout(planId: ID, returnUrl: string): Promise<{ url: string } | null>;
+  /** Owner only: Stripe's billing portal (card, invoices, cancel). Live: platform-portal. Demo: null. */
+  openBillingPortal(returnUrl: string): Promise<{ url: string } | null>;
   /** Optional: store a logo / photo for this studio's branding and return its URL (live: the 'branding' Storage bucket). */
   uploadBrandingImage?(file: Blob): Promise<string>;
 
@@ -357,6 +368,15 @@ export interface PlatformStore {
   createStudio(input: NewStudioInput): Promise<Studio>;
   updateStudioAsAdmin(id: ID, patch: Partial<Omit<Studio, 'id' | 'createdAt'>>): Promise<Studio>;
   setStudioStatus(id: ID, status: StudioStatus): Promise<Studio>;
+  /** Plans (any signed-in or anonymous visitor may read the active ones; only platform admins save). */
+  listPlans(opts?: { includeInactive?: boolean }): Promise<Plan[]>;
+  /** Platform admin: add a plan (no id) or edit one (price, Stripe price id, feature keys, name, order, active). */
+  savePlan(plan: Partial<Plan> & { name: string }): Promise<Plan>;
+  /** Trial length and past-due grace period. Anyone may read. */
+  getBillingSettings(): Promise<PlatformBillingSettings>;
+  saveBillingSettings(s: Partial<PlatformBillingSettings>): Promise<PlatformBillingSettings>;
+  /** Platform admin: put a studio on a plan by hand (comp / free), or fix its status. `comped` = no Stripe subscription behind it. */
+  setStudioPlan(studioId: ID, input: { planId: ID; status?: BillingStatus; comped?: boolean }): Promise<Studio>;
   /** Adds the owner as staff (role owner) of that studio and sends them an invite. */
   inviteOwner(studioId: ID, owner: { name: string; email: string }): Promise<Staff>;
   /** Staff and clients per studio, for the admin list. */
@@ -368,5 +388,5 @@ export interface PlatformStore {
   demoReset?(): Promise<void>;
 }
 
-export type { PlatformUser, Studio, StudioMembership, StudioStatus };
+export type { BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PlatformUser, Studio, StudioMembership, StudioStatus };
 export type { AuthUser, Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff, StudioReport, StudioSettings, ReportRange, HealthForm };

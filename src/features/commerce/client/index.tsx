@@ -15,12 +15,12 @@ import './client.css';
 
 captureReferral();
 
-registerClientRoute({ id: 'commerce.gift-cards', path: '/gift-cards', tab: '/profile', render: ({ nav, path }) => <GiftCardsScreen nav={nav} path={path} /> });
-registerClientRoute({ id: 'commerce.gift-cards.buy', path: '/gift-cards/buy', chrome: false, render: ({ nav, path }) => <BuyGiftCardScreen nav={nav} path={path} /> });
-registerClientRoute({ id: 'commerce.refer', path: '/refer', tab: '/profile', render: ({ nav, path }) => <ReferScreen nav={nav} path={path} /> });
+registerClientRoute({ id: 'commerce.gift-cards', feature: 'commerce', path: '/gift-cards', tab: '/profile', render: ({ nav, path }) => <GiftCardsScreen nav={nav} path={path} /> });
+registerClientRoute({ id: 'commerce.gift-cards.buy', feature: 'commerce', path: '/gift-cards/buy', chrome: false, render: ({ nav, path }) => <BuyGiftCardScreen nav={nav} path={path} /> });
+registerClientRoute({ id: 'commerce.refer', feature: 'commerce', path: '/refer', tab: '/profile', render: ({ nav, path }) => <ReferScreen nav={nav} path={path} /> });
 
-registerClientProfileEntry({ id: 'commerce.gift-cards', label: 'Gift cards', sub: 'Buy one, or check a balance', icon: <GiftIcon />, path: '/gift-cards', order: 20 });
-registerClientProfileEntry({ id: 'commerce.refer', label: 'Bring a friend', sub: 'Share your code and earn credit', icon: <FriendsIcon />, path: '/refer', order: 21 });
+registerClientProfileEntry({ id: 'commerce.gift-cards', feature: 'commerce', label: 'Gift cards', sub: 'Buy one, or check a balance', icon: <GiftIcon />, path: '/gift-cards', order: 20 });
+registerClientProfileEntry({ id: 'commerce.refer', feature: 'commerce', label: 'Bring a friend', sub: 'Share your code and earn credit', icon: <FriendsIcon />, path: '/refer', order: 21 });
 
-registerSlot('client.shop', { id: 'commerce.shop', order: 20, render: () => <ShopExtras /> });
-registerSlot('client.timetable', { id: 'commerce.referral', order: 90, render: () => <ReferralClaimer /> });
+registerSlot('client.shop', { id: 'commerce.shop', feature: 'commerce', order: 20, render: () => <ShopExtras /> });
+registerSlot('client.timetable', { id: 'commerce.referral', feature: 'commerce', order: 90, render: () => <ReferralClaimer /> });
