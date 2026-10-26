@@ -337,6 +337,29 @@ export interface ClassType {
   imageUrl?: string;
 }
 
+/** A place the studio runs classes. Every studio has a default one; most never see this. */
+export interface Location {
+  id: ID;
+  name: string;
+  address: string;
+  /** IANA zone. Absent = the studio's. */
+  timezone?: string;
+  active: boolean;
+  /** The location that classes without a location belong to. Exactly one per studio. */
+  isDefault?: boolean;
+  sortOrder?: number;
+}
+
+/** A room at a location. Only one class (or appointment or event) can use a room at a time. */
+export interface Room {
+  id: ID;
+  locationId: ID;
+  name: string;
+  /** Prefills the capacity of classes held in this room. */
+  capacity?: number;
+  active: boolean;
+}
+
 /** A recurring weekly slot that generates ClassSessions. */
 export interface ScheduleTemplate {
   id: ID;
@@ -350,6 +373,9 @@ export interface ScheduleTemplate {
   startsOn: ISODate;
   endsOn?: ISODate;
   active: boolean;
+  /** Where it happens (multi-location studios). Absent = the studio's default location. */
+  locationId?: ID;
+  roomId?: ID;
 }
 
 export type SessionStatus = 'scheduled' | 'cancelled';
@@ -366,6 +392,9 @@ export interface ClassSession {
   /** Public note shown on the timetable, e.g. 'Bring a towel'. */
   note?: string;
   cancelReason?: string;
+  /** Where it happens. Absent = the studio's default location / no particular room. */
+  locationId?: ID;
+  roomId?: ID;
 }
 
 /** A session plus live counts, as returned by listSessions/getSession. */
@@ -519,6 +548,8 @@ export type AuthUser =
 export interface ReportRange {
   from: ISODate;
   to: ISODate; // inclusive
+  /** Only classes at this location (attendance, fill, instructors). Sales aren't split by location, so revenue stays studio-wide. */
+  locationId?: ID;
 }
 
 export interface StudioReport {

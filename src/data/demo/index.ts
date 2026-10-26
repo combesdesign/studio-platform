@@ -11,13 +11,13 @@ import type {
   BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
-  AuthUser, BillingInfo, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod, PaymentsStatus, Plan,
-  Product, ReportRange, Sale, ScheduleTemplate, SessionWithCounts, Staff, Studio, StudioReport, StudioSettings,
+  AuthUser, BillingInfo, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, Plan,
+  Product, ReportRange, Room, Sale, ScheduleTemplate, SessionWithCounts, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
 import {
   FINANCIAL_SETTINGS_KEYS, buildReport, can, clientsCsv, comparePassPriority, computePassStatus, creditLabel, isIntroEligible,
-  isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, type FeatureAction, type StaffAction,
+  isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, type FeatureAction, type StaffAction,
 } from '../../domain';
 import type { Actor, DemoState, Engine } from './engine';
 import { PERSONA_EMAILS } from './seed';
@@ -26,7 +26,7 @@ import { demoFeatures, type DemoFeatureContext } from './features';
 import { createDemoPlatform } from './platform';
 import { SNOWY_ID } from '../studios';
 import '../../features/demo';
-import { DEFAULT_BILLING_SETTINGS, gateFeatures } from '../../shared/plans';
+import { DEFAULT_BILLING_SETTINGS, gateFeatures, hasFeature } from '../../shared/plans';
 
 export { STATE_KEY, REV_KEY, AUTH_KEYS, PERSONA_EMAILS, memoryStorage, DemoDb, createDemoPlatform };
 export type { StorageLike };
@@ -587,6 +587,63 @@ export class DemoStore implements DataStore {
     });
   }
 
+  // ---------------------------------------------------------------- locations and rooms
+  async listLocations(): Promise<Location[]> {
+    return this.read(() => {
+      const { locations } = this.engine.ensureLocations();
+      const staff = this.viewerStaff();
+      return clone(locations.filter((l) => staff || l.active).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)));
+    });
+  }
+
+  async listRooms(): Promise<Room[]> {
+    return this.read(() => {
+      const { rooms } = this.engine.ensureLocations();
+      const staff = this.viewerStaff();
+      return clone(rooms.filter((r) => staff || r.active));
+    });
+  }
+
+  async upsertLocation(input: Omit<Location, 'id' | 'isDefault'> & { id?: ID }): Promise<Location> {
+    return this.write(() => {
+      this.requireStaff('settings');
+      const { locations } = this.engine.ensureLocations();
+      const name = input.name?.trim();
+      if (!name) throw err('INVALID', 'Please give the location a name.');
+      const existing = input.id ? locations.find((l) => l.id === input.id) : undefined;
+      if (input.id && !existing) throw err('NOT_FOUND', 'That location could not be found.');
+      if (existing?.isDefault && input.active === false) throw err('INVALID', 'The main location can’t be switched off. Make another one the main location first, or just rename it.');
+      if (!existing && locations.length >= 1 && locations.length < 2 && !hasFeature(this.studioRec, 'multi_location')) {
+        throw err('FEATURE_LOCKED', 'More than one location is on a higher plan.');
+      }
+      if (locations.some((l) => l.id !== input.id && l.name.toLowerCase() === name.toLowerCase())) throw err('INVALID', 'You already have a location with that name.');
+      const rec: Omit<Location, 'id'> = { name, address: input.address?.trim() ?? '', active: input.active !== false, ...(input.timezone ? { timezone: input.timezone } : {}), sortOrder: input.sortOrder ?? existing?.sortOrder ?? locations.length };
+      if (existing) { Object.assign(existing, rec); if (!input.timezone) delete existing.timezone; return clone(existing); }
+      const out: Location = { ...rec, id: this.engine.newId('loc') };
+      locations.push(out);
+      return clone(out);
+    });
+  }
+
+  async upsertRoom(input: Omit<Room, 'id'> & { id?: ID }): Promise<Room> {
+    return this.write(() => {
+      this.requireStaff('settings');
+      const { locations, rooms } = this.engine.ensureLocations();
+      const name = input.name?.trim();
+      if (!name) throw err('INVALID', 'Please give the room a name.');
+      if (!locations.some((l) => l.id === input.locationId)) throw err('NOT_FOUND', 'That location could not be found.');
+      if (input.capacity !== undefined && !(input.capacity >= 1)) throw err('INVALID', 'Room capacity must be at least 1.');
+      const existing = input.id ? rooms.find((r) => r.id === input.id) : undefined;
+      if (input.id && !existing) throw err('NOT_FOUND', 'That room could not be found.');
+      if (rooms.some((r) => r.id !== input.id && r.locationId === input.locationId && r.name.toLowerCase() === name.toLowerCase())) throw err('INVALID', 'That location already has a room with that name.');
+      const rec: Room = { id: existing?.id ?? '', locationId: input.locationId, name, active: input.active !== false, ...(input.capacity ? { capacity: input.capacity } : {}) };
+      if (existing) { Object.assign(existing, rec, { id: existing.id }); if (!input.capacity) delete existing.capacity; return clone(existing); }
+      const out: Room = { ...rec, id: this.engine.newId('room') };
+      rooms.push(out);
+      return clone(out);
+    });
+  }
+
   async listTemplates(): Promise<ScheduleTemplate[]> {
     return this.read(() => [...this.state.templates].sort((a, b) => ((a.weekday + 6) % 7) - ((b.weekday + 6) % 7) || a.startTime.localeCompare(b.startTime)));
   }
@@ -599,7 +656,21 @@ export class DemoStore implements DataStore {
       if (!DATE_RE.test(input.startsOn) || (input.endsOn && !DATE_RE.test(input.endsOn))) throw err('INVALID', 'Dates must be YYYY-MM-DD.');
       this.engine.classType(input.classTypeId);
       if (!this.state.staff.some((s) => s.id === input.instructorId)) throw err('NOT_FOUND', 'That instructor could not be found.');
+      const place: { locationId?: ID; roomId?: ID } = { ...(input.locationId ? { locationId: input.locationId } : {}), ...(input.roomId ? { roomId: input.roomId } : {}) };
+      const { locations, rooms } = this.engine.ensureLocations();
+      if (place.roomId) {
+        const room = rooms.find((r) => r.id === place.roomId);
+        if (!room) throw err('NOT_FOUND', 'That room could not be found.');
+        if (place.locationId && place.locationId !== room.locationId) throw err('INVALID', 'That room is at a different location.');
+        place.locationId = room.locationId;
+        const clash = templateClashes({ id: input.id ?? '', classTypeId: input.classTypeId, weekday: input.weekday, startTime: input.startTime, startsOn: input.startsOn, active: input.active, roomId: place.roomId, ...(input.endsOn ? { endsOn: input.endsOn } : {}) }, this.state.templates, this.state.classTypes)[0];
+        if (clash) throw err('ROOM_BUSY', `${room.name} already has ${this.engine.classType(clash.classTypeId).name} on that day at ${clash.startTime}. Pick another room or time.`);
+      } else if (place.locationId && !locations.some((l) => l.id === place.locationId)) throw err('NOT_FOUND', 'That location could not be found.');
+      input = { ...input, ...place };
+      if (!place.roomId) delete input.roomId;
+      if (!place.locationId) delete input.locationId;
       const existing = input.id ? this.state.templates.find((t) => t.id === input.id) : undefined;
+      if (existing) { delete existing.roomId; delete existing.locationId; }
       let out: ScheduleTemplate;
       if (existing) { Object.assign(existing, input); out = existing; }
       else { out = { ...input, id: input.id ?? this.engine.newId('tp') }; this.state.templates.push(out); }
@@ -1101,7 +1172,7 @@ export class DemoStore implements DataStore {
     return this.read(() => {
       const st = this.requireStaff('reports');
       const s = this.state;
-      const r = buildReport({ range, now: this.now(), sales: s.sales, sessions: s.sessions, bookings: s.bookings, clients: s.clients, passes: s.passes, staff: s.staff, classTypes: s.classTypes, products: s.products });
+      const r = buildReport({ range, now: this.now(), sales: s.sales, sessions: s.sessions, bookings: s.bookings, clients: s.clients, passes: s.passes, staff: s.staff, classTypes: s.classTypes, products: s.products, locations: this.engine.ensureLocations().locations });
       if (!can(st.role, 'reports_revenue')) { r.revenueCents = 0; r.refundsCents = 0; r.revenueByMethod = {}; r.revenueByKind = {}; r.salesCount = 0; }
       if (!can(st.role, 'reports_pay')) r.byInstructor = r.byInstructor.map((x) => ({ ...x, payCents: 0 }));
       return r;

@@ -26,6 +26,8 @@ export function sessionFromTemplate(t: ScheduleTemplate, ct: ClassType, date: IS
     instructorId: t.instructorId,
     capacity: t.capacity ?? ct.defaultCapacity,
     status: 'scheduled',
+    ...(t.locationId ? { locationId: t.locationId } : {}),
+    ...(t.roomId ? { roomId: t.roomId } : {}),
   };
 }
 

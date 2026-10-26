@@ -4,3 +4,4 @@ export * from './report';
 export * from './permissions';
 export * from './time';
 export * from './capacity';
+export * from './rooms';

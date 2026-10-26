@@ -16,7 +16,7 @@
  */
 import type {
   BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
-  AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime,
+  AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Room,
   Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff,
   StudioReport, StudioSettings, ReportRange, HealthForm,
 } from './types';
@@ -193,6 +193,15 @@ export interface DataStore {
   // ------------------------------------------------------------ class types & schedule
   listClassTypes(opts?: { includeInactive?: boolean }): Promise<ClassType[]>;
   upsertClassType(ct: Omit<ClassType, 'id'> & { id?: ID }): Promise<ClassType>;
+
+  // ------------------------------------------------------------ locations and rooms
+  /** The studio's locations (always at least the default one). Everyone can read; clients only see active ones. */
+  listLocations(): Promise<Location[]>;
+  /** Rooms at the studio's locations. */
+  listRooms(): Promise<Room[]>;
+  /** Owners and managers. Adding a location past the first needs the plan's multi_location feature. Locations are never deleted, only made inactive. */
+  upsertLocation(l: Omit<Location, 'id' | 'isDefault'> & { id?: ID }): Promise<Location>;
+  upsertRoom(r: Omit<Room, 'id'> & { id?: ID }): Promise<Room>;
 
   listTemplates(): Promise<ScheduleTemplate[]>;
   upsertTemplate(t: Omit<ScheduleTemplate, 'id'> & { id?: ID }): Promise<ScheduleTemplate>;
@@ -389,4 +398,4 @@ export interface PlatformStore {
 }
 
 export type { BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PlatformUser, Studio, StudioMembership, StudioStatus };
-export type { AuthUser, Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff, StudioReport, StudioSettings, ReportRange, HealthForm };
+export type { Location, Room, AuthUser, Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff, StudioReport, StudioSettings, ReportRange, HealthForm };

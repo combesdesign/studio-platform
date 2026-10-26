@@ -15,7 +15,7 @@ import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
   Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus,
-  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan,
+  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan, Location, Room,
 } from '../../shared/types';
 import {
   StoreError,
@@ -191,7 +191,7 @@ function toTemplate(r: Row): ScheduleTemplate {
   return clean({
     id: str(r.id), classTypeId: str(r.class_type_id), weekday: num(r.weekday), startTime: str(r.start_time).slice(0, 5),
     instructorId: str(r.instructor_id), capacity: optNum(r.capacity), startsOn: str(r.starts_on).slice(0, 10),
-    endsOn: optDate(r.ends_on), active: bool(r.active),
+    endsOn: optDate(r.ends_on), active: bool(r.active), locationId: optStr(r.location_id), roomId: optStr(r.room_id),
   });
 }
 
@@ -202,9 +202,21 @@ function toSession(r: Row): SessionWithCounts {
     id: str(r.id), classTypeId: str(r.class_type_id), templateId: optStr(r.template_id), startsAt: iso(r.starts_at),
     endsAt: iso(r.ends_at), instructorId: str(r.instructor_id), capacity,
     status: (str(r.status) || 'scheduled') as ClassSession['status'], note: optStr(r.note), cancelReason: optStr(r.cancel_reason),
+    locationId: optStr(r.location_id), roomId: optStr(r.room_id),
     bookedCount: booked, waitlistCount: num(r.waitlist_count),
     spotsLeft: r.spots_left === undefined ? Math.max(0, capacity - booked) : num(r.spots_left),
   });
+}
+
+function toLocation(r: Row): Location {
+  return clean({
+    id: str(r.id), name: str(r.name), address: str(r.address), timezone: optStr(r.timezone), active: bool(r.active),
+    isDefault: r.is_default ? true : undefined, sortOrder: num(r.sort_order),
+  });
+}
+
+function toRoom(r: Row): Room {
+  return clean({ id: str(r.id), locationId: str(r.location_id), name: str(r.name), capacity: optNum(r.capacity), active: bool(r.active) });
 }
 
 function toProduct(r: Row): Product {
@@ -947,6 +959,49 @@ class SupabaseStore implements DataStore {
     });
   }
 
+  // ------------------------------------------------------------------ locations and rooms
+  async listLocations(): Promise<Location[]> {
+    const rows = await this.rows(this.sb.from('locations').select('*'));
+    return rows.map(toLocation).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+  }
+
+  async listRooms(): Promise<Room[]> {
+    return (await this.rows(this.sb.from('rooms').select('*'))).map(toRoom).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async upsertLocation(l: Omit<Location, 'id' | 'isDefault'> & { id?: ID }): Promise<Location> {
+    return this.write(async () => {
+      await this.requireStaff('settings');
+      if (!l.name?.trim()) throw new StoreError('INVALID', 'Please give the location a name.');
+      const row = patchRow([
+        ['name', l.name.trim()], ['address', (l.address ?? '').trim()], ['timezone', l.timezone || null], ['active', l.active], ['sort_order', l.sortOrder],
+      ]);
+      const r = l.id
+        ? await this.one(this.sb.from('locations').update(row).eq('id', l.id).select('*'), 'You don’t have permission to edit locations.', 'NOT_ALLOWED')
+        : await this.one(this.sb.from('locations').insert(row).select('*'));
+      return toLocation(r);
+    });
+  }
+
+  async upsertRoom(r: Omit<Room, 'id'> & { id?: ID }): Promise<Room> {
+    return this.write(async () => {
+      await this.requireStaff('settings');
+      if (!r.name?.trim()) throw new StoreError('INVALID', 'Please give the room a name.');
+      const row = patchRow([['location_id', r.locationId], ['name', r.name.trim()], ['capacity', r.capacity ?? null], ['active', r.active]]);
+      const out = r.id
+        ? await this.one(this.sb.from('rooms').update(row).eq('id', r.id).select('*'), 'You don’t have permission to edit rooms.', 'NOT_ALLOWED')
+        : await this.one(this.sb.from('rooms').insert(row).select('*'));
+      return toRoom(out);
+    });
+  }
+
+  /** A room carries its location: fill it in when only the room was given. */
+  private async placeOf(p: { locationId?: ID | undefined; roomId?: ID | undefined }): Promise<{ location_id: string | null; room_id: string | null }> {
+    if (!p.roomId) return { location_id: p.locationId ?? null, room_id: null };
+    const room = await this.one(this.sb.from('rooms').select('id, location_id').eq('id', p.roomId).limit(1), 'We couldn’t find that room.');
+    return { location_id: str(room.location_id), room_id: p.roomId };
+  }
+
   async listTemplates(): Promise<ScheduleTemplate[]> {
     const rows = await this.rows(this.sb.from('schedule_templates').select('*'));
     return rows.map(toTemplate).sort((a, b) => ((a.weekday + 6) % 7) - ((b.weekday + 6) % 7) || a.startTime.localeCompare(b.startTime));
@@ -960,7 +1015,8 @@ class SupabaseStore implements DataStore {
       const row = patchRow([
         ['class_type_id', t.classTypeId], ['weekday', t.weekday], ['start_time', t.startTime], ['instructor_id', t.instructorId],
         ['capacity', t.capacity ?? null], ['starts_on', t.startsOn], ['ends_on', t.endsOn ?? null], ['active', t.active],
-      ]);
+        ...Object.entries(await this.placeOf(t)),
+      ] as [string, unknown][]);
       const r = t.id
         ? await this.one(this.sb.from('schedule_templates').update(row).eq('id', t.id).select('*'), 'You don’t have permission to edit the timetable.', 'NOT_ALLOWED')
         : await this.one(this.sb.from('schedule_templates').insert(row).select('*'));
@@ -1011,7 +1067,8 @@ class SupabaseStore implements DataStore {
       const row = patchRow([
         ['class_type_id', s.classTypeId], ['template_id', s.templateId], ['starts_at', s.startsAt], ['ends_at', s.endsAt],
         ['instructor_id', s.instructorId], ['capacity', s.capacity], ['note', textOrNull(s.note)],
-      ]);
+        ...Object.entries(await this.placeOf(s)),
+      ] as [string, unknown][]);
       let id = s.id;
       if (id) {
         const current = await this.getSession(id);
@@ -1515,7 +1572,7 @@ class SupabaseStore implements DataStore {
   // ------------------------------------------------------------------ reports
 
   async getReport(range: ReportRange): Promise<StudioReport> {
-    return toReport(obj(await this.rpc('report', { p_from: range.from, p_to: range.to })), range);
+    return toReport(obj(await this.rpc('report', { p_from: range.from, p_to: range.to, ...(range.locationId ? { p_location: range.locationId } : {}) })), range);
   }
 
   async exportSalesCsv(range: ReportRange): Promise<string> {
@@ -1689,4 +1746,4 @@ export function createSupabasePlatform(url: string, anonKey: string): PlatformSt
 }
 
 /** Row mappers, exported for supabase/tests/live_store.test.mjs. */
-export const mappers = { toSettings, toStaff, toClient, toClassType, toTemplate, toSession, toProduct, toPass, toBooking, toSale, toReport };
+export const mappers = { toLocation, toRoom, toSettings, toStaff, toClient, toClassType, toTemplate, toSession, toProduct, toPass, toBooking, toSale, toReport };

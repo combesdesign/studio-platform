@@ -7,17 +7,17 @@
 import { StoreError } from '../../shared/store';
 import type { BookResult, CancelResult, RestoreSessionResult, UndoCancelResult, VoidResult } from '../../shared/store';
 import type {
-  Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale,
-  ScheduleTemplate, SessionWithCounts, Staff, StudioSettings,
+  Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, Product, Sale,
+  Room, ScheduleTemplate, SessionWithCounts, Staff, StudioSettings,
 } from '../../shared/types';
-import { addDays } from '../../shared/format';
+import { addDays, time as clockTime } from '../../shared/format';
 import { directFull, directSpotsLeft } from '../../domain/capacity';
 import { demoFeatures } from './features';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
   isCountedPass, isFamilyShareable, isIntroEligible, isPausedOn, nextBillingAfter, pickWaitlistPromotion, withinBookingWindow,
-  studioDay as studioDate, type Eligibility, type PassUse,
+  studioDay as studioDate, classUses, clashMessage, findRoomClash, locationOfRoom, type Eligibility, type PassUse,
 } from '../../domain';
 
 export const STATE_VERSION = 1;
@@ -39,6 +39,9 @@ export interface DemoState {
   classTypes: ClassType[];
   templates: ScheduleTemplate[];
   sessions: ClassSession[];
+  /** Locations and rooms. Missing in older saved demos and single-location studios: ensureLocations makes the default pair. */
+  locations?: Location[];
+  rooms?: Room[];
   bookings: Booking[];
   clients: Client[];
   products: Product[];
@@ -299,8 +302,28 @@ export class Engine {
     const hi = to > maxTo ? maxTo : to;
     if (lo > hi) return 0;
     const created = generateSessions({ templates: this.s.templates, classTypes: this.s.classTypes, from: lo, to: hi, existingIds: new Set(this.sessionsById.keys()) });
-    for (const x of created) this.addSession(x);
-    return created.length;
+    let n = 0;
+    for (const x of created) {
+      if (x.roomId && this.roomClash(x)) continue;   // a busy room keeps the class that was there first
+      this.addSession(x); n++;
+    }
+    return n;
+  }
+
+  // ---------------------------------------------------------------- locations and rooms
+  /** Every studio has one default location and room (made on first use, so older saved demos and new studios just work). */
+  ensureLocations(): { locations: Location[]; rooms: Room[] } {
+    if (!this.s.locations?.length) {
+      this.s.locations = [{ id: 'loc_default', name: 'Main location', address: this.s.settings.address, active: true, isDefault: true, sortOrder: 0 }];
+      this.s.rooms = [{ id: 'room_default', locationId: 'loc_default', name: 'Main room', active: true }];
+    }
+    this.s.rooms ??= [];
+    return { locations: this.s.locations, rooms: this.s.rooms };
+  }
+
+  /** The class (or other room use) a session would clash with, if any. */
+  roomClash(want: { roomId?: ID | undefined; startsAt: string; endsAt: string; id?: ID | undefined }): ReturnType<typeof findRoomClash> {
+    return findRoomClash({ roomId: want.roomId, startsAt: want.startsAt, endsAt: want.endsAt, ignoreId: want.id }, classUses(this.s.sessions, this.s.classTypes));
   }
 
   /** After a template changes: drop its future sessions that have no bookings, so they regenerate. */
@@ -317,12 +340,20 @@ export class Engine {
       classTypeId: raw.classTypeId, startsAt: raw.startsAt, endsAt: raw.endsAt, instructorId: raw.instructorId, capacity: raw.capacity,
       ...(raw.id ? { id: raw.id } : {}), ...(raw.status ? { status: raw.status } : {}), ...(raw.templateId ? { templateId: raw.templateId } : {}),
       ...(raw.note !== undefined ? { note: raw.note } : {}), ...(raw.cancelReason !== undefined ? { cancelReason: raw.cancelReason } : {}),
+      ...(raw.locationId ? { locationId: raw.locationId } : {}), ...(raw.roomId ? { roomId: raw.roomId } : {}),
     };
+    this.checkPlace(input);
     if (Number.isNaN(Date.parse(input.startsAt)) || Date.parse(input.endsAt) <= Date.parse(input.startsAt)) throw err('INVALID', 'The class must end after it starts.');
     if (!(input.capacity >= 0)) throw err('INVALID', 'Capacity must be zero or more.');
     this.classType(input.classTypeId);
     const existing = input.id ? this.sessionsById.get(input.id) : undefined;
+    if (input.roomId && (input.status ?? existing?.status ?? 'scheduled') !== 'cancelled') {
+      const clash = this.roomClash({ roomId: input.roomId, startsAt: input.startsAt, endsAt: input.endsAt, id: input.id });
+      if (clash) throw err('ROOM_BUSY', clashMessage(this.s.rooms?.find((r) => r.id === input.roomId)?.name ?? 'That room', clash, clockTime(clash.startsAt)));
+    }
     if (existing) {
+      if (!input.roomId) { delete existing.roomId; }
+      if (!input.locationId) { delete existing.locationId; }
       const prevCap = existing.capacity;
       const wasCancelled = existing.status === 'cancelled';
       const { status, ...rest } = input;
@@ -336,6 +367,18 @@ export class Engine {
     const s: ClassSession = { ...input, id: input.id ?? this.newId('se'), status: input.status ?? 'scheduled' };
     this.addSession(s);
     return this.withCounts(s);
+  }
+
+  /** A room has to exist and belong to the class's location (which it fills in when left out). */
+  private checkPlace(input: { locationId?: ID; roomId?: ID }): void {
+    const { locations, rooms } = this.ensureLocations();
+    if (input.roomId) {
+      const loc = locationOfRoom(rooms, input.roomId);
+      if (!loc) throw err('NOT_FOUND', 'That room could not be found.');
+      if (input.locationId && input.locationId !== loc) throw err('INVALID', 'That room is at a different location.');
+      input.locationId = loc;
+    }
+    if (input.locationId && !locations.some((l) => l.id === input.locationId)) throw err('NOT_FOUND', 'That location could not be found.');
   }
 
   cancelSession(id: ID, reason: string): void {

@@ -1,10 +1,11 @@
 /** Report aggregation and CSV export. Pure. */
 import type {
-  Booking, ClassSession, ClassType, Client, ID, Pass, PaymentMethod, Product, ProductKind, ReportRange, Sale, Staff, StudioReport,
+  Booking, ClassSession, ClassType, Client, ID, Location, Pass, PaymentMethod, Product, ProductKind, ReportRange, Sale, Staff, StudioReport,
 } from '../shared/types';
 import { gstOf, time, weekday } from '../shared/format';
 import { studioDay as studioDate } from './time';
 import { computePassStatus } from './rules';
+import { effectiveLocationId } from './rooms';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -32,6 +33,8 @@ export interface ReportInput {
   staff: readonly Staff[];
   classTypes: readonly ClassType[];
   products: readonly Product[];
+  /** Needed for the range's locationId (sessions without a location count for the default one). */
+  locations?: readonly Location[];
   topSlots?: number;
 }
 
@@ -63,7 +66,9 @@ export function buildReport(input: ReportInput): StudioReport {
     if (s.refundedAt && s.refundedCents && inRange(studioDate(s.refundedAt), range)) refundsCents += s.refundedCents;
   }
 
-  const run = input.sessions.filter((s) => s.status !== 'cancelled' && inRange(studioDate(s.startsAt), range) && Date.parse(s.startsAt) <= now.getTime());
+  // A location filter narrows classes (attendance, fill, instructors, class types). Sales don't belong to a location, so revenue stays studio-wide.
+  const atLocation = (s: ClassSession) => !range.locationId || effectiveLocationId(s, input.locations ?? []) === range.locationId;
+  const run = input.sessions.filter((s) => s.status !== 'cancelled' && atLocation(s) && inRange(studioDate(s.startsAt), range) && Date.parse(s.startsAt) <= now.getTime());
   const runIds = new Set(run.map((s) => s.id));
   const bySession = new Map<ID, Booking[]>();
   for (const b of input.bookings) {
