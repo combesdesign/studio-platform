@@ -36,7 +36,7 @@ export function AppointmentSettingsTab() {
               <label className="field"><span>Minimum notice (hours)</span><input className="input" inputMode="numeric" value={s.minNoticeHours} onChange={(e) => setS({ ...s, minNoticeHours: e.target.value })} /></label>
               <label className="field"><span>Clients can book up to (days ahead)</span><input className="input" inputMode="numeric" value={s.horizonDays} onChange={(e) => setS({ ...s, horizonDays: e.target.value })} /></label>
             </div>
-            <div className="sh-foot" style={{ position: 'static' }}><button className="btn" disabled={busy || !dirty}>Save</button></div>
+            <div className="ap-actions"><button className="btn" disabled={busy || !dirty}>Save</button></div>
           </form>
         )}
       </section>

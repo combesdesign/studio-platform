@@ -53,7 +53,7 @@ export function HoursTab() {
                 <div key={d.n} className="ap-hours-row">
                   <strong>{d.l}</strong>
                   <div>
-                    {rows.length === 0 && <span className="muted">Not available</span>}
+                    {rows.length === 0 && <span className="muted" style={{ marginRight: 12 }}>Not available</span>}
                     {rows.map(({ r, i }) => (
                       <div key={i} className="ap-win">
                         <input className="input" type="time" step={300} value={r.start} aria-label={`${d.l} start`} onChange={(e) => upd(i, { start: e.target.value })} />
@@ -70,7 +70,7 @@ export function HoursTab() {
           </div>
         )}
         {problem && <p className="field-err" role="alert" style={{ color: 'var(--danger)', marginTop: 10 }}>{problem}</p>}
-        <div className="sh-foot" style={{ position: 'static' }}><button className="btn" disabled={busy || !dirty || !!problem} onClick={save}>Save hours</button></div>
+        <div className="ap-actions"><button className="btn" disabled={busy || !dirty || !!problem} onClick={save}>Save hours</button></div>
       </section>
 
       <section className="card pad">
@@ -91,7 +91,7 @@ export function HoursTab() {
             <label className="field"><span>To</span><input className="input" type="time" value={offForm.end} onChange={(e) => setOffForm({ ...offForm, end: e.target.value })} /></label></>}
           <label className="field span2"><span>Note (optional)</span><input className="input" value={offForm.note} onChange={(e) => setOffForm({ ...offForm, note: e.target.value })} placeholder="Holiday, appointment…" /></label>
         </div>
-        <div className="sh-foot" style={{ position: 'static' }}><button className="btn" disabled={busy} onClick={addOff}>Add time off</button></div>
+        <div className="ap-actions"><button className="btn" disabled={busy} onClick={addOff}>Add time off</button></div>
       </section>
     </div>
   );

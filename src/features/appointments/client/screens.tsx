@@ -113,7 +113,7 @@ export function AppointmentsScreen({ nav, path }: { nav: Nav; path: string }) {
               {types.data.map((t) => (
                 <button key={t.id} className={'ap-card' + (t.imageUrl ? ' img' : '')} onClick={() => setBook(t)}>
                   {t.imageUrl && <span className="ap-thumb" style={{ backgroundImage: `url(${brandAsset(t.imageUrl)})` }} />}
-                  <span className={t.imageUrl ? 'ap-body' : ''} style={{ display: 'contents' }}>
+                  <span className="ap-body">
                     <span className="ap-t">{t.name}</span>
                     {t.description && <span className="ap-s">{t.description}</span>}
                     <span className="ap-row">
@@ -151,7 +151,7 @@ export function AppointmentsScreen({ nav, path }: { nav: Nav; path: string }) {
               {events.data.map((e) => (
                 <button key={e.id} className={'ap-card' + (e.imageUrl ? ' img' : '')} onClick={() => setEvent(e.id)}>
                   {e.imageUrl && <span className="ap-thumb" style={{ backgroundImage: `url(${brandAsset(e.imageUrl)})` }} />}
-                  <span style={{ display: 'contents' }}>
+                  <span className="ap-body">
                     <span className="ap-row"><span className={'tag ' + (e.mine ? 'ok' : 'cream')}>{e.mine ? 'You’re in' : KIND_LABEL[e.kind]}</span><span className="ap-price">{price(e.priceCents)}</span></span>
                     <span className="ap-t">{e.title}</span>
                     <span className="ap-meta"><span>{eventWhen(e)}</span>{e.location && <span>{e.location}</span>}</span>
@@ -256,7 +256,7 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
   }
   if (step === 'pay' && sel) {
     return (
-      <div className="stack lg">
+      <div className="stack lg ap-stack">
         <SheetHead back={{ label: 'Times', onClick: () => setStep('pick') }} eyebrow="Checkout" title={<>{money(total)} <span className="muted-serif">· {type.name}</span></>} onClose={onClose} />
         {waiver && <WaiverNote nav={nav} where="/appointments" />}
         <PayStep amountCents={total} busy={busy} onPay={() => book('card_online')} note={`${dayFull(sel.startsAt)}, ${clock(sel.startsAt)} with ${staffName(sel.staffId)}`} />
@@ -264,7 +264,7 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
     );
   }
   return (
-    <div className="stack lg">
+    <div className="stack lg ap-stack">
       <SheetHead eyebrow={`${type.durationMin} min · ${type.capacity === 2 ? 'Up to 2 people' : '1 person'}`} title={type.name} onClose={onClose} />
       {type.description && <p className="muted">{type.description}</p>}
       {type.bookingNote && <div className="note cream"><Icon name="info" size={20} /><div>{type.bookingNote}</div></div>}
@@ -351,11 +351,11 @@ function PackBody({ pack, onClose }: { pack: AppointmentPack; onClose: () => voi
       <p className="muted">{pack.credits} credits are ready. Use them when you book a private.</p><div className="stack"><button className="btn block" onClick={onClose}>Done</button></div></div></>);
   }
   if (step === 'pay') {
-    return (<div className="stack lg"><SheetHead back={{ label: pack.name, onClick: () => setStep('review') }} eyebrow="Checkout" title={<>{money(pack.priceCents)} <span className="muted-serif">· {pack.name}</span></>} onClose={onClose} />
+    return (<div className="stack lg ap-stack"><SheetHead back={{ label: pack.name, onClick: () => setStep('review') }} eyebrow="Checkout" title={<>{money(pack.priceCents)} <span className="muted-serif">· {pack.name}</span></>} onClose={onClose} />
       <PayStep amountCents={pack.priceCents} busy={busy} onPay={pay} /></div>);
   }
   return (
-    <div className="stack lg">
+    <div className="stack lg ap-stack">
       <SheetHead eyebrow="Appointment pack" title={pack.name} onClose={onClose} />
       {pack.description && <p className="muted">{pack.description}</p>}
       <div className="ap-sum"><strong>{pack.credits} sessions · {price(pack.priceCents)}</strong>
@@ -377,7 +377,7 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
   const [outcome, setOutcome] = useState<string>('');
   useBackHandler(step === 'pay', () => setStep('view'));
   const e: StudioEventSummary | undefined = ev.data;
-  if (!e) return <div className="stack lg"><SheetHead onClose={onClose} />{ev.error ? <ErrorBlock error={ev.error} onRetry={ev.reload} /> : <CardSkeletons n={2} h={90} />}</div>;
+  if (!e) return <div className="stack lg ap-stack"><SheetHead onClose={onClose} />{ev.error ? <ErrorBlock error={ev.error} onRetry={ev.reload} /> : <CardSkeletons n={2} h={90} />}</div>;
 
   const started = Date.now() >= Date.parse(eventStart(e));
   const full = e.spotsLeft <= 0;
@@ -415,12 +415,12 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
       <div className="stack"><button className="btn block" onClick={onClose}>Done</button></div></div></>);
   }
   if (step === 'pay') {
-    return (<div className="stack lg"><SheetHead back={{ label: e.title, onClick: () => setStep('view') }} eyebrow="Checkout" title={<>{money(e.priceCents)} <span className="muted-serif">· {e.title}</span></>} onClose={onClose} />
+    return (<div className="stack lg ap-stack"><SheetHead back={{ label: e.title, onClick: () => setStep('view') }} eyebrow="Checkout" title={<>{money(e.priceCents)} <span className="muted-serif">· {e.title}</span></>} onClose={onClose} />
       {waiver && <WaiverNote nav={nav} where="/appointments?tab=events" />}
       <PayStep amountCents={e.priceCents} busy={busy} onPay={() => register(true)} /></div>);
   }
   return (
-    <div className="stack lg">
+    <div className="stack lg ap-stack">
       <SheetHead eyebrow={KIND_LABEL[e.kind]} title={e.title} onClose={onClose} />
       {e.imageUrl && <div className="ap-thumb" style={{ backgroundImage: `url(${brandAsset(e.imageUrl)})`, borderRadius: 18 }} />}
       {e.description && <p className="muted" style={{ whiteSpace: 'pre-line' }}>{e.description}</p>}
@@ -521,7 +521,7 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
       )}
       <Sheet open={!!open} onClose={() => setOpen(null)} label="Your appointment">
         {open && (
-          <div className="stack lg">
+          <div className="stack lg ap-stack">
             <SheetHead eyebrow={`${open.people > 1 ? '2 people · ' : ''}${open.staffName}`} title={open.typeName} onClose={() => setOpen(null)} />
             <div className="ap-sum"><strong>{dayFull(open.startsAt)}</strong><span>{range(open.startsAt, open.endsAt)}</span>{open.note && <span className="ap-fine">Your note: {open.note}</span>}</div>
             <p className="muted">{cancelNote(open.startsAt, app.settings.cancelWindowHours, open.payment.method === 'pack' ? 'credit' : 'payment')}</p>
