@@ -104,7 +104,7 @@ function greeting(name: string) {
 
 function CreditPill({ credits, loading, onClick }: { credits?: CreditSummary[]; loading: boolean; onClick: () => void }) {
   if (loading) return <Skeleton w={110} h={36} r={999} />;
-  const c = credits ?? [];
+  const c = (credits ?? []).filter((x) => !x.pass.noClasses); // an online-only pass is not class credit
   let label = 'Get a pass';
   let tone = 'cta';
   if (c.some((x) => x.remaining === null)) { label = 'Unlimited'; tone = ''; }

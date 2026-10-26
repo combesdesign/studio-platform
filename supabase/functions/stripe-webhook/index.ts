@@ -2,7 +2,8 @@
 // every request is checked with the webhook signing secret instead.
 //
 // Events (tick these when creating the endpoint in Stripe):
-//   checkout.session.completed, checkout.session.async_payment_succeeded -> create pass + sale (idempotent)
+//   checkout.session.completed, checkout.session.async_payment_succeeded -> create pass + sale (idempotent);
+//                                    a gift card checkout (metadata.kind = 'gift_card') switches the card on instead
 //   invoice.paid                     -> weekly membership renewal: extend next_billing_at + record sale
 //   customer.subscription.deleted    -> membership ended: pass cancelled
 //   charge.refunded                  -> record refund on the sale
@@ -45,6 +46,14 @@ async function handle(admin: Db, event: StripeObject): Promise<void> {
     case 'checkout.session.completed':
     case 'checkout.session.async_payment_succeeded': {
       if (o.payment_status !== 'paid' && o.payment_status !== 'no_payment_required') return; // async methods: wait
+      if (o.metadata?.kind === 'gift_card') {
+        // commerce_activate_gift_card is safe to repeat: an active card (and its sale) is returned as is.
+        if (!o.metadata.card_id) { console.warn('gift card checkout without a card id', o.id); return; }
+        must(await admin.rpc('commerce_activate_gift_card', {
+          p_card_id: o.metadata.card_id, p_payment_intent: idOf(o.payment_intent), p_checkout_session: o.id,
+        }));
+        return;
+      }
       const clientId = o.metadata?.client_id ?? o.client_reference_id;
       const productId = o.metadata?.product_id;
       if (!clientId || !productId) { console.warn('checkout without our metadata', o.id); return; }

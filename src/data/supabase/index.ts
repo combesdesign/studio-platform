@@ -18,7 +18,7 @@ import type {
 } from '../../shared/types';
 import {
   StoreError,
-  type BookResult, type BookingWithDetails, type CancelResult, type CreditSummary, type DataStore, type PurchaseResult,
+  type BookResult, type BookingWithDetails, type CancelResult, type CreditSummary, type DataStore, type PurchaseResult, type RestoreSessionResult, type UndoCancelResult, type VoidResult,
   type RosterEntry, type Unsubscribe, type FeatureStores, type StudioPatch, type PlatformStore, type NewStudioInput,
 } from '../../shared/store';
 import { liveFeatures, type LiveFeatureContext } from './features';
@@ -193,7 +193,7 @@ function toProduct(r: Row): Product {
     validityDays: retail ? undefined : nullableNum(r.validity_days),
     billingInterval: optStr(r.billing_interval) as Product['billingInterval'],
     newClientsOnly: r.new_clients_only === undefined ? undefined : bool(r.new_clients_only),
-    classTypeIds: ids(r.class_type_ids),
+    classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined,
     stock: retail ? nullableNum(r.stock) : undefined,
   });
 }
@@ -211,7 +211,7 @@ function toPass(r: Row): Pass {
     credits: nullableNum(r.credits), creditsUsed: num(r.credits_used),
     billingInterval: optStr(r.billing_interval) as Pass['billingInterval'],
     nextBillingAt: optIso(r.next_billing_at), pausedFrom: optDate(r.paused_from), pausedUntil: optDate(r.paused_until),
-    priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), adjustments: adj.length ? adj : undefined,
+    priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined, adjustments: adj.length ? adj : undefined,
   });
 }
 
@@ -221,7 +221,8 @@ function toBooking(r: Row): Booking {
     passId: optStr(r.pass_id), createdAt: iso(r.created_at), waitlistPosition: optNum(r.waitlist_position),
     promotedFromWaitlistAt: optIso(r.promoted_from_waitlist_at), cancelledAt: optIso(r.cancelled_at),
     checkedInAt: optIso(r.checked_in_at), source: (str(r.source) || 'client') as Booking['source'],
-    bookedByStaffId: optStr(r.booked_by_staff_id),
+    bookedByStaffId: optStr(r.booked_by_staff_id), priorStatus: optStr(r.prior_status) as BookingStatus | undefined,
+    priorWaitlistPosition: optNum(r.prior_waitlist_position),
   });
 }
 
@@ -985,6 +986,44 @@ class SupabaseStore implements DataStore {
   async markNoShow(bookingId: ID): Promise<Booking> {
     return this.write(async () => toBooking(obj(await this.rpc('mark_no_show', { p_booking_id: bookingId }))));
   }
+  // ------------------------------------------------------------------ undo (staff mistakes; the database checks the permissions)
+  async undoNoShow(bookingId: ID): Promise<Booking> {
+    return this.write(async () => toBooking(obj(await this.rpc('undo_no_show', { p_booking_id: bookingId }))));
+  }
+  async undoCancelBooking(bookingId: ID, opts: { demotePromotedId?: ID } = {}): Promise<UndoCancelResult> {
+    return this.write(async () => {
+      const o = obj(await this.rpc('undo_cancel_booking', { p_booking_id: bookingId, p_demote_booking_id: opts.demotePromotedId ?? null }));
+      const res: UndoCancelResult = { booking: toBooking(obj(o.booking)), creditTaken: bool(o.creditTaken) };
+      if (o.demoted && typeof o.demoted === 'object') res.demoted = toBooking(o.demoted as Row);
+      return res;
+    });
+  }
+  async waivePenalty(bookingId: ID): Promise<Booking> {
+    return this.write(async () => toBooking(obj(await this.rpc('waive_penalty', { p_booking_id: bookingId }))));
+  }
+  async restoreSession(sessionId: ID): Promise<RestoreSessionResult> {
+    return this.write(async () => {
+      const o = obj(await this.rpc('restore_session', { p_session_id: sessionId }));
+      const who = (x: unknown) => { const r = obj(x); return { bookingId: str(r.bookingId), clientId: str(r.clientId), name: str(r.name) }; };
+      return {
+        session: await this.getSession(sessionId),
+        restored: arr(o.restored).map((x) => ({ ...who(x), status: str(obj(x).status) as BookingStatus })),
+        needsAttention: arr(o.needsAttention).map((x) => ({ ...who(x), reason: str(obj(x).reason) })),
+      };
+    });
+  }
+  async voidSale(saleId: ID, opts: { reason?: string; dryRun?: boolean } = {}): Promise<VoidResult> {
+    const go = async (): Promise<VoidResult> => {
+      await this.requireStaff('pos_refund');
+      const o = obj(await this.rpc('void_sale', { p_sale_id: saleId, p_reason: opts.reason ?? null, p_dry_run: !!opts.dryRun }));
+      return {
+        voided: bool(o.voided), ...(o.blocked ? { blocked: str(o.blocked) } : {}), sale: toSale(obj(o.sale)),
+        passes: arr(o.passes).map((x) => { const r = obj(x); return { id: str(r.id), name: str(r.name), classesUsed: num(r.classesUsed) }; }),
+      };
+    };
+    return opts.dryRun ? go() : this.write(go);   // a dry run only describes, so it doesn't tell listeners to refetch
+  }
+
   async moveBooking(bookingId: ID, toSessionId: ID): Promise<BookResult> {
     return this.write(async () => this.toBookResult(await this.rpc('move_booking', { p_booking_id: bookingId, p_to_session_id: toSessionId })));
   }
@@ -1202,6 +1241,7 @@ class SupabaseStore implements DataStore {
         ['validity_days', p.kind === 'retail' ? null : p.validityDays ?? null],
         ['billing_interval', p.kind === 'membership' ? p.billingInterval ?? 'week' : null], ['new_clients_only', !!p.newClientsOnly],
         ['class_type_ids', p.classTypeIds && p.classTypeIds.length ? p.classTypeIds : null], ['stock', p.kind === 'retail' ? p.stock ?? null : null],
+        ['no_classes', p.kind !== 'retail' && !!p.noClasses],
       ]);
       const r = p.id
         ? await this.one(this.sb.from('products').update(row).eq('id', p.id).select('*'), 'You don’t have permission to edit products.', 'NOT_ALLOWED')

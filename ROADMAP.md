@@ -42,39 +42,57 @@ Every feature built from here lands in both.
 - [ ] Spot or mat selection (optional, per class)
 
 ### B2 Marketing and messaging
-- [ ] Email campaigns, using segments built from client filters
-- [ ] SMS campaigns, with an SMS provider stub
-- [ ] Automations:
-  - welcome series
-  - intro offer ending
-  - pack running low or expiring
-  - win-back after X days
-  - birthday
-  - post-first-class
-- [ ] Two-way inbox (studio ⇄ client messages in the app)
-- [ ] Push notifications (Capacitor and web push)
+- [x] Email campaigns, using segments built from client filters
+- [x] SMS campaigns, with an SMS provider stub
+- [x] Automations:
+  - [x] welcome series
+  - [x] intro offer ending
+  - [x] pack running low or expiring
+  - [x] win-back after X days
+  - [x] birthday
+  - [x] post-first-class
+- [x] Two-way inbox (studio ⇄ client messages in the app)
+- [x] Push notifications (Capacitor and web push): device registration and the queue are built; delivery is stubbed until VAPID / FCM keys exist
 
 ### B3 Selling extras
-- [ ] Gift cards: buy, send and redeem, with balance tracking
-- [ ] Promo codes: % or $ off, limits, expiry, per product
-- [ ] Referral rewards
-- [ ] Retail stock: inventory counts, low-stock alerts, barcode scanning at the POS
+- [x] Gift cards: buy, send and redeem, with balance tracking
+  - [x] Pay online (Stripe Checkout, switched on by the webhook)
+  - [x] E-card emailed on its send date, as the studio
+  - [x] Refunds put gift card amounts and retail stock back
+- [x] Promo codes: % or $ off, limits, expiry, per product
+- [x] Referral rewards
+- [x] Retail stock: inventory counts, low-stock alerts, barcode scanning at the POS
 
 ### B4 Staff and payroll
-- [ ] Sub and cover requests (post a class, staff claim it, the owner approves)
-- [ ] Pay rules: per class, per head, tiers, hourly
-- [ ] Timesheets and clock-in
-- [ ] Payroll export (CSV for Xero and others)
+- [x] Sub and cover requests (post a class, staff claim it, the owner approves)
+  - [x] Emails to eligible staff when posted, claimed or approved
+- [x] Pay rules: per class, per head, tiers, hourly
+- [x] Timesheets and clock-in
+- [x] Payroll export (CSV for Xero and others)
 
 ### B5 More Momence parity (after B1–B4)
-- [ ] On-demand video library and on-demand subscriptions
+- [x] On-demand video library and on-demand subscriptions (built: `src/features/ondemand`; Pete 26 Oct: an "Online classes" section for Mums + Bubs starters and busy clients who can't make it in)
 - [ ] Family and child accounts on one profile
 - [ ] Multi-location and rooms
-- [ ] Check-in kiosk mode (an iPad clients tap themselves)
-- [ ] Reviews and NPS after class
-- [ ] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
-- [ ] Accounting export to Xero
+- [x] Check-in kiosk mode (an iPad clients tap themselves)
+  - [x] Exit lockout: 5 wrong PINs lock exit for 5 minutes
+- [x] Reviews and NPS after class
+- [x] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
+  - [x] Settings tab (partner IDs, write-only keys), spots held per class type, roster badge, webhook stub (signature check left as a TODO)
+- [x] Accounting export to Xero
 - [ ] Stripe Terminal card reader at the POS
+
+## Support that's actually good (Libby: Momence support is horrible)
+Libby's pain points: Momence only offers a fixed list of problems (hers often isn't on it), and they're US-based so replies come overnight.
+- [x] No problem menus: always a free-text "tell us what's wrong" box (the assistant can suggest answers, never force a category)
+- [x] Australian-based support in AEST/AEDT business hours; urgent "can't take bookings" issues flagged to Pete's phone straight away (email now; SMS webhook ready)
+- [x] Every request gets an instant reply (assistant answer or "got it, a human will reply by X") so nobody's left wondering
+- [x] In-app "Help" button in the studio app: message us directly, with a screenshot and the page they were on attached automatically
+- [x] Help assistant: answers how-to questions instantly from our own help docs, then hands off to a real person ("Ask" in the Help sheet; needs `ANTHROPIC_API_KEY`, falls back to the best help article without it)
+- [x] Short help centre: a 1-minute guide for each common job (add a class, refund, change a pass)
+- [x] Response promise shown in the app (e.g. reply within 1 business day), plus a status page when something's down
+- [x] Studio owners can safely "undo" common mistakes (cancelled class, wrong sale) without needing support (Stripe refunds can't be undone, see NOTES.md `## undo`)
+- [ ] Onboarding call and data import done for them, not left as a DIY job
 
 ## Phase C: launch-readiness (Snowy and platform)
 - [ ] Capacitor wrap for the App Store and Google Play (per studio for white-label apps, or one shared app with studio pick)

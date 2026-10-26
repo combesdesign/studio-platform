@@ -8,6 +8,7 @@ import { Flower } from '../shared/brand';
 import { Accent, Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Sep, SheetHead, backFrom, cx, dayLong, fullName, goFromSheet, useSnack, useStudio } from './ui';
 import { AddClientSheet, SessionPicker, WaiverSheet, WalkInSheet } from './book';
 import { useNow } from './today';
+import { RestoreClassSheet, useUndoSnack } from './undo';
 
 type Flag = RosterEntry['flags'][number];
 const FLAG: Record<Flag, { label: string; tone: string; icon: string }> = {
@@ -41,7 +42,8 @@ export function Roster({ id }: { id: string }) {
   const [pending, setPending] = useState<Record<string, Booking['status']>>({});
   useEffect(() => setPending({}), [roster.data]);
 
-  const [sheet, setSheet] = useState<null | 'add' | 'walkin' | 'edit' | 'cancel' | 'noshow' | 'menu'>(null);
+  const [sheet, setSheet] = useState<null | 'add' | 'walkin' | 'edit' | 'cancel' | 'noshow' | 'menu' | 'restore'>(null);
+  const undoSnack = useUndoSnack();
   const [detail, setDetail] = useState<RosterEntry | null>(null);
   const [injury, setInjury] = useState<RosterEntry | null>(null);
   const [waiverFor, setWaiverFor] = useState<RosterEntry | null>(null);
@@ -92,8 +94,12 @@ export function Roster({ id }: { id: string }) {
   };
 
   const markRest = async () => {
-    const ok = await run(async () => { for (const e of stillBooked) await store.markNoShow(e.id); return true; });
-    if (ok) { toast(`${stillBooked.length} marked as no-show`); setSheet(null); }
+    const ids = stillBooked.map((e) => e.id);
+    const ok = await run(async () => { for (const id of ids) await store.markNoShow(id); return true; });
+    if (ok) {
+      undoSnack(`${ids.length} marked as no-show`, store.undoNoShow && (async () => { for (const id of ids) await store.undoNoShow!(id); }), 'No-shows undone, everyone is booked again');
+      setSheet(null);
+    }
   };
 
   return (
@@ -112,7 +118,7 @@ export function Roster({ id }: { id: string }) {
             {!cancelled && ended && <span className="chip">Finished</span>}
           </div>
         }
-        actions={!cancelled && (
+        actions={cancelled ? (can('editClass') && store.restoreSession && !ended && <button className="btn" onClick={() => setSheet('restore')}><Icon name="undo" size={20} />Restore class</button>) : (
           <>
             {can('editClients') && can('pos') && <button className="btn soft" onClick={() => setSheet('walkin')}><Icon name="userPlus" size={20} />Walk-in</button>}
             <button className="btn" onClick={() => setSheet('add')}><Icon name="plus" size={20} />Add client</button>
@@ -193,6 +199,7 @@ export function Roster({ id }: { id: string }) {
 
       <AddClientSheet open={sheet === 'add'} onClose={() => setSheet(null)} session={s} exclude={entries.filter((e) => ATTENDING.has(e.status) || e.status === 'waitlisted').map((e) => e.clientId)} />
       <WalkInSheet open={sheet === 'walkin'} onClose={() => setSheet(null)} session={s} />
+      {sheet === 'restore' && <RestoreClassSheet s={s} onClose={() => setSheet(null)} />}
       <EditSessionSheet open={sheet === 'edit'} onClose={() => setSheet(null)} s={s} onBack={() => setSheet('menu')} />
       <CancelSessionSheet open={sheet === 'cancel'} onClose={() => setSheet(null)} s={s} count={attending.length + waitlist.length} onBack={() => setSheet('menu')} />
       <Confirm open={sheet === 'noshow'} onClose={() => setSheet(null)} title={<>Mark rest as <em>no-show</em>?</>} busy={busy} confirmLabel={`Mark ${stillBooked.length} as no-show`} onConfirm={markRest}
@@ -249,6 +256,7 @@ function RosterRow({ e, s, onToggle, onOpen, onInjury, onWaiver, disabled }: { e
 function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: SessionWithCounts; onClose: () => void; onWaiver: () => void; onToggle: () => void }) {
   const { settings, can } = useStudio();
   const toast = useToast();
+  const undoSnack = useUndoSnack();
   const [view, setView] = useState<'main' | 'cancel' | 'move' | 'promote'>('main');
   const [waive, setWaive] = useState(false);
   const [comp, setComp] = useState(false);
@@ -260,12 +268,24 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
   useBackHandler(view !== 'main', () => setView('main'));
 
   const done = (msg: string) => { toast(msg); onClose(); };
-  const noShow = async () => { if (await run(() => store.markNoShow(e.id))) done(`${name} marked as no-show`); };
+  // These three show an Undo snack for 10 seconds; undo reverses them exactly (credit, spot and waitlist place).
+  const noShow = async () => {
+    if (!(await run(() => store.markNoShow(e.id)))) return;
+    undoSnack(`${name} marked as no-show`, store.undoNoShow && (() => store.undoNoShow!(e.id)), `${name} is booked again`);
+    onClose();
+  };
   const cancel = async () => {
     const r = await run(() => store.cancelBooking(e.id, { asStaff: true, waivePenalty: waive }));
-    if (r) done(r.creditReturned ? `${name}'s booking cancelled, credit returned` : `${name} late-cancelled, credit used`);
+    if (!r) return;
+    undoSnack(r.creditReturned ? `${name}'s booking cancelled, credit returned` : `${name} late-cancelled, credit used`,
+      store.undoCancelBooking && (() => store.undoCancelBooking!(e.id, r.promoted ? { demotePromotedId: r.promoted.id } : {})), `${name} is back in the class`);
+    onClose();
   };
-  const leave = async () => { if (await run(() => store.leaveWaitlist(e.id))) done(`${name} removed from the waitlist`); };
+  const leave = async () => {
+    if (!(await run(() => store.leaveWaitlist(e.id)))) return;
+    undoSnack(`${name} removed from the waitlist`, store.undoCancelBooking && (() => store.undoCancelBooking!(e.id)), `${name} is back on the waitlist`);
+    onClose();
+  };
   const promote = async () => {
     const r = await run(async () => {
       await store.leaveWaitlist(e.id);

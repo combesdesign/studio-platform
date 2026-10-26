@@ -6,6 +6,7 @@ import { createDemoPlatform, createDemoStore, memoryStorage } from '../src/data/
 import { registerDemoFeature } from '../src/data/demo/features';
 import { can, registerPermissions } from '../src/domain/permissions';
 import { brandTokens, contrast, fontsUrl, accentParts, classPhotoFor, defaultBranding, textLogo } from '../src/shared/branding';
+import { initialsFor, manifestFor, pwaIdentity } from '../src/shared/pwa';
 import { studioHints, stripStudioPath, slugFromHash } from '../src/shared/resolve';
 import { DEFAULT_FORMAT, currentFormat, dayShort, money, setStudioFormat, studioDate, taxOf, time, withStudioFormat } from '../src/shared/format';
 import { SNOWY_BRANDING, HARBOUR_BRANDING } from '../src/data/studios';
@@ -233,4 +234,18 @@ test('bound stores keep their studio\'s timezone even when another studio is the
   await store.upsertTemplate({ classTypeId: ct.id, weekday: 5, startTime: '06:00', instructorId: staffId, startsOn: '2026-01-01', active: true });
   const list = await store.listSessions({ from: '2026-10-15T00:00:00Z', to: '2026-10-17T00:00:00Z' });
   assert.equal(list[0]?.startsAt, '2026-10-15T22:00:00.000Z', 'Friday 6am in Perth (UTC+8), not Sydney');
+});
+
+test('home screen identity: each studio gets its own name and colours (client and studio apps)', () => {
+  const h = pwaIdentity(HARBOUR_BRANDING, 'client', 'Harbour Reformer Co.');
+  assert.equal(h.name, HARBOUR_BRANDING.appName);
+  assert.equal(h.themeColor, HARBOUR_BRANDING.colors.primary);
+  assert.notEqual(h.themeColor, pwaIdentity(SNOWY_BRANDING, 'client', 'Snowy Pilates Club').themeColor);
+  const staff = pwaIdentity(HARBOUR_BRANDING, 'studio', 'Harbour Reformer Co.');
+  assert.equal(staff.name, `${HARBOUR_BRANDING.appName} Studio`);
+  assert.equal(staff.themeColor, HARBOUR_BRANDING.colors.ink);
+  assert.equal(initialsFor('Harbour Reformer Co.'), 'HR');
+  assert.equal(initialsFor('Snowy'), 'S');
+  const m = manifestFor(h, { startUrl: 'https://x.test/?studio=harbour', scope: 'https://x.test/', icons: [] });
+  assert.deepEqual([m.name, m.start_url, m.display, m.theme_color], [h.name, 'https://x.test/?studio=harbour', 'standalone', h.themeColor]);
 });

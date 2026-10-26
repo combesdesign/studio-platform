@@ -174,15 +174,20 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
      EMAIL_REPLY_TO=admin@snowypilatesclub.com \
      APP_URL=https://app.snowypilatesclub.com \
      APP_URLS=https://app.snowypilatesclub.com,https://YOUR-NETLIFY-SITE.netlify.app \
-     CRON_SECRET=THE-RANDOM-ONE-FROM-BEFORE
+     CRON_SECRET=THE-RANDOM-ONE-FROM-BEFORE \
+     SUPPORT_ALERT_EMAIL=you@yourphone.com
    ```
+   `SUPPORT_ALERT_EMAIL` is where an urgent help request from a studio is emailed (page, person, message and a link to the admin inbox at `/admin/#/support`). Use an address that buzzes your phone. Optional later: `SUPPORT_ALERT_SMS_WEBHOOK=https://...`, a URL the same alert is POSTed to as JSON, for an SMS service. Leave it out for now.
+   **Help assistant (optional).** The Help sheet's "Ask" button gives an instant written answer. Without a key it quietly falls back to the best-matching help guide, so you can skip this until you want it. To switch it on: `ANTHROPIC_API_KEY=sk-ant-...` (from console.anthropic.com), and optionally `SUPPORT_ASSIST_MODEL` (default `claude-haiku-5-5`). Deploy `supabase functions deploy support-assist` as well. It is capped at 30 questions per person per day. Rough cost with Haiku: each question sends the help guides plus a short reply, a few cents per hundred questions, so a studio's team would cost cents a month. It never sees client data, only the question, the page name and the studio's booking and cancel settings.
    Supabase provides `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` automatically. No key is ever written into the code.
 4. Deploy them all:
    ```
    supabase functions deploy create-checkout
+   supabase functions deploy commerce-checkout
    supabase functions deploy billing-portal
    supabase functions deploy refund-payment
    supabase functions deploy invite-user
+   supabase functions deploy support-assist
    supabase functions deploy stripe-webhook --no-verify-jwt
    supabase functions deploy send-email --no-verify-jwt
    supabase functions deploy send-reminders --no-verify-jwt
@@ -317,6 +322,30 @@ When nobody has needed Momence for a week or so, and every member is billing thr
 5. Apple reviews every app, and they like store apps to feel native (push notifications help). Allow a week or two for the first approval.
 
 **Check current pricing** for both developer accounts before signing up.
+
+## Linking from the website
+
+The marketing website can send people straight into the right spot in the booking app. These links all open directly. If the person is signed out they're asked to sign in or join first, then carry on to the page they clicked.
+
+| Link | What it does |
+|---|---|
+| `https://book.snowypilatesclub.com/` | The timetable |
+| `https://book.snowypilatesclub.com/#/class/<sessionId>` | Opens that class, ready to book |
+| `https://book.snowypilatesclub.com/#/passes` | The passes and memberships page |
+| `https://book.snowypilatesclub.com/#/passes?product=<productId>` | Opens that product's checkout |
+| `https://book.snowypilatesclub.com/#/passes?intro=1` | Opens the intro offer (new clients only, otherwise it just shows the passes) |
+| `https://book.snowypilatesclub.com/#/signup` | The join / create account screen |
+
+Example: `https://book.snowypilatesclub.com/#/passes?product=3f2b1c9e-0000-0000-0000-000000000000`. Product IDs are the `id` column of the `products` table and class IDs the `id` of `class_sessions` in Supabase.
+
+**Website button to link**
+
+| Website button | Link |
+|---|---|
+| Book a class | `https://book.snowypilatesclub.com/` |
+| Join today (on each membership) | `https://book.snowypilatesclub.com/#/passes?product=<that membership's productId>` |
+| Buy now (on each pack) | `https://book.snowypilatesclub.com/#/passes?product=<that pack's productId>` |
+| Claim your intro offer | `https://book.snowypilatesclub.com/#/passes?intro=1` |
 
 ## 14. Backups
 

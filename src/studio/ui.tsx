@@ -302,7 +302,7 @@ export function SnackProvider({ children }: { children: React.ReactNode }) {
     const id = Date.now();
     setSnack({ id, msg, action });
     window.clearTimeout(t.current);
-    t.current = window.setTimeout(() => setSnack((s) => (s && s.id === id ? null : s)), action ? 5000 : 2800);
+    t.current = window.setTimeout(() => setSnack((s) => (s && s.id === id ? null : s)), action ? 10000 : 2800);
   }, []);
   return (
     <SnackCtx.Provider value={show}>

@@ -8,11 +8,13 @@ import { createRoot } from 'react-dom/client';
 import '../shared/theme.css';
 import './admin.css';
 import type { PlatformUser, Studio, StudioBranding, StudioStatus } from '../shared/types';
-import { platform } from '../data';
+import { PLATFORM_DOMAIN, platform } from '../data';
+import { MAX_DOMAINS, dnsSteps, domainOwners, domainProblem, normaliseDomain } from './domains';
 import { ToastProvider, match, useRoute, useToast } from '../shared/react';
 import { Accented, Flower, Logo } from '../shared/brand';
 import { applyBranding, brandAsset, defaultBranding, PLATFORM_BRANDING, PLATFORM_NAME, setAssetBase } from '../shared/branding';
 import { BrandingEditor, BrandPreview, PALETTES } from '../shared/branding-editor';
+import { SupportInbox, SupportNavLink } from '../features/support/admin/inbox';
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong. Please try again.');
 const STATUS: Record<StudioStatus, { label: string; tone: string }> = {
@@ -85,6 +87,7 @@ function Shell({ me }: { me: PlatformUser }) {
   let m: Record<string, string> | null;
   let page: React.ReactNode;
   if (p === '/new') page = <NewStudio />;
+  else if (p === '/support') page = <SupportInbox />;
   else if ((m = match('/studios/:id', p))) page = <StudioPage id={m.id!} tab="overview" />;
   else if ((m = match('/studios/:id/:tab', p))) page = <StudioPage id={m.id!} tab={m.tab!} />;
   else page = <Studios />;
@@ -92,6 +95,7 @@ function Shell({ me }: { me: PlatformUser }) {
     <div className="ad">
       <header className="ad-top">
         <a href="#/" className="ad-brand"><Logo className="ad-top-logo" label={PLATFORM_NAME} /><span className="ad-tag">Admin</span></a>
+        <nav className="ad-nav" aria-label="Admin sections"><a href="#/" className={p !== '/support' ? 'on' : ''}>Studios</a><SupportNavLink active={p === '/support'} /></nav>
         <div className="ad-me">
           <span className="ad-av">{me.name.charAt(0)}</span>
           <span className="ad-me-t"><strong>{me.name}</strong><span>{me.email}</span></span>
@@ -211,7 +215,7 @@ function StudioPage({ id, tab }: { id: string; tab: string }) {
   if (s.data === undefined) return <div className="ad-boot"><Flower size={28} spin /></div>;
   if (!s.data) return <p className="muted">That studio could not be found. <a href="#/">Back to studios</a></p>;
   const studio = s.data;
-  const tabs = [['overview', 'Overview'], ['branding', 'Branding'], ['owner', 'Owner']] as const;
+  const tabs = [['overview', 'Overview'], ['branding', 'Branding'], ['domains', 'Domains'], ['owner', 'Owner']] as const;
   return (
     <div className="stack lg">
       <a className="back-pill" href="#/"><svg className="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M14.5 6l-6 6 6 6" /></svg><span>Studios</span></a>
@@ -228,7 +232,7 @@ function StudioPage({ id, tab }: { id: string; tab: string }) {
       <nav className="tabs" aria-label="Studio sections">
         {tabs.map(([k, l]) => <a key={k} href={`#/studios/${studio.id}${k === 'overview' ? '' : '/' + k}`} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined}>{l}</a>)}
       </nav>
-      {tab === 'branding' ? <BrandingPage studio={studio} /> : tab === 'owner' ? <OwnerPage studio={studio} /> : <Overview studio={studio} />}
+      {tab === 'branding' ? <BrandingPage studio={studio} /> : tab === 'owner' ? <OwnerPage studio={studio} /> : tab === 'domains' ? <DomainsPage studio={studio} /> : <Overview studio={studio} />}
     </div>
   );
 }
@@ -265,6 +269,73 @@ function Overview({ studio }: { studio: Studio }) {
             <div className="row"><button className="btn danger" disabled={busy} onClick={() => setStatus('suspended')}>Yes, suspend</button><button className="btn ghost" onClick={() => setConfirming(false)}>Keep it open</button></div>
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+function DomainsPage({ studio }: { studio: Studio }) {
+  const toast = useToast();
+  const all = useLoad(() => platform.listStudios({ includeAll: true }), []);
+  const [text, setText] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState('');
+  const domains = (studio.customDomains ?? []).map((d) => d.toLowerCase());
+  const save = async (next: string[], done: string) => {
+    setBusy(true); setErr('');
+    try { await platform.updateStudioAsAdmin(studio.id, { customDomains: next }); setText(''); setRemoving(''); toast(done); }
+    catch (x) { setErr(msg(x)); } finally { setBusy(false); }
+  };
+  const add = (e: React.FormEvent) => {
+    e.preventDefault();
+    const d = normaliseDomain(text);
+    const problem = domainProblem(d, { platformDomain: PLATFORM_DOMAIN, existing: domains, takenBy: domainOwners(all.data ?? [], studio.id) });
+    if (problem) { setErr(problem); return; }
+    void save([...domains, d], `${d} added`);
+  };
+  const shown = normaliseDomain(text);
+  const steps = dnsSteps(domains[domains.length - 1] ?? 'book.yourstudio.com.au', studio.slug, PLATFORM_DOMAIN);
+  const forDomain = domains[domains.length - 1];
+  return (
+    <div className="ad-grid">
+      <section className="card pad stack">
+        <h3>Custom domains</h3>
+        <p className="muted small">Let {studio.name} use its own address, like book.yourstudio.com.au, instead of {studio.slug}{PLATFORM_DOMAIN ? '.' + PLATFORM_DOMAIN : ''}. Up to {MAX_DOMAINS}. A domain can only belong to one studio.</p>
+        {domains.length === 0 ? <p className="muted">No custom domains yet.</p> : (
+          <ul className="ad-doms">
+            {domains.map((d) => (
+              <li key={d} className="ad-dom">
+                <b>{d}</b>
+                {removing === d ? (
+                  <span className="row"><button className="btn danger sm" disabled={busy} onClick={() => save(domains.filter((x) => x !== d), `${d} removed`)}>Yes, remove</button><button className="btn ghost sm" onClick={() => setRemoving('')}>Keep it</button></span>
+                ) : <button className="btn ghost sm" disabled={busy} onClick={() => setRemoving(d)} aria-label={`Remove ${d}`}>Remove</button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {removing && <p className="muted small">Removing a domain stops it opening this studio. Clients using it get the studio picker until you point it somewhere else.</p>}
+        <form className="stack" onSubmit={add} noValidate>
+          <label className="field"><span>Add a domain</span>
+            <input className="input" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="book.yourstudio.com.au" value={text} onChange={(e) => { setText(e.target.value); setErr(''); }} />
+          </label>
+          {shown && shown !== text.trim() && <p className="muted small">Will be saved as {shown}</p>}
+          {err && <p className="form-error" role="alert">{err}</p>}
+          <button className="btn" disabled={busy || !text.trim()}>{busy ? 'Saving…' : 'Add domain'}</button>
+        </form>
+      </section>
+      <section className="card pad stack">
+        <h3>How to point {forDomain ?? 'a domain'} here</h3>
+        <p className="muted small">{forDomain ? `Steps for ${forDomain}.` : 'Example steps, shown for a sample domain until one is added.'} Nothing goes live until the DNS is set; this screen can’t check it for you.</p>
+        <ol className="ad-steps">
+          {steps.map((st) => (
+            <li key={st.title}>
+              <b>{st.title}</b>
+              <p className="small">{st.body}</p>
+              {st.record && <dl className="ad-dnsrec"><dt>Type</dt><dd>{st.record.type}</dd><dt>Name</dt><dd>{st.record.name}</dd><dt>Points to</dt><dd>{st.record.value}</dd></dl>}
+            </li>
+          ))}
+        </ol>
       </section>
     </div>
   );

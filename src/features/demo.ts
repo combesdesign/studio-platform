@@ -6,3 +6,8 @@ import './appointments/demo';
 import './marketing/demo';
 import './commerce/demo';
 import './payroll/demo';
+import './kiosk/demo';
+import './reviews/demo';
+import './integrations/demo';
+import './ondemand/demo';
+import './support/demo';

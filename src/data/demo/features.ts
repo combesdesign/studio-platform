@@ -12,7 +12,7 @@
  */
 import type { StoreError } from '../../shared/store';
 import type { FeatureStores } from '../../shared/store';
-import type { AuthUser, ID, Staff, Studio } from '../../shared/types';
+import type { AuthUser, ClassSession, ID, Sale, Staff, Studio } from '../../shared/types';
 import type { DemoState, Engine } from './engine';
 
 export interface DemoFeatureContext {
@@ -41,6 +41,14 @@ export interface DemoFeature<K extends keyof FeatureStores = keyof FeatureStores
   name: K;
   seed?(args: { studio: Studio; state: DemoState; now: Date; newId: (prefix: string) => ID }): unknown;
   create(ctx: DemoFeatureContext): FeatureStores[K];
+  /** After staff refund a sale (inside the same write): put back anything the feature took for it. Must be safe to repeat. */
+  afterRefund?(ctx: DemoFeatureContext, sale: Sale): void;
+  /**
+   * Capacity adjuster: how many spots of this class the feature keeps back from DIRECT client bookings (never negative).
+   * Clients book and see capacity minus the sum over features; staff, the roster and the feature's own bookings use the real
+   * capacity. Reads the studio's state directly (pure: no ctx, no writes). Live equivalent: app.register_capacity_hook.
+   */
+  heldBack?(state: DemoState, session: ClassSession): number;
 }
 
 const features: DemoFeature[] = [];
