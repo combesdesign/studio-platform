@@ -7,6 +7,7 @@ import { CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, 
 import { ClassSheet } from './timetable';
 import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, takePendingClass, timeRange, when } from './lib';
 import { weekday } from '../shared/format';
+import { spotLabel } from '../domain/spots';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -110,6 +111,7 @@ function BookingCard({ b, onOpen, i }: { b: BookingWithDetails; onOpen: () => vo
       <span className="bk-main">
         <span className="bk-name">{b.classType.name}</span>
         <span className="muted">{lbl === 'Today' || lbl === 'Tomorrow' ? `${lbl} · ` : ''}{timeRange(b.session)}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
+        {b.spot && b.status !== 'waitlisted' && <span className="bk-spot">{spotLabel(b.spot)}</span>}
         {b.status === 'waitlisted' ? (
           <span className="tag warn">Waitlisted #{b.waitlistPosition ?? '–'}</span>
         ) : late ? (
