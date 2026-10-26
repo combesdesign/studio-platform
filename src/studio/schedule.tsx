@@ -3,6 +3,8 @@ import { Sheet, store, useAction, useData, useToast } from '../shared/react';
 import { addDays, startOfStudioDay, studioDate, studioToUTC, time, weekStart, LOCALE } from '../shared/format';
 import type { ScheduleTemplate, SessionWithCounts } from '../shared/types';
 import { Flower } from '../shared/brand';
+import { classUses, clashMessage, findRoomClash, templateClashes } from '../domain';
+import { LocationFilter, RoomPicker, placeLabel, useAtLocation, useLocationFilter, useLocations } from './locations';
 import { Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, replaceRoute, useStudio } from './ui';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -22,16 +24,20 @@ export function Schedule({ week }: { week?: string }) {
   const [adding, setAdding] = useState<string | null>(null);
   // "My classes" follows instructorId, so a front-desk person who teaches gets it too. Instructors start on their own.
   const [mineOnly, setMineOnly] = useState(!can('allRosters'));
+  const places = useLocations();
+  const [locPick, setLocPick] = useLocationFilter(places.locations);
+  const loc = places.many ? locPick : '';
+  const atLoc = useAtLocation(res.data ?? [], loc, places.locations);
   const iTeach = !can('allRosters') || teaches(me.staffId) || (res.data ?? []).some((s) => s.instructorId === me.staffId);
   const byDay = useMemo(() => {
     const m: Record<string, SessionWithCounts[]> = {};
-    for (const s of res.data ?? []) {
+    for (const s of atLoc) {
       if (mineOnly && s.instructorId !== me.staffId) continue;
       (m[studioDate(s.startsAt)] ??= []).push(s);
     }
     return m;
-  }, [res.data, mineOnly, me.staffId]);
-  const total = (res.data ?? []).filter((s) => s.status !== 'cancelled');
+  }, [atLoc, mineOnly, me.staffId]);
+  const total = atLoc.filter((s) => s.status !== 'cancelled');
   const booked = total.reduce((n, s) => n + s.bookedCount, 0), cap = total.reduce((n, s) => n + s.capacity, 0);
   const isThisWeek = from === weekStart(today);
   // paging weeks swaps the page rather than stacking history, so back leaves the schedule
@@ -56,6 +62,7 @@ export function Schedule({ week }: { week?: string }) {
           <button className="btn sm soft" onClick={() => go(weekStart(today))} disabled={isThisWeek}>Today</button>
           <button className="btn icon soft" onClick={() => go(addDays(from, 7))} aria-label="Next week"><Icon name="right" /></button>
         </div>
+        {places.many && <LocationFilter locations={places.locations} value={locPick} onChange={setLocPick} />}
         {iTeach && (
           <Seg className="sm mine-seg" value={mineOnly ? 'mine' : 'all'} onChange={(v) => setMineOnly(v === 'mine')}
             options={[{ value: 'all', label: 'All classes' }, { value: 'mine', label: 'My classes' }]} />
@@ -87,6 +94,7 @@ export function Schedule({ week }: { week?: string }) {
                       <>
                         <span className="wc-time">{time(s.startsAt)}</span>
                         <span className="wc-name">{ct?.name}</span>
+                        {places.many && <span className="wc-place">{placeLabel(s, places.locations, places.rooms)}</span>}
                         <span className="wc-ins">{ins && <Avatar name={ins.name} photo={ins.photoUrl} size={20} />}{ins?.name.split(' ')[0]}{ins && ins.name.split(' ')[1] ? ' ' + ins.name.split(' ')[1]![0] : ''}</span>
                         {s.status === 'cancelled' ? <span className="wc-cx">Cancelled</span> : (
                           <span className="wc-fill"><Fill value={s.bookedCount} max={s.capacity} /><span>{s.bookedCount}/{s.capacity}{s.waitlistCount ? ` +${s.waitlistCount}` : ''}</span></span>
@@ -110,24 +118,38 @@ export function Schedule({ week }: { week?: string }) {
   );
 }
 
+/** 'Studio A is already booked at 9:00am for Reformer Flow.' while the chosen room is taken at that time (empty otherwise). */
+function useRoomWarning(roomId: string | undefined, startsAt: string, endsAt: string, ignoreId?: string): string | undefined {
+  const { classTypes } = useStudio();
+  const { rooms } = useLocations();
+  const day = startsAt ? studioDate(startsAt) : '';
+  const res = useData(() => (roomId && day ? store.listSessions({ from: startOfStudioDay(day), to: startOfStudioDay(addDays(day, 1)), includeCancelled: false }) : Promise.resolve([])), [roomId, day]);
+  if (!roomId || !startsAt || !res.data) return undefined;
+  const clash = findRoomClash({ roomId, startsAt, endsAt, ...(ignoreId ? { ignoreId } : {}) }, classUses(res.data, classTypes));
+  return clash ? clashMessage(rooms.find((r) => r.id === roomId)?.name ?? 'That room', clash, time(clash.startsAt)) : undefined;
+}
+
 function AddSessionSheet({ date, onClose }: { date: string | null; onClose: () => void }) {
   const { classTypes, staff, settings, usualInstructor } = useStudio();
   const types = classTypes.filter((t) => t.active);
   const teachers = staff.filter((s) => s.active);
   const pickTeacher = (typeId?: string) => usualInstructor(typeId) ?? teachers[0]?.id ?? '';
-  const [v, setV] = useState({ classTypeId: '', date: '', time: '09:30', instructorId: '', capacity: '', note: '' });
+  const [v, setV] = useState({ classTypeId: '', date: '', time: '09:30', instructorId: '', capacity: '', note: '', roomId: '', locationId: '' });
   const { busy, run } = useAction();
   useEffect(() => {
     if (!date) return;
     const t = types[0];
-    setV({ classTypeId: t?.id ?? '', date, time: '09:30', instructorId: pickTeacher(t?.id), capacity: String(t?.defaultCapacity ?? settings.defaultCapacity), note: '' });
+    setV({ classTypeId: t?.id ?? '', date, time: '09:30', instructorId: pickTeacher(t?.id), capacity: String(t?.defaultCapacity ?? settings.defaultCapacity), note: '', roomId: '', locationId: '' });
   }, [date]);
   const ct = types.find((t) => t.id === v.classTypeId);
+  const startsAt = v.date && v.time ? studioToUTC(v.date, v.time) : '';
+  const endsAt = startsAt ? new Date(new Date(startsAt).getTime() + (ct?.durationMin ?? 55) * 60000).toISOString() : '';
+  const warning = useRoomWarning(v.roomId, startsAt, endsAt);
   const save = async () => {
-    const startsAt = studioToUTC(v.date, v.time);
     const r = await run(() => store.upsertSession({
       classTypeId: v.classTypeId, startsAt, endsAt: new Date(new Date(startsAt).getTime() + (ct?.durationMin ?? 55) * 60000).toISOString(),
       instructorId: v.instructorId, capacity: Math.max(1, parseInt(v.capacity) || settings.defaultCapacity), note: v.note.trim() || undefined,
+      ...(v.roomId ? { roomId: v.roomId, locationId: v.locationId } : {}),
     }), 'Class added');
     if (r) onClose();
   };
@@ -146,9 +168,10 @@ function AddSessionSheet({ date, onClose }: { date: string | null; onClose: () =
           <select className="select" value={v.instructorId} onChange={(e) => setV({ ...v, instructorId: e.target.value })}>{teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
         </label>
         <label className="field"><span>Capacity</span><input className="input" type="number" min={1} value={v.capacity} onChange={(e) => setV({ ...v, capacity: e.target.value })} /></label>
+        <RoomPicker roomId={v.roomId || undefined} warning={warning} onChange={(room) => setV({ ...v, roomId: room?.id ?? '', locationId: room?.locationId ?? '', capacity: room?.capacity && !v.roomId ? String(room.capacity) : v.capacity })} />
         <label className="field span2"><span>Note (optional)</span><input className="input" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="e.g. Special long-weekend class" /></label>
       </div>
-      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !v.classTypeId || !v.date || !v.instructorId}>Add class</button></div>
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !v.classTypeId || !v.date || !v.instructorId || !!warning}>Add class</button></div>
     </Sheet>
   );
 }
@@ -162,7 +185,9 @@ export function Timetable() {
   const { busy, run } = useAction();
   const toast = useToast();
   const order = [1, 2, 3, 4, 5, 6, 0];
-  const list = res.data ?? [];
+  const places = useLocations();
+  const [locPick, setLocPick] = useLocationFilter(places.locations);
+  const list = useAtLocation(res.data ?? [], places.many ? locPick : '', places.locations);
   const today = studioDate();
 
   const remove = async () => {
@@ -176,6 +201,7 @@ export function Timetable() {
       <PageHead back={backFrom((r) => (r.startsWith('/schedule') ? 'Schedule' : null), { href: '#/schedule', label: 'Schedule' })} eyebrow="Repeats every week" title={<>Recurring <em>timetable</em></>}
         sub="Classes are created for the next 8 weeks. Editing a slot doesn't change classes that already have bookings; edit those from the class itself."
         actions={<button className="btn" onClick={() => setEdit({ weekday: 1, startTime: '06:00', active: true, startsOn: today })}><Icon name="plus" size={20} />Add weekly class</button>} />
+      {places.many && <div className="wk-nav"><LocationFilter locations={places.locations} value={locPick} onChange={setLocPick} /></div>}
       {res.loading && !res.data ? <Loading /> : list.length === 0 ? <div className="card"><Empty title="No weekly classes yet">Add the regular classes and they'll fill the schedule automatically.</Empty></div> : (
         <div className="tt-grid">
           {order.map((wd) => {
@@ -190,7 +216,7 @@ export function Timetable() {
                   return (
                     <button key={t.id} className={cx('tt-row', (!t.active || ended) && 'off')} onClick={() => setEdit(t)} style={{ ['--ct' as string]: ct?.color ?? 'var(--accent)' }}>
                       <span className="tt-time">{hhmm12(t.startTime)}</span>
-                      <span className="tt-t"><strong>{ct?.name ?? 'Class'}</strong><span>{ins?.name ?? 'No instructor'} · {t.capacity ?? ct?.defaultCapacity} spots{t.endsOn ? ` · until ${dayShort(t.endsOn + 'T02:00:00Z')}` : ''}{!t.active ? ' · paused' : ''}</span></span>
+                      <span className="tt-t"><strong>{ct?.name ?? 'Class'}</strong><span>{ins?.name ?? 'No instructor'} · {t.capacity ?? ct?.defaultCapacity} spots{places.many && placeLabel(t, places.locations, places.rooms) ? ` · ${placeLabel(t, places.locations, places.rooms)}` : ''}{t.endsOn ? ` · until ${dayShort(t.endsOn + 'T02:00:00Z')}` : ''}{!t.active ? ' · paused' : ''}</span></span>
                       <Icon name="edit" size={18} />
                     </button>
                   );
@@ -209,6 +235,7 @@ export function Timetable() {
 
 function TemplateSheet({ t, onClose, onDelete }: { t: Partial<ScheduleTemplate> | null; onClose: () => void; onDelete: (t: ScheduleTemplate) => void }) {
   const { classTypes, staff, settings, usualInstructor } = useStudio();
+  const places = useLocations();
   const toast = useToast();
   const types = classTypes.filter((x) => x.active);
   const teachers = staff.filter((x) => x.active);
@@ -219,11 +246,17 @@ function TemplateSheet({ t, onClose, onDelete }: { t: Partial<ScheduleTemplate> 
     setV({ classTypeId: types[0]?.id, instructorId: usualInstructor(types[0]?.id) ?? teachers[0]?.id, ...t });
   }, [t]);
   const ct = types.find((x) => x.id === v.classTypeId);
+  const all = useData(() => store.listTemplates(), []);
+  const clash = v.roomId && v.startTime && v.classTypeId && v.weekday !== undefined
+    ? templateClashes({ id: v.id, roomId: v.roomId, weekday: Number(v.weekday), startTime: v.startTime, classTypeId: v.classTypeId, startsOn: v.startsOn || studioDate(), ...(v.endsOn ? { endsOn: v.endsOn } : {}), active: v.active !== false }, all.data ?? [], types)[0]
+    : undefined;
+  const warning = clash ? `${places.rooms.find((r) => r.id === v.roomId)?.name ?? 'That room'} already has ${types.find((x) => x.id === clash.classTypeId)?.name ?? 'a class'} on ${DAYS[clash.weekday]}s at ${hhmm12(clash.startTime)}. Pick another room or time.` : undefined;
   const save = async () => {
     const r = await run(async () => {
       const saved = await store.upsertTemplate({
         id: v.id, classTypeId: v.classTypeId!, weekday: Number(v.weekday ?? 1), startTime: v.startTime || '06:00', instructorId: v.instructorId!,
         capacity: v.capacity || undefined, startsOn: v.startsOn || studioDate(), endsOn: v.endsOn || undefined, active: v.active !== false,
+        ...(v.roomId ? { roomId: v.roomId, locationId: v.locationId! } : {}),
       });
       const from = studioDate();
       const n = await store.generateSessions(from, addDays(from, 56));
@@ -249,12 +282,13 @@ function TemplateSheet({ t, onClose, onDelete }: { t: Partial<ScheduleTemplate> 
         <label className="field"><span>Capacity</span><input className="input" type="number" min={1} value={v.capacity ?? ''} placeholder={String(ct?.defaultCapacity ?? settings.defaultCapacity)} onChange={(e) => setV({ ...v, capacity: e.target.value ? Number(e.target.value) : undefined })} /></label>
         <label className="field"><span>Starts on</span><input className="input" type="date" value={v.startsOn ?? ''} onChange={set('startsOn')} /></label>
         <label className="field"><span>Ends on (optional)</span><input className="input" type="date" value={v.endsOn ?? ''} onChange={set('endsOn')} /></label>
+        <RoomPicker roomId={v.roomId} warning={warning} onChange={(room) => setV({ ...v, roomId: room?.id as string, locationId: room?.locationId as string, ...(room?.capacity && !v.roomId && !v.capacity ? { capacity: room.capacity } : {}) })} />
         <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>Active (untick to pause this slot)</span></label>
       </div>
       <div className="sh-foot">
         {v.id && <button className="btn danger push-left" onClick={() => onDelete(v as ScheduleTemplate)}><Icon name="trash" size={18} />Remove</button>}
         <button className="btn ghost" onClick={onClose}>Cancel</button>
-        <button className="btn" onClick={save} disabled={busy || !v.classTypeId || !v.instructorId}>Save</button>
+        <button className="btn" onClick={save} disabled={busy || !v.classTypeId || !v.instructorId || !!warning}>Save</button>
       </div>
     </Sheet>
   );

@@ -975,3 +975,24 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .plan-grid .pg-cell { justify-content: center; color: var(--ok-2); }
 .plan-grid .pg-no { color: var(--muted, #9ca3af); }
 @media (max-width: 700px) { .plan-grid { grid-template-columns: minmax(110px, 1.2fr) repeat(var(--cols, 3), minmax(64px, 1fr)); font-size: 13px; } .plan-grid > div { padding: 8px 6px; } .plan-grid .btn.sm { padding: 0 8px; font-size: 12px; } }
+
+/* ---- locations and rooms (only shown when the studio has several) */
+.loc-seg { max-width: 100%; }
+.loc-select { width: auto; min-width: 180px; }
+.wc-place { font-size: 12.5px; color: var(--muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cls-place { color: var(--muted); }
+.room-field .select { width: 100%; }
+.room-warn { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; padding: 9px 12px; border-radius: 12px; background: #fbeee9; color: #8a3a22; font-size: 14px; line-height: 1.35; }
+.room-warn .ic { flex: none; margin-top: 2px; }
+.loc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+.loc-card { display: grid; gap: 14px; padding: 22px; }
+.loc-card.off { opacity: .65; }
+.loc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.loc-name { font-family: var(--display); font-size: 24px; font-weight: 400; margin: 0; line-height: 1.15; }
+.loc-addr { margin: 4px 0 0; color: var(--muted); font-size: 14.5px; }
+.loc-rooms { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.loc-room { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+.loc-room:hover { border-color: var(--accent); }
+.loc-room.off { opacity: .6; }
+.loc-room-name { flex: 1; font-size: 15px; }
+.loc-room-meta { color: var(--muted); font-size: 14px; }

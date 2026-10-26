@@ -6,6 +6,7 @@ import { todayWidgetsList } from '../shared/registry';
 import type { Client, Pass, SessionWithCounts } from '../shared/types';
 import type { RosterEntry } from '../shared/store';
 import { brandPhrases, Flower, Logo } from '../shared/brand';
+import { LocationFilter, placeLabel, useAtLocation, useLocationFilter, useLocations } from './locations';
 import { Accent, Avatar, Empty, Fill, Icon, Loading, Seg, Sep, cx, dayLong, dayShort, fullName, useStudio } from './ui';
 
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -79,7 +80,10 @@ export function Today() {
   }, [mine]);
 
   const first = me.name.split(' ')[0] ?? me.name;
-  const allSessions = dash.data?.sessions ?? [];
+  // More than one location: filter the day to one (remembered on this device). A one-location studio sees none of this.
+  const places = useLocations();
+  const [locPick, setLocPick] = useLocationFilter(places.locations);
+  const allSessions = useAtLocation(dash.data?.sessions ?? [], places.many ? locPick : '', places.locations);
   // "My classes" is about who teaches the class (instructorId), whatever the staff member's role.
   const myToday = allSessions.filter((s) => s.instructorId === me.staffId && s.status !== 'cancelled');
   const canFilter = !mine && myToday.length > 0;
@@ -136,6 +140,7 @@ export function Today() {
             <section className="tg-list">
                 <div className="sec-head">
                   <h2>{mine ? <>Your <em>classes</em></> : <>Today's <em>classes</em></>}</h2>
+                  {places.many && <LocationFilter locations={places.locations} value={locPick} onChange={setLocPick} />}
                   {canFilter && <Seg className="sm" value={view} onChange={setView} options={[{ value: 'all', label: 'All classes' }, { value: 'mine', label: `My classes (${myToday.length})` }]} />}
                   <a className="linkish" href="#/schedule">Full schedule<Icon name="right" size={16} /></a>
                 </div>
@@ -157,6 +162,7 @@ export function Today() {
                             <div className="cls-meta">
                               {ins && <Avatar name={ins.name} photo={ins.photoUrl} size={24} />}
                               <span>{ins?.name ?? 'No instructor'}{s.instructorId === me.staffId && !mine ? ' (you)' : ''}</span><Sep /><span>{ct?.durationMin ?? 55} min</span>
+                              {places.many && <><Sep /><span className="cls-place">{placeLabel(s, places.locations, places.rooms)}</span></>}
                             </div>
                           </div>
                           {s.status !== 'cancelled' && (

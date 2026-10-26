@@ -10,6 +10,7 @@ import { PlanPanel, Upsell } from './billing';
 import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, replaceRoute, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
 import { BrandingTab } from './branding';
+import { LocationsTab, useLocationsTabVisible } from './locations';
 import { PaymentsPanel } from './payments';
 import { isSingleStudio } from '../shared/boot';
 
@@ -26,7 +27,10 @@ const TABS: { key: string; label: string; perm?: Perm | string; order: number }[
 export function Settings({ tab = 'studio' }: { tab?: string }) {
   const { can } = useStudio();
   const feature = settingsTabsList();
+  // Locations & rooms: only when the plan has multi_location, or the studio already runs more than one location. One-location studios never see it.
+  const locationsOn = useLocationsTabVisible();
   const all = [...TABS.filter((t) => (t.key !== 'payments' && t.key !== 'plan') || !isSingleStudio()), ...feature.map((t) => ({ key: t.id, label: t.label, ...(t.perm ? { perm: t.perm } : {}), order: t.order ?? 100 }))]
+    .concat(locationsOn ? [{ key: 'locations', label: 'Locations & rooms', perm: 'settings', order: 47 }] : [])
     .concat(store.mode === 'demo' ? [{ key: 'demo', label: 'Demo', order: 90 }] : [])
     .sort((x, y) => x.order - y.order);
   const tabs = all.filter((t) => !t.perm || can(t.perm));
@@ -52,6 +56,7 @@ export function Settings({ tab = 'studio' }: { tab?: string }) {
       {cur === 'branding' && <BrandingTab />}
       {cur === 'payments' && <PaymentsTab />}
       {cur === 'plan' && <PlanPanel />}
+      {cur === 'locations' && <LocationsTab />}
       {lockedTab && <Upsell feature={lockedTab.feature!} />}
       {featureTab && featureTab.render()}
     </div>
