@@ -5,12 +5,14 @@
  * consistent by construction.
  */
 import { StoreError } from '../../shared/store';
-import type { BookResult, CancelResult } from '../../shared/store';
+import type { BookResult, CancelResult, RestoreSessionResult, UndoCancelResult, VoidResult } from '../../shared/store';
 import type {
-  Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale,
+  Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale,
   ScheduleTemplate, SessionWithCounts, Staff, StudioSettings,
 } from '../../shared/types';
 import { addDays } from '../../shared/format';
+import { directFull, directSpotsLeft } from '../../domain/capacity';
+import { demoFeatures } from './features';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
@@ -23,7 +25,7 @@ export const STATE_VERSION = 1;
 export interface OutboxMessage {
   at: ISODateTime;
   clientId: ID;
-  kind: 'waitlist_promoted' | 'class_cancelled' | 'booking_moved';
+  kind: 'waitlist_promoted' | 'class_cancelled' | 'booking_moved' | 'class_restored';
   text: string;
 }
 
@@ -44,6 +46,10 @@ export interface DemoState {
   sales: Sale[];
   /** passId -> saleId that created it (for refunds). */
   passSale: Record<ID, ID>;
+  /** bookingId -> the fee sale a no-show / late cancel created (so undo can take it off again). */
+  penaltyFees?: Record<ID, ID>;
+  /** sessionId -> when the studio cancelled it (so restore knows which removals came from that). */
+  sessionCancelledAt?: Record<ID, ISODateTime>;
   /** Notifications the live app would send (email/push). Demo only, newest last. */
   outbox: OutboxMessage[];
   /** "Register interest" for coming-soon class types (one row per client + class type). Staff can see it. */
@@ -157,9 +163,17 @@ export class Engine {
     return { booked, waitlist };
   }
 
-  withCounts(session: ClassSession, countsCache?: Map<ID, { booked: number; waitlist: number }>): SessionWithCounts {
+  /** Spots features keep back from direct clients in this class (unfilled spots held for a partner). Staff ignore it. */
+  heldBack(session: ClassSession): number {
+    let n = 0;
+    for (const f of demoFeatures()) n += Math.max(0, f.heldBack?.(this.s, session) ?? 0);
+    return n;
+  }
+
+  /** `direct` = what a client sees (held-back spots set aside); staff get the real number. */
+  withCounts(session: ClassSession, countsCache?: Map<ID, { booked: number; waitlist: number }>, direct = false): SessionWithCounts {
     const c = countsCache?.get(session.id) ?? this.counts(session.id);
-    return { ...session, bookedCount: c.booked, waitlistCount: c.waitlist, spotsLeft: Math.max(0, session.capacity - c.booked) };
+    return { ...session, bookedCount: c.booked, waitlistCount: c.waitlist, spotsLeft: direct ? directSpotsLeft(session.capacity, c.booked, this.heldBack(session)) : Math.max(0, session.capacity - c.booked) };
   }
 
   allCounts(): Map<ID, { booked: number; waitlist: number }> {
@@ -212,6 +226,13 @@ export class Engine {
     if (isCountedPass(p)) p.creditsUsed = Math.max(0, p.creditsUsed - 1);
     // memberships/unlimited: the booking no longer counts once its status changes.
     p.status = computePassStatus(p, this.now());
+  }
+
+  /** Change a booking's status and remember what it was (undo needs it). */
+  private setStatus(b: Booking, status: BookingStatus): void {
+    b.priorStatus = b.status;
+    if (b.status === 'waitlisted' && b.waitlistPosition) b.priorWaitlistPosition = b.waitlistPosition; else delete b.priorWaitlistPosition;
+    b.status = status;
   }
 
   // ---------------------------------------------------------------- housekeeping
@@ -311,11 +332,12 @@ export class Engine {
     const now = this.now().toISOString();
     s.status = 'cancelled';
     s.cancelReason = reason;
+    (this.s.sessionCancelledAt ??= {})[id] = now;
     for (const b of this.sessionBookings(id)) {
       if (b.status === 'cancelled' || b.status === 'removed') continue;
       const wasBooked = b.status !== 'waitlisted';
       if (CREDIT_USING_STATUSES.includes(b.status)) this.returnCredit(b);
-      b.status = 'removed';
+      this.setStatus(b, 'removed');
       b.cancelledAt = now;
       delete b.waitlistPosition;
       // return credit happened above using the pre-change status; refresh pass status now the booking no longer counts
@@ -351,7 +373,7 @@ export class Engine {
       source: staff ? 'staff' : 'client', ...(o.by.kind === 'staff' ? { bookedByStaffId: o.by.staffId } : {}),
     };
     const { booked } = this.counts(sessionId);
-    if (booked >= session.capacity && !(staff && o.allowOverCapacity)) {
+    if (directFull(session.capacity, booked, staff ? 0 : this.heldBack(session)) && !(staff && o.allowOverCapacity)) {
       const maxPos = this.sessionBookings(sessionId).filter((b) => b.status === 'waitlisted').reduce((m, b) => Math.max(m, b.waitlistPosition ?? 0), 0);
       const booking: Booking = { ...base, status: 'waitlisted', waitlistPosition: maxPos + 1 };
       this.addBooking(booking);
@@ -391,11 +413,11 @@ export class Engine {
     if (b.status !== 'booked') throw err('INVALID', "This booking can't be cancelled.");
     if (!staff && hasStarted(session, now)) throw err('TOO_LATE', 'This class has already started.');
     const out = cancellationOutcome({ startsAt: session.startsAt, now, cancelWindowHours: this.s.settings.cancelWindowHours, waive: staff && !!o.waive });
-    b.status = out.status;
+    this.setStatus(b, out.status);
     b.cancelledAt = now.toISOString();
     if (out.creditReturned) this.returnCredit(b);
     else if (b.passId) { const p = this.passesById.get(b.passId); if (p) p.status = computePassStatus(p, now); }
-    if (out.lateCancel && this.s.settings.lateCancelFeeCents > 0) this.feeSale(b.clientId, 'Late cancellation fee', this.s.settings.lateCancelFeeCents);
+    if (out.lateCancel && this.s.settings.lateCancelFeeCents > 0) this.feeSale(b.clientId, 'Late cancellation fee', this.s.settings.lateCancelFeeCents, b.id);
     const promoted = this.promote(session.id);
     return { booking: b, creditReturned: out.creditReturned, lateCancel: out.lateCancel, ...(promoted[0] ? { promoted: promoted[0] } : {}) };
   }
@@ -403,7 +425,7 @@ export class Engine {
   leaveWaitlist(bookingId: ID): void {
     const b = this.booking(bookingId);
     if (b.status !== 'waitlisted') throw err('INVALID', "You're not on the waitlist for this class.");
-    b.status = 'removed';
+    this.setStatus(b, 'removed');
     b.cancelledAt = this.now().toISOString();
     delete b.waitlistPosition;
     this.renumberWaitlist(b.sessionId);
@@ -420,13 +442,13 @@ export class Engine {
     const now = this.now();
     const out: Booking[] = [];
     if (s.status === 'cancelled' || !canAutoPromote(s.startsAt, now, this.s.settings.waitlistCutoffHours)) return out;
-    while (this.counts(sessionId).booked < s.capacity) {
+    while (!directFull(s.capacity, this.counts(sessionId).booked, this.heldBack(s))) {
       const pick = pickWaitlistPromotion(this.sessionBookings(sessionId), (cid) => !!this.bestPass(cid, s));
       if (!pick) break;
       const pass = this.bestPass(pick.clientId, s);
       if (!pass) break;
       this.consume(pass);
-      pick.status = 'booked';
+      this.setStatus(pick, 'booked');
       pick.passId = pass.id;
       pick.promotedFromWaitlistAt = now.toISOString();
       delete pick.waitlistPosition;
@@ -457,9 +479,166 @@ export class Engine {
     const b = this.booking(bookingId);
     if (b.status === 'no_show') return b;
     if (b.status !== 'booked') throw err('INVALID', 'Only booked clients can be marked as a no-show.');
-    b.status = 'no_show';
-    if (this.s.settings.noShowFeeCents > 0) this.feeSale(b.clientId, 'No-show fee', this.s.settings.noShowFeeCents);
+    this.setStatus(b, 'no_show');
+    if (this.s.settings.noShowFeeCents > 0) this.feeSale(b.clientId, 'No-show fee', this.s.settings.noShowFeeCents, b.id);
     return b;
+  }
+
+  // ---------------------------------------------------------------- undo (staff mistakes)
+  /** Take a penalty fee sale off again (a mistake, so it never happened) or refund it (waived later). */
+  private dropPenaltyFee(bookingId: ID, how: 'delete' | 'refund'): void {
+    const saleId = this.s.penaltyFees?.[bookingId];
+    if (!saleId) return;
+    delete this.s.penaltyFees![bookingId];
+    const sale = this.s.sales.find((x) => x.id === saleId);
+    if (!sale) return;
+    if (how === 'delete') this.s.sales = this.s.sales.filter((x) => x.id !== saleId);
+    else if (!sale.refundedAt) { sale.refundedCents = sale.totalCents; sale.refundedAt = this.now().toISOString(); sale.note = [sale.note, 'Refund: penalty waived'].filter(Boolean).join(' · '); }
+  }
+
+  undoNoShow(bookingId: ID): Booking {
+    const b = this.booking(bookingId);
+    if (b.status !== 'no_show') throw err('INVALID', 'This booking is no longer marked as a no-show.');
+    this.setStatus(b, 'booked');
+    this.dropPenaltyFee(b.id, 'delete');
+    return b;
+  }
+
+  /** "Return credit": a late cancel or no-show becomes a normal cancel, credit back. */
+  waivePenalty(bookingId: ID): Booking {
+    const b = this.booking(bookingId);
+    if (b.status !== 'late_cancelled' && b.status !== 'no_show') throw err('INVALID', 'There is no penalty on this booking to waive.');
+    this.setStatus(b, 'cancelled');
+    b.cancelledAt = b.cancelledAt ?? this.now().toISOString();
+    this.returnCredit(b);
+    this.dropPenaltyFee(b.id, 'refund');
+    return b;
+  }
+
+  /** Put a staff cancel, late cancel or waitlist removal back exactly as it was. */
+  undoCancel(bookingId: ID, opts: { demotePromotedId?: ID } = {}): UndoCancelResult {
+    const b = this.booking(bookingId);
+    const session = this.session(b.sessionId);
+    const now = this.now();
+    if (session.status === 'cancelled') throw err('CLASS_CANCELLED', 'That class has been cancelled. Restore the class instead.');
+    if (hasEnded(session, now)) throw err('TOO_LATE', 'That class has finished.');
+    const was = b.priorStatus;
+    const fromWaitlist = b.status === 'removed' && was === 'waitlisted';
+    const fromCancel = (b.status === 'cancelled' || b.status === 'late_cancelled') && (was === 'booked' || was === 'checked_in' || was === 'no_show');
+    if (!fromWaitlist && !fromCancel) throw err('INVALID', "This booking can't be put back any more.");
+    if (this.sessionBookings(session.id).some((x) => x.id !== b.id && x.clientId === b.clientId && ACTIVE_BOOKING_STATUSES.includes(x.status))) {
+      throw err('ALREADY_BOOKED', `${this.client(b.clientId).firstName} has been booked into this class again already.`);
+    }
+    if (fromWaitlist) {
+      if (hasStarted(session, now)) throw err('TOO_LATE', 'The class has started, so the waitlist is closed.');
+      const place = b.priorWaitlistPosition;
+      this.setStatus(b, 'waitlisted');
+      this.rejoinWaitlist(b, place);
+      return { booking: b, creditTaken: false };
+    }
+    let demoted: Booking | undefined;
+    if (opts.demotePromotedId) {
+      const w = this.booking(opts.demotePromotedId);
+      if (w.sessionId !== session.id || w.status !== 'booked' || !w.promotedFromWaitlistAt) throw err('INVALID', "The person who took that spot can't be moved back.");
+      this.returnCredit(w);
+      const place = w.priorStatus === 'waitlisted' ? w.priorWaitlistPosition : undefined;   // where they were before the promotion
+      this.setStatus(w, 'waitlisted');
+      delete w.passId; delete w.promotedFromWaitlistAt;
+      this.rejoinWaitlist(w, place);
+      demoted = w;
+    }
+    if (this.counts(session.id).booked >= session.capacity) throw err('CLASS_FULL', 'Someone else has taken that spot, so they can\'t be put back.');
+    const needsCredit = b.status === 'cancelled' && !!b.passId;   // a late cancel never gave the credit back
+    if (needsCredit) {
+      const pass = this.pass(b.passId as ID);
+      if (!this.eligibility(pass, session).eligible) throw err('NO_CREDITS', `${this.client(b.clientId).firstName} can't be put back: their ${pass.name} has no credit for this class now.`);
+      this.consume(pass);
+    }
+    this.setStatus(b, was as BookingStatus);
+    delete b.cancelledAt;
+    this.dropPenaltyFee(b.id, 'delete');
+    this.renumberWaitlist(session.id);
+    return { booking: b, creditTaken: needsCredit, ...(demoted ? { demoted } : {}) };
+  }
+
+  /** Back on the waitlist where they were (`place`, else by when they joined). */
+  private rejoinWaitlist(b: Booking, place?: number): void {
+    const others = this.sessionBookings(b.sessionId).filter((x) => x.id !== b.id && x.status === 'waitlisted');
+    b.waitlistPosition = (place ?? others.filter((x) => Date.parse(x.createdAt) < Date.parse(b.createdAt)).length + 1) - 0.5;
+    this.renumberWaitlist(b.sessionId);
+  }
+
+  /** The studio cancelled a class by mistake: put it back and rebook everyone it can. */
+  restoreSession(id: ID): RestoreSessionResult {
+    const s = this.session(id);
+    const now = this.now();
+    if (s.status !== 'cancelled') throw err('INVALID', 'This class is not cancelled.');
+    if (hasEnded(s, now)) throw err('TOO_LATE', 'That class has finished.');
+    const removed = this.sessionBookings(id).filter((b) => b.status === 'removed' && b.priorStatus);
+    const stamp = this.s.sessionCancelledAt?.[id] ?? removed.reduce((m, b) => (b.cancelledAt && b.cancelledAt > m ? b.cancelledAt : m), '');
+    const batch = removed.filter((b) => (b.cancelledAt ?? '') >= stamp).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+    s.status = 'scheduled';
+    delete s.cancelReason;
+    if (this.s.sessionCancelledAt) delete this.s.sessionCancelledAt[id];
+    const out: RestoreSessionResult = { session: this.withCounts(s), restored: [], needsAttention: [] };
+    const name = (b: Booking) => { const c = this.client(b.clientId); return `${c.firstName} ${c.lastName}`.trim(); };
+    const skip = (b: Booking, reason: string) => out.needsAttention.push({ bookingId: b.id, clientId: b.clientId, name: name(b), reason });
+    const sStart = Date.parse(s.startsAt), sEnd = Date.parse(s.endsAt);
+    for (const b of batch.filter((x) => x.priorStatus !== 'waitlisted')) {
+      const was = b.priorStatus as BookingStatus;
+      const c = this.client(b.clientId);
+      if (this.sessionBookings(id).some((x) => x.id !== b.id && x.clientId === b.clientId && ACTIVE_BOOKING_STATUSES.includes(x.status))) { skip(b, 'Already booked into this class again'); continue; }
+      const clash = this.clientBookings(b.clientId).find((x) => x.sessionId !== id && SPOT_STATUSES.includes(x.status) && (() => {
+        const o = this.sessionsById.get(x.sessionId);
+        return !!o && o.status !== 'cancelled' && Date.parse(o.startsAt) < sEnd && Date.parse(o.endsAt) > sStart;
+      })());
+      if (clash) { skip(b, 'Took another class at the same time'); continue; }
+      if (c.archived) { skip(b, 'Client is archived'); continue; }
+      if (this.counts(id).booked >= s.capacity) { skip(b, 'No spot left'); continue; }
+      if (b.passId) {
+        const pass = this.passesById.get(b.passId);
+        if (!pass) { skip(b, 'Their pass is gone'); continue; }
+        if (!this.eligibility(pass, s).eligible) { skip(b, `No credit left on their ${pass.name}`); continue; }
+        this.consume(pass);
+      }
+      this.setStatus(b, was === 'late_cancelled' ? 'booked' : was);
+      delete b.cancelledAt;
+      out.restored.push({ bookingId: b.id, clientId: b.clientId, name: name(b), status: b.status });
+      this.notify(b.clientId, 'class_restored', `Good news: your class on ${studioDate(s.startsAt)} is back on, and you're booked in again.`);
+    }
+    for (const b of batch.filter((x) => x.priorStatus === 'waitlisted').sort((a, b) => (a.priorWaitlistPosition ?? 1e9) - (b.priorWaitlistPosition ?? 1e9) || Date.parse(a.createdAt) - Date.parse(b.createdAt))) {
+      if (this.sessionBookings(id).some((x) => x.id !== b.id && x.clientId === b.clientId && ACTIVE_BOOKING_STATUSES.includes(x.status))) { skip(b, 'Already booked into this class again'); continue; }
+      this.setStatus(b, 'waitlisted');
+      delete b.cancelledAt;
+      b.waitlistPosition = b.priorWaitlistPosition;
+      out.restored.push({ bookingId: b.id, clientId: b.clientId, name: name(b), status: 'waitlisted' });
+    }
+    this.renumberWaitlist(id);
+    this.promote(id);
+    for (const r of out.restored) r.status = this.booking(r.bookingId).status;   // a spare spot may have gone to the waitlist
+    out.session = this.withCounts(s);
+    return out;
+  }
+
+  /** A desk sale made by mistake today, not paid by card: as if it never happened. Card sales go through refund. */
+  voidSale(saleId: ID, opts: { reason?: string; dryRun?: boolean }): VoidResult {
+    const sale = this.s.sales.find((x) => x.id === saleId);
+    if (!sale) throw err('NOT_FOUND', 'That sale could not be found.');
+    const passes = this.s.passes.filter((p) => this.s.passSale[p.id] === sale.id && p.status !== 'cancelled')
+      .map((p) => ({ id: p.id, name: p.name, classesUsed: this.s.bookings.filter((b) => b.passId === p.id && (CREDIT_USING_STATUSES.includes(b.status))).length }));
+    let blocked: string | undefined;
+    if (sale.refundedAt) blocked = 'This sale has already been refunded or voided.';
+    else if (sale.method === 'card_online' || sale.stripePaymentIntentId) blocked = 'Card payments can’t be voided. Use Refund so the money goes back to the card.';
+    else if (studioDate(sale.createdAt) !== studioDate(this.now())) blocked = 'Only sales made today can be voided. For older sales, use Refund.';
+    else {
+      const used = passes.find((p) => p.classesUsed > 0);
+      if (used) blocked = `${used.name} has already been used for ${used.classesUsed} ${used.classesUsed === 1 ? 'class' : 'classes'}, so this sale can’t be voided. Use Refund, or adjust their pass.`;
+    }
+    if (blocked && !opts.dryRun) throw err('INVALID', blocked);
+    if (blocked || opts.dryRun) return { voided: false, ...(blocked ? { blocked } : {}), sale, passes };
+    const reason = `Voided${opts.reason?.trim() ? `: ${opts.reason.trim()}` : ' (entered by mistake)'}`;
+    const done = this.refund(saleId, { cancelPass: true, reason });
+    return { voided: true, sale: done, passes };
   }
 
   move(bookingId: ID, toSessionId: ID, by: Actor): BookResult {
@@ -542,6 +721,7 @@ export class Engine {
       purchasedAt: this.now().toISOString(), credits, creditsUsed: 0, priceCents: product.priceCents,
       ...(product.kind === 'membership' ? { billingInterval: product.billingInterval ?? 'week' } : {}),
       ...(product.classTypeIds?.length ? { classTypeIds: [...product.classTypeIds] } : {}),
+      ...(product.noClasses ? { noClasses: true } : {}),
     };
   }
 
@@ -651,8 +831,10 @@ export class Engine {
     return sale;
   }
 
-  private feeSale(clientId: ID, name: string, cents: number): void {
-    this.s.sales.push({ id: this.newId('sa'), clientId, items: [{ name, qty: 1, unitCents: cents }], totalCents: cents, method: 'card_online', createdAt: this.now().toISOString(), note: name });
+  private feeSale(clientId: ID, name: string, cents: number, bookingId?: ID): void {
+    const id = this.newId('sa');
+    this.s.sales.push({ id, clientId, items: [{ name, qty: 1, unitCents: cents }], totalCents: cents, method: 'card_online', createdAt: this.now().toISOString(), note: name });
+    if (bookingId) (this.s.penaltyFees ??= {})[bookingId] = id;
   }
 
   notify(clientId: ID, kind: OutboxMessage['kind'], text: string): void {

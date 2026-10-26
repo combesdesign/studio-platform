@@ -206,6 +206,7 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
         </div>
         <label className="field span2"><span>Booking note (shown before booking)</span><textarea className="textarea" rows={2} value={v.bookingNote ?? ''} onChange={s('bookingNote')} placeholder="e.g. Mums must have clearance from a women's health professional" /></label>
         <label className="check span2"><input type="checkbox" checked={v.bookable !== false} onChange={(e) => setV({ ...v, bookable: e.target.checked })} /><span>Bookable (untick for “Coming soon – register interest”)</span></label>
+        {kind !== 'retail' && <label className="check span2"><input type="checkbox" checked={!!v.noClasses} onChange={(e) => setV({ ...v, noClasses: e.target.checked })} /><span>Online only (no studio classes, e.g. the Online membership)</span></label>}
         <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>Active</span></label>
       </div>
       <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim()}>Save</button></div>
@@ -215,6 +216,7 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
 
 // ------------------------------------------------------------------ products (mirrors the website's "Find what's best for you")
 const perClass = (p: Product) => {
+  if (p.noClasses) return 'Online classes only';
   if (p.kind === 'membership') return p.credits == null ? 'Unlimited classes' : `${money(Math.round(p.priceCents / p.credits), { cents: true })} per class`;
   if (p.kind === 'intro') return `Unlimited for ${p.validityDays ?? 14} days`;
   if (p.kind === 'dropin' || (p.credits ?? 1) === 1) return 'Per class';
@@ -296,6 +298,7 @@ function ProductsTab() {
 }
 function prodSummary(p: Product) {
   if (p.kind === 'retail') return p.stock == null ? 'Stock not tracked' : `${p.stock} in stock`;
+  if (p.noClasses) return 'Online classes only, no studio classes';
   if (p.kind === 'membership') return `${p.credits == null ? 'Unlimited' : `${p.credits} credit${p.credits === 1 ? '' : 's'}`} per week, billed weekly`;
   if (p.kind === 'intro') return `Unlimited for ${p.validityDays ?? 14} days from first booking · new clients only`;
   return `${p.credits ?? 1} credit${(p.credits ?? 1) === 1 ? '' : 's'}${p.validityDays ? ` · expires ${p.validityDays} days after first use` : ''}`;
@@ -317,7 +320,7 @@ function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () 
       validityDays: isPass && kind !== 'membership' ? (v.validityDays ?? null) : undefined,
       billingInterval: kind === 'membership' ? v.billingInterval ?? 'week' : undefined,
       newClientsOnly: kind === 'intro' ? true : undefined,
-      classTypeIds: v.classTypeIds,
+      classTypeIds: v.classTypeIds, noClasses: isPass && v.noClasses ? true : undefined,
       stock: kind === 'retail' ? (v.stock ?? null) : undefined,
     }), 'Product saved');
     if (r) onClose();

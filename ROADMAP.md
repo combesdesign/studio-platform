@@ -71,7 +71,7 @@ Every feature built from here lands in both.
 - [x] Payroll export (CSV for Xero and others)
 
 ### B5 More Momence parity (after B1–B4)
-- [ ] On-demand video library and on-demand subscriptions
+- [x] On-demand video library and on-demand subscriptions (built: `src/features/ondemand`; Pete 26 Oct: an "Online classes" section for Mums + Bubs starters and busy clients who can't make it in)
 - [ ] Family and child accounts on one profile
 - [ ] Multi-location and rooms
 - [x] Check-in kiosk mode (an iPad clients tap themselves)
@@ -81,6 +81,18 @@ Every feature built from here lands in both.
   - [x] Settings tab (partner IDs, write-only keys), spots held per class type, roster badge, webhook stub (signature check left as a TODO)
 - [x] Accounting export to Xero
 - [ ] Stripe Terminal card reader at the POS
+
+## Support that's actually good (Libby: Momence support is horrible)
+Libby's pain points: Momence only offers a fixed list of problems (hers often isn't on it), and they're US-based so replies come overnight.
+- [x] No problem menus: always a free-text "tell us what's wrong" box (the assistant can suggest answers, never force a category)
+- [x] Australian-based support in AEST/AEDT business hours; urgent "can't take bookings" issues flagged to Pete's phone straight away (email now; SMS webhook ready)
+- [x] Every request gets an instant reply (assistant answer or "got it, a human will reply by X") so nobody's left wondering
+- [x] In-app "Help" button in the studio app: message us directly, with a screenshot and the page they were on attached automatically
+- [x] Help assistant: answers how-to questions instantly from our own help docs, then hands off to a real person ("Ask" in the Help sheet; needs `ANTHROPIC_API_KEY`, falls back to the best help article without it)
+- [x] Short help centre: a 1-minute guide for each common job (add a class, refund, change a pass)
+- [x] Response promise shown in the app (e.g. reply within 1 business day), plus a status page when something's down
+- [x] Studio owners can safely "undo" common mistakes (cancelled class, wrong sale) without needing support (Stripe refunds can't be undone, see NOTES.md `## undo`)
+- [ ] Onboarding call and data import done for them, not left as a DIY job
 
 ## Phase C: launch-readiness (Snowy and platform)
 - [ ] Capacitor wrap for the App Store and Google Play (per studio for white-label apps, or one shared app with studio pick)

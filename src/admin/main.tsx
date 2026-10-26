@@ -14,6 +14,7 @@ import { ToastProvider, match, useRoute, useToast } from '../shared/react';
 import { Accented, Flower, Logo } from '../shared/brand';
 import { applyBranding, brandAsset, defaultBranding, PLATFORM_BRANDING, PLATFORM_NAME, setAssetBase } from '../shared/branding';
 import { BrandingEditor, BrandPreview, PALETTES } from '../shared/branding-editor';
+import { SupportInbox, SupportNavLink } from '../features/support/admin/inbox';
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong. Please try again.');
 const STATUS: Record<StudioStatus, { label: string; tone: string }> = {
@@ -86,6 +87,7 @@ function Shell({ me }: { me: PlatformUser }) {
   let m: Record<string, string> | null;
   let page: React.ReactNode;
   if (p === '/new') page = <NewStudio />;
+  else if (p === '/support') page = <SupportInbox />;
   else if ((m = match('/studios/:id', p))) page = <StudioPage id={m.id!} tab="overview" />;
   else if ((m = match('/studios/:id/:tab', p))) page = <StudioPage id={m.id!} tab={m.tab!} />;
   else page = <Studios />;
@@ -93,6 +95,7 @@ function Shell({ me }: { me: PlatformUser }) {
     <div className="ad">
       <header className="ad-top">
         <a href="#/" className="ad-brand"><Logo className="ad-top-logo" label={PLATFORM_NAME} /><span className="ad-tag">Admin</span></a>
+        <nav className="ad-nav" aria-label="Admin sections"><a href="#/" className={p !== '/support' ? 'on' : ''}>Studios</a><SupportNavLink active={p === '/support'} /></nav>
         <div className="ad-me">
           <span className="ad-av">{me.name.charAt(0)}</span>
           <span className="ad-me-t"><strong>{me.name}</strong><span>{me.email}</span></span>

@@ -328,6 +328,8 @@ export interface Product {
   newClientsOnly?: boolean;
   /** Limit to certain class types. Empty/undefined = any class. */
   classTypeIds?: ID[];
+  /** No studio class access (the Online membership: on-demand video only). Never books a class, never reads as "Unlimited". */
+  noClasses?: boolean;
 
   // --- retail
   stock?: number | null;
@@ -359,6 +361,8 @@ export interface Pass {
   pausedUntil?: ISODate;
   priceCents: Cents;
   classTypeIds?: ID[];
+  /** Copied from the product at purchase: gives no studio class access. */
+  noClasses?: boolean;
   /** Free-text history of manual adjustments by staff. */
   adjustments?: { at: ISODateTime; staffId?: ID; delta: number; reason: string }[];
 }
@@ -389,6 +393,9 @@ export interface Booking {
   checkedInAt?: ISODateTime;
   source: 'client' | 'staff';
   bookedByStaffId?: ID;
+  /** What it was before its last status change (and its waitlist spot, if it was waitlisted). Undo uses these. */
+  priorStatus?: BookingStatus;
+  priorWaitlistPosition?: number;
 }
 
 // ---------------------------------------------------------------- money

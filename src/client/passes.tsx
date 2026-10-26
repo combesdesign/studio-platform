@@ -33,6 +33,19 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
     }
   }, [paid]);
 
+  // Deep links from the website: ?product=<id> opens that checkout, ?intro=1 opens the intro offer if eligible.
+  const wantProduct = q.get('product'), wantIntro = q.get('intro') === '1';
+  useEffect(() => {
+    if (!wantProduct && !wantIntro) return;
+    if (!products.data || (wantIntro && !wantProduct && intro.loading)) return;
+    const active = products.data.filter((p) => p.active);
+    const target = wantProduct ? active.find((p) => p.id === wantProduct)
+      : intro.data ? active.filter((p) => p.kind === 'intro').sort((a, b) => a.sortOrder - b.sortOrder)[0] : undefined;
+    nav('/passes' + (forId ? '?for=' + encodeURIComponent(forId) : ''), { replace: true });
+    if (target) setBuy(target);
+    else toast(wantProduct ? 'That pass isn’t available any more' : 'The intro offer is for new clients – pick a pass below');
+  }, [wantProduct, wantIntro, products.data, intro.data]);
+
   const forSession = useData(() => (forId ? store.getSession(forId) : Promise.resolve(null)), [forId]);
   const forCt = forSession.data ? app.classTypes.find((t) => t.id === forSession.data!.classTypeId) : undefined;
 
@@ -139,6 +152,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
 // ------------------------------------------------------------------ my passes
 function passLabel(p: Pass, s?: CreditSummary): string {
   if (s) return s.label;
+  if (p.noClasses) return 'Online only';
   if (p.credits == null) return 'Unlimited';
   if (p.kind === 'membership') return `${p.credits} per week`;
   return `${Math.max(0, p.credits - p.creditsUsed)} of ${p.credits} left`;

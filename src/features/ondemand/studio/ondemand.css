@@ -1,0 +1,21 @@
+/* Online classes in the studio app. Theme tokens only. */
+.od-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.od-item { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px 16px 12px 12px; }
+.od-item.draft .od-pic { opacity: .65; }
+.od-pic { display: grid; place-items: center; aspect-ratio: 16 / 10; border-radius: 14px; overflow: hidden; background: var(--soft); color: var(--primary); }
+.od-pic img { width: 100%; height: 100%; object-fit: cover; }
+.od-main { min-width: 0; display: grid; gap: 4px; }
+.od-name { font-size: 18px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.od-sub { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.od-flags { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+.od-views { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; }
+.od-acts { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.od-flip { transform: rotate(180deg); }
+.od-hint { font-size: 13.5px; }
+.od-hint.bad { color: var(--danger); }
+.od-prods { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 4px; }
+.od-prods .check { min-height: 48px; }
+@media (max-width: 860px) {
+  .od-item { grid-template-columns: 88px minmax(0, 1fr); }
+  .od-acts { grid-column: 1 / -1; justify-content: flex-start; }
+}

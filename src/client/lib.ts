@@ -94,6 +94,7 @@ export function daysLeft(iso?: string | null): number | null {
 }
 
 export function perClass(p: Product): string | null {
+  if (p.noClasses) return 'Online classes only';
   if (p.kind === 'membership') {
     if (p.credits == null) return 'Unlimited classes';
     return `${money(Math.round(p.priceCents / p.credits), { cents: true })} per class`;
@@ -106,6 +107,7 @@ export function perClass(p: Product): string | null {
 }
 
 export function productWhat(p: Product): string {
+  if (p.noClasses) return 'The online class library, no studio classes';
   if (p.kind === 'intro') return `${p.validityDays ?? 14} days of unlimited classes, from your first booking`;
   if (p.kind === 'membership') return p.credits == null ? 'Unlimited classes every week' : `${p.credits} class${p.credits === 1 ? '' : 'es'} every week (Mon – Sun)`;
   if (p.kind === 'pack' || p.kind === 'dropin') {
@@ -287,3 +289,13 @@ export function demoOpenPasswordLink(kind: PasswordLinkKind, email?: string): Pr
   const s = store as unknown as { demoOpenPasswordLink?: (k: PasswordLinkKind, e?: string) => Promise<boolean> };
   return s.demoOpenPasswordLink ? s.demoOpenPasswordLink(kind, email) : Promise.resolve(false);
 }
+
+// ------------------------------------------------------------------ deep links
+// A link from the website (#/class/<id>, #/passes?product=<id>, #/passes?intro=1) opened while signed out is
+// remembered here, so signing in or signing up carries on to it instead of dropping onto the timetable.
+const PENDING_KEY = 'spc-pending-link';
+export function rememberLink(path: string) { try { sessionStorage.setItem(PENDING_KEY, path); } catch { /* private mode */ } }
+export function takeRememberedLink(): string | null {
+  try { const p = sessionStorage.getItem(PENDING_KEY); sessionStorage.removeItem(PENDING_KEY); return p; } catch { return null; }
+}
+export const isDeepLink = (path: string) => /^\/class\/[^/?]+/.test(path) || /^\/passes\?.*\b(product|intro)=/.test(path);

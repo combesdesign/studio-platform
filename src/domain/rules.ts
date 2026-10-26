@@ -26,8 +26,8 @@ const iso = (t: number) => new Date(t).toISOString();
 // ---------------------------------------------------------------- pass basics
 
 /** Unlimited = membership or intro with no credit limit. */
-export function isUnlimited(p: Pick<Pass, 'kind' | 'credits'>): boolean {
-  return p.credits === null && (p.kind === 'membership' || p.kind === 'intro');
+export function isUnlimited(p: Pick<Pass, 'kind' | 'credits'> & { noClasses?: boolean }): boolean {
+  return !p.noClasses && p.credits === null && (p.kind === 'membership' || p.kind === 'intro');
 }
 /** Memberships with a weekly allowance (1/2/3 per week). */
 export function isWeeklyLimited(p: Pick<Pass, 'kind' | 'credits'>): boolean {
@@ -145,6 +145,7 @@ export function checkPassForSession(input: EligibilityInput): Eligibility {
   const exp = effectiveExpiry(pass, input.validityDays, now);
   if (exp !== null && (start >= exp || now.getTime() >= exp)) return no('expired');
   if (isPausedOn(pass, date)) return no('paused');
+  if (pass.noClasses) return no('class_type'); // online-only: never pays for a studio class
   if (pass.classTypeIds && pass.classTypeIds.length > 0 && !pass.classTypeIds.includes(session.classTypeId)) return no('class_type');
   if (remaining !== null && remaining <= 0) return no('no_credits');
   return { eligible: true, remaining };
@@ -240,7 +241,8 @@ export function isIntroEligible(clientId: ID, passes: readonly Pick<Pass, 'clien
 // ---------------------------------------------------------------- labels
 
 /** '3 of 4 left', 'Unlimited', '1 of 2 left this week'. */
-export function creditLabel(pass: Pick<Pass, 'kind' | 'credits'>, remaining: number | null): string {
+export function creditLabel(pass: Pick<Pass, 'kind' | 'credits'> & { noClasses?: boolean }, remaining: number | null): string {
+  if (pass.noClasses) return 'Online only';
   if (remaining === null || pass.credits === null || pass.credits === undefined) return 'Unlimited';
   return pass.kind === 'membership' ? `${remaining} of ${pass.credits} left this week` : `${remaining} of ${pass.credits} left`;
 }

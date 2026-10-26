@@ -2,7 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDemoPlatform, memoryStorage } from '../src/data/demo';
-import { heldFor, partnerBookError } from '../src/features/integrations/partners';
+import { heldFor, partnerBookError, unfilledHeld } from '../src/features/integrations/partners';
+import { directFull, directSpotsLeft } from '../src/domain/capacity';
+import { at, asClient, baseState, harness, mkClient, mkSession, OWNER } from './helpers';
 
 const ok = { capacity: 10, booked: 3, held: 2, used: 0 };
 
@@ -104,4 +106,64 @@ test('demo: each studio keeps its own partner settings and partner ID', async ()
   assert.equal(pa.find((p) => p.partner === 'classpass')!.enabled, true);
   assert.equal(pb.find((p) => p.partner === 'classpass')!.enabled, false);
   await assert.rejects(() => b.s.features.integrations!.demoPartnerBook!('classpass', 'x'), 'Harbour has ClassPass switched off');
+});
+
+test('held spots: direct clients get capacity minus the unfilled held spots, partners can still use them', async () => {
+  assert.equal(directSpotsLeft(4, 1, 2), 1);
+  assert.equal(directSpotsLeft(4, 3, 2), 0);
+  assert.equal(directFull(4, 2, 2), true);
+  assert.equal(directFull(4, 2, 0), false);
+  assert.equal(unfilledHeld(2, 3), 0);
+
+  const state = baseState({
+    clients: [mkClient('a', 'Amy'), mkClient('b', 'Bea'), mkClient('c', 'Cat'), mkClient('d', 'Dee')],
+    sessions: [mkSession('wed', '2026-10-14', '18:00', { capacity: 4 }), mkSession('thu', '2026-10-15', '18:00', { capacity: 2 })],
+    features: { integrations: {
+      partners: [{ partner: 'classpass', enabled: true, partnerStudioId: 'CP-1', keySet: false }, { partner: 'gympass', enabled: false, partnerStudioId: '', keySet: false }],
+      reserved: [{ classTypeId: 'ct_mat', partner: 'classpass', spots: 2 }],
+    } },
+  });
+  const h = await harness(state, at('2026-10-12', '08:00'));
+  const api = h.store.features.integrations!;
+  for (const c of ['a', 'b', 'c']) await h.give(c, 'pr_p4');
+
+  // what each side sees: staff the real 4, a client 4 - 2 held = 2 (and a fully held class shows full)
+  assert.equal((await h.store.getSession('wed')).spotsLeft, 4, 'staff see the real number');
+  await h.as(asClient('a'));
+  assert.equal((await h.store.getSession('wed')).spotsLeft, 2, 'a client sees capacity minus the held spots');
+  assert.equal((await h.store.listSessions({ from: '2026-10-14T00:00:00Z', to: '2026-10-16T00:00:00Z' })).find((x) => x.id === 'thu')!.spotsLeft, 0, 'every spot held: full');
+
+  // direct bookings: two fit, the third is blocked even though the class has room
+  assert.equal((await h.store.bookClass('a', 'wed')).outcome, 'booked');
+  await h.as(asClient('b'));
+  assert.equal((await h.store.bookClass('b', 'wed')).outcome, 'booked');
+  assert.equal((await h.store.getSession('wed')).spotsLeft, 0);
+  await h.as(asClient('c'));
+  assert.equal((await h.store.bookClass('c', 'wed')).outcome, 'waitlisted', 'only held spots remain: a direct booking waitlists');
+
+  // the partner still gets the held spots (twice, then its limit)
+  await h.as(OWNER);
+  assert.equal((await h.store.getSession('wed')).spotsLeft, 2, 'the roster side keeps the real number');
+  await api.demoPartnerBook!('classpass', 'wed', 'Maya Singh');
+  await api.demoPartnerBook!('classpass', 'wed', 'Tom Alvarez');
+  await assert.rejects(() => api.demoPartnerBook!('classpass', 'wed'), /all taken/);
+  const sess = await h.store.getSession('wed');
+  assert.equal(sess.bookedCount, 4);
+  assert.equal(sess.waitlistCount, 1);
+
+  // a partner spot that frees up goes back to the held pool, not to the waitlist
+  const mayaBooking = (await api.partnerBookings('wed'))[0]!.bookingId;
+  await h.store.cancelBooking(mayaBooking, { asStaff: true });
+  assert.equal((await h.store.getSession('wed')).waitlistCount, 1, 'the waitlisted client is not promoted into a held spot');
+  await h.as(asClient('d'));
+  assert.equal((await h.store.getSession('wed')).spotsLeft, 0);
+
+  // staff booking uses the real capacity
+  await h.as(OWNER);
+  assert.equal((await h.store.bookClass('d', 'thu', { skipCredit: true })).outcome, 'booked', 'staff can book a held spot');
+
+  // partner off: nothing is held
+  await api.savePartner('classpass', { enabled: false });
+  await h.as(asClient('a'));
+  assert.equal((await h.store.getSession('thu')).spotsLeft, 1);
 });

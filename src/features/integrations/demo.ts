@@ -10,8 +10,8 @@
 import './permissions';
 import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/features';
 import type { DemoState } from '../../data/demo/engine';
-import type { ID, Studio } from '../../shared/types';
-import { heldFor, partnerBookError } from './partners';
+import type { ClassSession, ID, Studio } from '../../shared/types';
+import { heldFor, partnerBookError, unfilledHeld } from './partners';
 import { PARTNERS, PARTNER_LABEL, type Partner, type PartnerBooking, type PartnerSetting, type ReservedSpots, type IntegrationsStore } from './types';
 import { normaliseAccounting, type AccountingSettings } from './xero';
 
@@ -157,8 +157,26 @@ function seedSlice(studio: Studio, state: DemoState, now: Date, newId: (p: strin
   return out;
 }
 
+/** Capacity adjuster: unfilled spots held for switched-on partners are not for direct clients (live: app.integrations_held_back). */
+function heldBack(state: DemoState, se: ClassSession): number {
+  const raw = state.features?.integrations as Slice | undefined;
+  if (!raw?.reserved?.length) return 0;
+  const s = norm(raw);
+  let n = 0;
+  for (const p of PARTNERS) {
+    if (!partnerOf(s, p).enabled) continue;
+    const held = heldFor(s.reserved, se.classTypeId, p);
+    if (held <= 0) continue;
+    const used = state.bookings.filter((b) => b.sessionId === se.id && (b.status === 'booked' || b.status === 'checked_in')
+      && s.bookings.some((pb) => pb.bookingId === b.id && pb.source === p)).length;
+    n += unfilledHeld(held, used);
+  }
+  return n;
+}
+
 registerDemoFeature({
   name: 'integrations',
   seed: ({ studio, state, now, newId }) => seedSlice(studio, state, now, newId),
+  heldBack,
   create,
 });
