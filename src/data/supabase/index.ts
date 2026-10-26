@@ -15,7 +15,7 @@ import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
   Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus,
-  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan, Location, Room,
+  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan, Location, Room, SessionSpots, SpotKind, SpotLayout,
 } from '../../shared/types';
 import {
   StoreError,
@@ -29,6 +29,7 @@ import { clientsCsv, salesCsv } from '../../domain/report';
 import { comparePassPriority, isPassCurrent } from '../../domain/rules';
 import { can, type StaffAction } from '../../domain/permissions';
 import { studioDay } from '../../domain/time';
+import { cleanLayout, validateLayout } from '../../domain/spots';
 import { defaultBranding } from '../../shared/branding';
 import { BUILTIN_STUDIOS } from '../studios';
 import { gateFeatures } from '../../shared/plans';
@@ -133,6 +134,7 @@ function toClassType(r: Row): ClassType {
     id: str(r.id), name: str(r.name), description: str(r.description), durationMin: num(r.duration_min, 55),
     color: str(r.color) || '#5069AC', defaultCapacity: num(r.default_capacity, 14), level: optStr(r.level),
     bookingNote: optStr(r.booking_note), bookable: bool(r.bookable), active: bool(r.active), imageUrl: optStr(r.image_url),
+    spotPicking: bool(r.spot_picking),
   });
 }
 
@@ -215,8 +217,16 @@ function toLocation(r: Row): Location {
   });
 }
 
+/** rooms.spot_layout (jsonb) -> SpotLayout; anything that isn't a layout is ignored. */
+function toLayout(v: unknown): SpotLayout | undefined {
+  const o = obj(v);
+  if (!Array.isArray(o.cells) || !Number.isInteger(o.rows) || !Number.isInteger(o.cols)) return undefined;
+  const cells = o.cells.map((c) => { const x = obj(c); const kind = str(x.kind); return { label: str(x.label), kind: (kind === 'instructor' || kind === 'unavailable' ? kind : 'spot') as SpotKind }; });
+  return cells.length === (o.rows as number) * (o.cols as number) ? { rows: o.rows as number, cols: o.cols as number, cells } : undefined;
+}
+
 function toRoom(r: Row): Room {
-  return clean({ id: str(r.id), locationId: str(r.location_id), name: str(r.name), capacity: optNum(r.capacity), active: bool(r.active) });
+  return clean({ id: str(r.id), locationId: str(r.location_id), name: str(r.name), capacity: optNum(r.capacity), active: bool(r.active), spotLayout: toLayout(r.spot_layout) });
 }
 
 function toProduct(r: Row): Product {
@@ -259,7 +269,7 @@ function toBooking(r: Row): Booking {
     promotedFromWaitlistAt: optIso(r.promoted_from_waitlist_at), cancelledAt: optIso(r.cancelled_at),
     checkedInAt: optIso(r.checked_in_at), source: (str(r.source) || 'client') as Booking['source'],
     bookedByStaffId: optStr(r.booked_by_staff_id), priorStatus: optStr(r.prior_status) as BookingStatus | undefined,
-    priorWaitlistPosition: optNum(r.prior_waitlist_position),
+    priorWaitlistPosition: optNum(r.prior_waitlist_position), spot: optStr(r.spot),
   });
 }
 
@@ -951,6 +961,7 @@ class SupabaseStore implements DataStore {
         ['name', ct.name.trim()], ['description', ct.description ?? ''], ['duration_min', ct.durationMin], ['color', ct.color],
         ['default_capacity', ct.defaultCapacity], ['level', textOrNull(ct.level)], ['booking_note', textOrNull(ct.bookingNote)],
         ['bookable', ct.bookable], ['active', ct.active], ['image_url', 'imageUrl' in ct ? textOrNull(ct.imageUrl) : undefined],
+        ['spot_picking', ct.spotPicking],
       ]);
       const r = ct.id
         ? await this.one(this.sb.from('class_types').update(row).eq('id', ct.id).select('*'), 'You don’t have permission to edit classes.', 'NOT_ALLOWED')
@@ -983,11 +994,13 @@ class SupabaseStore implements DataStore {
     });
   }
 
-  async upsertRoom(r: Omit<Room, 'id'> & { id?: ID }): Promise<Room> {
+  async upsertRoom(r: Omit<Room, 'id' | 'spotLayout'> & { id?: ID; spotLayout?: SpotLayout | null }): Promise<Room> {
     return this.write(async () => {
       await this.requireStaff('settings');
       if (!r.name?.trim()) throw new StoreError('INVALID', 'Please give the room a name.');
-      const row = patchRow([['location_id', r.locationId], ['name', r.name.trim()], ['capacity', r.capacity ?? null], ['active', r.active]]);
+      if (r.spotLayout) { const bad = validateLayout(r.spotLayout); if (bad) throw new StoreError('INVALID', bad); }
+      const row = patchRow([['location_id', r.locationId], ['name', r.name.trim()], ['capacity', r.capacity ?? null], ['active', r.active],
+        ['spot_layout', r.spotLayout ? cleanLayout(r.spotLayout) : r.spotLayout]]);   // omitted = unchanged, null = remove
       const out = r.id
         ? await this.one(this.sb.from('rooms').update(row).eq('id', r.id).select('*'), 'You don’t have permission to edit rooms.', 'NOT_ALLOWED')
         : await this.one(this.sb.from('rooms').insert(row).select('*'));
@@ -1098,15 +1111,29 @@ class SupabaseStore implements DataStore {
     return res;
   }
 
-  async bookClass(clientId: ID, sessionId: ID, opts: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean } = {}): Promise<BookResult> {
+  async bookClass(clientId: ID, sessionId: ID, opts: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean; spot?: string } = {}): Promise<BookResult> {
     return this.write(async () => {
       // Who's signed in decides (like the demo). A client passing staff options gets NOT_ALLOWED from the database.
       const asStaff = (await this.isStaff()) || !!opts.asStaff;
       const r = await this.rpc('book_class', {
         p_session_id: sessionId, p_pass_id: opts.passId ?? null, p_client_id: clientId, p_as_staff: asStaff,
         p_allow_over_capacity: !!opts.allowOverCapacity, p_skip_credit: !!opts.skipCredit,
+        ...(opts.spot ? { p_spot: opts.spot } : {}),
       });
       return this.toBookResult(r);
+    });
+  }
+
+  async getSessionSpots(sessionId: ID): Promise<SessionSpots> {
+    const o = obj(await this.rpc('session_spots', { p_session_id: sessionId }));
+    const layout = toLayout(o.layout);
+    return o.enabled === true && layout ? { enabled: true, layout, taken: arr(o.taken).map(str) } : { enabled: false, taken: [] };
+  }
+
+  async chooseSpot(bookingId: ID, spot: string | null): Promise<Booking> {
+    return this.write(async () => {
+      const asStaff = await this.isStaff();   // staff move anyone's spot; a client only their own (the database checks)
+      return toBooking(obj(await this.rpc('choose_spot', { p_booking_id: bookingId, p_spot: spot, p_as_staff: asStaff })));
     });
   }
 
