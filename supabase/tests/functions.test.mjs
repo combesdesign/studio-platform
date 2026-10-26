@@ -768,6 +768,204 @@ await t('web push: the drain sends encrypted, VAPID-signed pushes, drops dead su
   }
 });
 
+// ---------------------------------------------------------------- Stripe Connect per studio
+console.log('\n-- stripe connect');
+const HB = '00000000-0000-4000-8000-0000000000c1';
+const connectSecret = 'whsec_connect_secret';
+let hbClient, hbProduct, hbOwner;
+const sendConnect = async (ev, secret = connectSecret) => { const { raw, header } = signed(ev, secret); return post(await load('stripe-webhook'), raw, { 'Stripe-Signature': header }); };
+const connectEnv = (on) => { if (on) { ENV.STRIPE_CONNECT = '1'; ENV.STRIPE_CONNECT_WEBHOOK_SECRET = connectSecret; } else { delete ENV.STRIPE_CONNECT; delete ENV.STRIPE_CONNECT_WEBHOOK_SECRET; delete ENV.STUDIO_SLUG; delete ENV.PLATFORM_FEE_BPS; } };
+const stripeHeader = (pathPart) => lastStripe(pathPart)?.headers['Stripe-Account'];
+
+await t('connect-onboard: owner only; creates a Standard account once, then reuses it; returns an Account Link', async () => {
+  connectEnv(true);
+  try {
+    stripeObjects.accounts = { id: 'acct_SNOWY1', charges_enabled: false, payouts_enabled: false, details_submitted: false };
+    stripeObjects.account_links = { url: 'https://connect.stripe.com/setup/s/abc' };
+    const h = await load('connect-onboard');
+    const as = (user) => ({ Authorization: `Bearer ${user}` });
+    const body = { studioId: 'snowy', returnUrl: 'https://app.example/studio/#/settings/payments' };
+    assert.equal((await post(h, body, as(id('mia')))).status, 403, 'a manager can\'t');
+    assert.equal((await post(h, body, as(CARA_USER))).status, 403, 'a client can\'t');
+    assert.equal((await post(h, body)).status, 401);
+    const before = calls.filter((c) => c.path.endsWith('/accounts')).length;
+    const res = await post(h, body, as(id('libby')));
+    assert.equal(res.status, 200);
+    const j = await res.json();
+    assert.equal(j.url, 'https://connect.stripe.com/setup/s/abc'); assert.equal(j.accountId, 'acct_SNOWY1');
+    const acc = form(lastStripe('/accounts').body);
+    assert.equal(acc.type, 'standard'); assert.equal(acc['metadata[studio_id]'], SNOWY_ID);
+    assert.equal(lastStripe('/accounts').headers['Stripe-Account'], undefined, 'created on the platform account');
+    assert.equal(lastStripe('/accounts').headers['Idempotency-Key'], `connect-account-${SNOWY_ID}`);
+    const link = form(lastStripe('account_links').body);
+    assert.equal(link.account, 'acct_SNOWY1'); assert.equal(link.type, 'account_onboarding'); assert.equal(link.return_url, 'https://app.example/studio/#/settings/payments');
+    assert.equal(sql(`select stripe_account_id || ' ' || charges_enabled from public.studio_stripe where studio_id = '${SNOWY_ID}'`), 'acct_SNOWY1 false');
+    // again (Finish setup): same account, a new link, no second account
+    assert.equal((await post(h, body, as(id('libby')))).status, 200);
+    assert.equal(calls.filter((c) => c.path.endsWith('/accounts')).length, before + 1, 'the existing account is reused');
+    // not in Connect mode: nothing to connect
+    connectEnv(false);
+    const off = await post(h, body, as(id('libby')));
+    assert.equal((await off.json()).code, 'CONNECT_OFF');
+  } finally { connectEnv(false); }
+});
+
+await t('connect-status: refreshes the flags from Stripe; owner only; single mode just says so', async () => {
+  connectEnv(true);
+  try {
+    const h = await load('connect-status');
+    stripeObjects['accounts/acct_SNOWY1'] = { id: 'acct_SNOWY1', charges_enabled: true, payouts_enabled: false, details_submitted: true };
+    assert.equal((await post(h, { studioId: 'snowy' }, { Authorization: `Bearer ${id('mia')}` })).status, 403);
+    const j = await (await post(h, { studioId: 'snowy' }, { Authorization: `Bearer ${id('libby')}` })).json();
+    assert.deepEqual(j, { connectMode: true, connected: true, accountId: 'acct_SNOWY1', chargesEnabled: true, payoutsEnabled: false, detailsSubmitted: true });
+    assert.equal(sql(`select charges_enabled || ' ' || payouts_enabled || ' ' || details_submitted from public.studio_stripe where studio_id = '${SNOWY_ID}'`), 'true false true');
+    connectEnv(false);
+    const single = await (await post(h, { studioId: 'snowy' }, { Authorization: `Bearer ${id('libby')}` })).json();
+    assert.equal(single.connectMode, false); assert.equal(single.connected, false);
+  } finally { connectEnv(false); }
+});
+
+await t('checkout: Connect mode sends the Stripe-Account header (customer + session) and the optional fee; single mode and STUDIO_SLUG builds do not', async () => {
+  stripeObjects.customers = { id: 'cus_cara2' };
+  stripeObjects['checkout/sessions'] = { id: 'cs_c1', url: 'https://checkout.stripe.com/c/pay/cs_c1' };
+  const h = await load('create-checkout');
+  const go = (product) => post(h, { productId: product, studioId: 'snowy', returnUrl: 'https://app.example/#/passes' }, { Authorization: `Bearer ${CARA_USER}` });
+  try {
+    // single mode (no STRIPE_CONNECT)
+    sql(`delete from public.stripe_customers where client_id = '${CARA}'`);
+    assert.equal((await go(P_PACK4)).status, 200);
+    assert.equal(stripeHeader('customers'), undefined); assert.equal(stripeHeader('checkout/sessions'), undefined);
+    assert.equal(form(lastStripe('checkout/sessions').body)['payment_intent_data[application_fee_amount]'], undefined);
+    // a STUDIO_SLUG build ignores STRIPE_CONNECT
+    connectEnv(true); ENV.STUDIO_SLUG = 'snowy'; ENV.PLATFORM_FEE_BPS = '250';
+    assert.equal((await go(P_PACK4)).status, 200);
+    assert.equal(stripeHeader('checkout/sessions'), undefined, 'single-studio build stays on its own keys');
+    assert.equal(form(lastStripe('checkout/sessions').body)['payment_intent_data[application_fee_amount]'], undefined, 'and takes no fee');
+    delete ENV.STUDIO_SLUG;
+    // Connect mode, connected, no fee by default
+    sql(`delete from public.stripe_customers where client_id = '${CARA}'`);
+    delete ENV.PLATFORM_FEE_BPS;
+    assert.equal((await go(P_PACK4)).status, 200);
+    assert.equal(stripeHeader('customers'), 'acct_SNOWY1'); assert.equal(stripeHeader('checkout/sessions'), 'acct_SNOWY1');
+    assert.equal(form(lastStripe('checkout/sessions').body)['payment_intent_data[application_fee_amount]'], undefined, 'no platform fee unless asked');
+    // an optional fee
+    ENV.PLATFORM_FEE_BPS = '250';
+    assert.equal((await go(P_PACK4)).status, 200);
+    assert.equal(form(lastStripe('checkout/sessions').body)['payment_intent_data[application_fee_amount]'], '250');
+    assert.equal((await go(P_WEEK2)).status, 200);
+    assert.equal(form(lastStripe('checkout/sessions').body)['subscription_data[application_fee_percent]'], '2.5');
+  } finally { connectEnv(false); }
+});
+
+await t('checkout: Connect mode, studio not connected (or charges off) = a friendly error, and no Stripe call', async () => {
+  const h = await load('create-checkout');
+  const go = () => post(h, { productId: P_PACK4, studioId: 'snowy', returnUrl: 'https://app.example/#/passes' }, { Authorization: `Bearer ${CARA_USER}` });
+  const portal = await load('billing-portal');
+  try {
+    connectEnv(true);
+    sql(`update public.studio_stripe set charges_enabled = false where studio_id = '${SNOWY_ID}'`);
+    const n = calls.length;
+    const res = await go();
+    const j = await res.json();
+    assert.equal(res.status, 409); assert.equal(j.code, 'PAYMENTS_NOT_SET_UP');
+    assert.equal(j.message, 'Online payments aren’t set up yet, pay at the studio.');
+    assert.equal(calls.slice(n).filter((c) => c.host === 'api.stripe.com').length, 0);
+    assert.equal((await (await post(portal, { studioId: 'snowy', returnUrl: 'https://app.example' }, { Authorization: `Bearer ${CARA_USER}` })).json()).code, 'PAYMENTS_NOT_SET_UP');
+    sql(`delete from public.studio_stripe where studio_id = '${SNOWY_ID}'`);
+    assert.equal((await (await go()).json()).code, 'PAYMENTS_NOT_SET_UP', 'no row at all');
+  } finally {
+    connectEnv(false);
+    sql(`select public.stripe_connect_save('${SNOWY_ID}', 'acct_SNOWY1', true, true, true)`);
+  }
+});
+
+await t('billing portal and refunds are made on the studio\'s connected account', async () => {
+  connectEnv(true);
+  try {
+    stripeObjects['billing_portal/sessions'] = { url: 'https://billing.stripe.com/p/x' };
+    sql(`insert into public.stripe_customers (client_id, stripe_customer_id) values ('${CARA}', 'cus_cara2') on conflict (client_id) do update set stripe_customer_id = 'cus_cara2'`);
+    const r = await post(await load('billing-portal'), { studioId: 'snowy', returnUrl: 'https://app.example/#/profile' }, { Authorization: `Bearer ${CARA_USER}` });
+    assert.equal(r.status, 200);
+    assert.equal(stripeHeader('billing_portal/sessions'), 'acct_SNOWY1');
+    assert.equal(form(lastStripe('billing_portal/sessions').body).customer, 'cus_cara2');
+    // a refund (front desk) goes to the same account
+    stripeObjects.refunds = { id: 're_c1', charge: 'ch_pay_1' };
+    stripeObjects['charges/ch_pay_1'] = { id: 'ch_pay_1', amount_refunded: 5000 };
+    const saleId = sql(`select id from public.sales where stripe_payment_intent_id = 'pi_pay_1'`);
+    const rf = await post(await load('refund-payment'), { saleId, amountCents: 2500, studioId: 'snowy' }, { Authorization: `Bearer ${FRAN_USER}` });
+    assert.equal(rf.status, 200);
+    assert.equal(stripeHeader('refunds'), 'acct_SNOWY1'); assert.equal(lastStripe('charges/ch_pay_1', 'GET').headers['Stripe-Account'], 'acct_SNOWY1');
+  } finally { connectEnv(false); }
+});
+
+await t('stripe-webhook (Connect): event.account picks the studio; only the Connect secret is accepted; other studios\' rows are ignored', async () => {
+  // a second live studio with its own connected account, owner, client and product
+  sql(`insert into public.studios (id, slug, name, status) values ('${HB}', 'harbourc', 'Harbour C', 'live')`);
+  sql(`select public.stripe_connect_save('${HB}', 'acct_HARBOUR1', true, true, true)`);
+  sql(`insert into public.clients (studio_id, first_name, last_name, email) values ('${HB}', 'Hal', 'Harbour', 'hal@harbourc.test')`);
+  sql(`insert into public.products (studio_id, kind, name, price_cents, credits, validity_days) values ('${HB}', 'pack', 'Harbour 5 pack', 19500, 5, 90)`);
+  hbClient = sql(`select id from public.clients where email = 'hal@harbourc.test'`);
+  hbProduct = sql(`select id from public.products where studio_id = '${HB}'`);
+  connectEnv(true);
+  try {
+    const session = (n, client, product) => ({ id: `evt_hb_${n}`, type: 'checkout.session.completed', account: 'acct_HARBOUR1', data: { object: {
+      id: `cs_hb_${n}`, mode: 'payment', payment_status: 'paid', amount_total: 19500, customer: 'cus_hal', client_reference_id: client, payment_intent: `pi_hb_${n}`,
+      metadata: { client_id: client, product_id: product, kind: 'pack' } } } });
+    // signed with the platform secret instead of the Connect one: refused
+    assert.equal((await sendConnect(session(1, hbClient, hbProduct), ENV.STRIPE_WEBHOOK_SECRET)).status, 400, 'a connected account event needs the Connect signature');
+    assert.equal((await sendConnect(session(1, hbClient, hbProduct), 'whsec_wrong')).status, 400);
+    // proper event: Harbour's pass and sale, in Harbour
+    assert.equal((await sendConnect(session(2, hbClient, hbProduct))).status, 200);
+    assert.equal(sql(`select s.studio_id || ' ' || p.studio_id from public.sales s join public.passes p on p.sale_id = s.id where s.stripe_payment_intent_id = 'pi_hb_2'`), `${HB} ${HB}`);
+    // Harbour's account naming Snowy's client and product: ignored
+    assert.equal((await sendConnect(session(3, CARA, P_PACK4))).status, 200);
+    assert.equal(sql(`select count(*) from public.sales where stripe_payment_intent_id = 'pi_hb_3'`), '0', 'one studio can\'t sell into another');
+    // Snowy's account with Harbour's product: ignored too
+    assert.equal((await sendConnect({ ...session(4, CARA, hbProduct), account: 'acct_SNOWY1' })).status, 200);
+    assert.equal(sql(`select count(*) from public.sales where stripe_payment_intent_id = 'pi_hb_4'`), '0');
+    // an account we don't know, and a platform event with no account: acknowledged, nothing done
+    const unknown = await (await sendConnect({ ...session(5, hbClient, hbProduct), account: 'acct_NOBODY' })).json();
+    assert.equal(unknown.ignored, 'unknown account');
+    assert.equal(sql(`select count(*) from public.sales where stripe_payment_intent_id = 'pi_hb_5'`), '0');
+    const { account: _a, ...noAccount } = session(6, hbClient, hbProduct);
+    assert.equal((await (await sendConnect(noAccount)).json()).ignored, 'not a connected account event');
+    // Stripe lookups for a membership use the connected account
+    stripeObjects['subscriptions/sub_hb'] = { id: 'sub_hb', current_period_end: 1893456000 };
+    stripeObjects['invoices/in_hb'] = { id: 'in_hb', payment_intent: 'pi_hb_m' };
+    sql(`insert into public.products (studio_id, kind, name, price_cents, billing_interval) values ('${HB}', 'membership', 'Harbour weekly', 3000, 'week')`);
+    const mem = sql(`select id from public.products where name = 'Harbour weekly'`);
+    const m = session(7, hbClient, mem); m.data.object.mode = 'subscription'; m.data.object.subscription = 'sub_hb'; m.data.object.invoice = 'in_hb'; m.data.object.amount_total = 3000;
+    assert.equal((await sendConnect(m)).status, 200);
+    assert.equal(lastStripe('subscriptions/sub_hb', 'GET').headers['Stripe-Account'], 'acct_HARBOUR1');
+    assert.equal(sql(`select count(*) from public.passes where stripe_subscription_id = 'sub_hb' and studio_id = '${HB}'`), '1');
+  } finally { connectEnv(false); }
+});
+
+await t('stripe-webhook (Connect): account.updated keeps the studio\'s flags in sync', async () => {
+  connectEnv(true);
+  try {
+    sql(`select public.stripe_connect_save('${HB}', 'acct_HARBOUR1', false, false, false)`);
+    const ev = (n, o) => ({ id: `evt_acct_${n}`, type: 'account.updated', account: 'acct_HARBOUR1', data: { object: { id: 'acct_HARBOUR1', ...o } } });
+    assert.equal((await sendConnect(ev(1, { charges_enabled: true, payouts_enabled: false, details_submitted: true }))).status, 200);
+    assert.equal(sql(`select charges_enabled || ' ' || payouts_enabled || ' ' || details_submitted from public.studio_stripe where studio_id = '${HB}'`), 'true false true');
+    assert.equal(sql(`select charges_enabled from public.studio_stripe where studio_id = '${SNOWY_ID}'`), 't', 'other studios untouched');
+    assert.equal((await sendConnect(ev(2, { charges_enabled: false, payouts_enabled: false, details_submitted: true }))).status, 200);
+    assert.equal(sql(`select charges_enabled from public.studio_stripe where studio_id = '${HB}'`), 'f', 'Stripe switching charges off is picked up');
+    // an account.updated about some other account id inside Harbour's event is not trusted
+    await sendConnect({ ...ev(3, { charges_enabled: true }), data: { object: { id: 'acct_SNOWY1', charges_enabled: false } } });
+    assert.equal(sql(`select charges_enabled from public.studio_stripe where studio_id = '${SNOWY_ID}'`), 't');
+  } finally { connectEnv(false); }
+});
+
+await t('single-account mode is unchanged: the plain webhook secret works, and account events are ignored', async () => {
+  const w = await load('stripe-webhook');
+  const { raw, header } = signed({ id: 'evt_single_acct', type: 'account.updated', account: 'acct_HARBOUR1', data: { object: { id: 'acct_HARBOUR1', charges_enabled: true } } });
+  assert.equal((await post(w, raw, { 'Stripe-Signature': header })).status, 200);
+  assert.equal(sql(`select charges_enabled from public.studio_stripe where studio_id = '${HB}'`), 'f');
+  const { raw: r2, header: h2 } = signed({ id: 'evt_single_acct2', type: 'ping' }, connectSecret);
+  assert.equal((await post(w, r2, { 'Stripe-Signature': h2 })).status, 400, 'the Connect secret means nothing in single mode');
+});
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');

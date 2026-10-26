@@ -5,6 +5,7 @@
 // A separate function from create-checkout because that one only sells core products (and the core is not ours to change).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { adminClient, must } from '../_shared/db.ts';
+import { feeCents, payAs } from '../_shared/connect.ts';
 import { env, HttpError, json, readJson, safeReturnUrl, serve } from '../_shared/http.ts';
 import { stripe } from '../_shared/stripe.ts';
 
@@ -32,13 +33,14 @@ serve(async (req) => {
 
   const admin = adminClient();
   try {
+    const pay = await payAs(admin, order.studioId);
     const client = must(await admin.from('clients').select('id, email, first_name, last_name, phone').eq('id', order.clientId).single());
     let customerId: string | undefined = must(await admin.from('stripe_customers').select('stripe_customer_id').eq('client_id', order.clientId).maybeSingle())?.stripe_customer_id;
     if (!customerId) {
       const cust = await stripe('POST', 'customers', {
         email: client.email, name: `${client.first_name} ${client.last_name}`.trim(), phone: client.phone ?? undefined,
         metadata: { client_id: order.clientId },
-      }, `customer-${order.clientId}`);
+      }, `customer-${order.clientId}`, pay.account);
       customerId = cust.id as string;
       must(await admin.from('stripe_customers').upsert({ client_id: order.clientId, stripe_customer_id: customerId }));
     }
@@ -56,12 +58,12 @@ serve(async (req) => {
         price_data: { currency: order.currency || 'aud', unit_amount: order.amountCents, product_data: { name: `${order.studioName}: ${order.title}` } },
       }],
       metadata,
-      payment_intent_data: { metadata, description: order.title },
+      payment_intent_data: { metadata, description: order.title, application_fee_amount: feeCents(pay, order.amountCents) },
       success_url: successUrl,
       cancel_url: cancelUrl,
       // Stripe's minimum; the hold in the database lasts the same 30 minutes.
       expires_at: Math.floor(Date.now() / 1000) + 30 * 60 + 30,
-    }, `appointments-order-${order.orderId}`);
+    }, `appointments-order-${order.orderId}`, pay.account);
     must(await admin.rpc('appointments_attach_checkout', { p_order_id: order.orderId, p_session_id: session.id }));
     return json({ url: session.url });
   } catch (e) {

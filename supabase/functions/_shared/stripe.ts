@@ -28,13 +28,15 @@ export function formEncode(params: Params, prefix = '', out: URLSearchParams = n
 // deno-lint-ignore no-explicit-any
 export type StripeObject = Record<string, any>;
 
-export async function stripe(method: 'GET' | 'POST' | 'DELETE', path: string, params: Params = {}, idempotencyKey?: string): Promise<StripeObject> {
+/** `account` = a connected account id (acct_...): the call is made on that account (Stripe-Account header, a direct charge). Omit for the platform's own account. */
+export async function stripe(method: 'GET' | 'POST' | 'DELETE', path: string, params: Params = {}, idempotencyKey?: string, account?: string): Promise<StripeObject> {
   const key = env('STRIPE_SECRET_KEY');
   const body = formEncode(params);
   const url = `https://api.stripe.com/v1/${path}${method === 'GET' && [...body].length ? `?${body}` : ''}`;
   const headers: Record<string, string> = { Authorization: `Bearer ${key}`, 'Stripe-Version': STRIPE_VERSION };
   if (method === 'POST') headers['Content-Type'] = 'application/x-www-form-urlencoded';
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  if (account) headers['Stripe-Account'] = account;
   const res = await fetch(url, { method, headers, body: method === 'POST' ? body.toString() : undefined });
   const data = (await res.json().catch(() => ({}))) as StripeObject;
   if (!res.ok) {

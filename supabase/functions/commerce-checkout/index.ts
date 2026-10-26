@@ -2,6 +2,7 @@
 // Starts a Stripe Checkout Session for a *pending* gift card (made by public.commerce_buy_gift_card).
 // The card is switched on by stripe-webhook (commerce_activate_gift_card) once Stripe confirms payment, never here.
 import { adminClient, must, userClient } from '../_shared/db.ts';
+import { feeCents, payAs } from '../_shared/connect.ts';
 import { HttpError, json, readJson, safeReturnUrl, serve } from '../_shared/http.ts';
 import { stripe } from '../_shared/stripe.ts';
 
@@ -25,12 +26,14 @@ serve(async (req) => {
   const studio = must(await admin.from('studios').select('id, name, currency, status').eq('id', card.studio_id).single());
   if (studio.status === 'suspended') throw new HttpError(403, 'STUDIO_CLOSED', 'This studio isn’t taking orders right now.');
 
+  const pay = await payAs(admin, card.studio_id);
+
   // One Stripe customer per client, shared with create-checkout.
   let customerId: string | undefined = must(await admin.from('stripe_customers').select('stripe_customer_id').eq('client_id', buyer.id).maybeSingle())?.stripe_customer_id;
   if (!customerId) {
     const cust = await stripe('POST', 'customers', {
       email: buyer.email, name: `${buyer.first_name} ${buyer.last_name}`.trim(), metadata: { client_id: buyer.id },
-    }, `customer-${buyer.id}`);
+    }, `customer-${buyer.id}`, pay.account);
     customerId = cust.id as string;
     must(await admin.from('stripe_customers').upsert({ client_id: buyer.id, stripe_customer_id: customerId }));
   }
@@ -54,8 +57,8 @@ serve(async (req) => {
     metadata,
     success_url: successUrl,
     cancel_url: cancelUrl,
-    payment_intent_data: { metadata, description: 'Gift card' },
-  });
+    payment_intent_data: { metadata, description: 'Gift card', application_fee_amount: feeCents(pay, card.initial_cents) },
+  }, undefined, pay.account);
 
   return json({ url: session.url });
 });

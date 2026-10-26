@@ -9,11 +9,12 @@
 // Pause = Stripe pause_collection { behavior: 'void' } until the day after paused_until (Sydney),
 // so no weekly charges while paused. Cancel = cancel_at_period_end (keeps working until then).
 import { adminClient, must, userClient, whoami } from '../_shared/db.ts';
+import { type PayAs, payAs } from '../_shared/connect.ts';
 import { HttpError, json, readJson, requireCronSecret, serve } from '../_shared/http.ts';
 import { stripe, sydneyMidnightUnix, sydneyToday } from '../_shared/stripe.ts';
 
 interface PassRow {
-  id: string; status: string; kind: string; stripe_subscription_id: string | null; cancel_at_period_end: boolean;
+  studio_id: string; id: string; status: string; kind: string; stripe_subscription_id: string | null; cancel_at_period_end: boolean;
   paused_from: string | null; paused_until: string | null; next_billing_at: string | null;
 }
 
@@ -24,33 +25,37 @@ serve(async (req) => {
   if (body.all === true) {
     requireCronSecret(req);
     const rows = must(await admin.from('passes')
-      .select('id, status, kind, stripe_subscription_id, cancel_at_period_end, paused_from, paused_until, next_billing_at')
+      .select('id, studio_id, status, kind, stripe_subscription_id, cancel_at_period_end, paused_from, paused_until, next_billing_at')
       .not('stripe_subscription_id', 'is', null)
       .in('status', ['active', 'paused', 'cancelled'])) as PassRow[];
     let synced = 0, failed = 0;
+    const pays = new Map<string, Promise<PayAs>>();   // one lookup per studio
     for (const p of rows) {
       if (p.status === 'cancelled' && p.next_billing_at && Date.parse(p.next_billing_at) < Date.now() - 7 * 864e5) continue;
-      try { await sync(p); synced++; } catch (e) { failed++; console.error('sync failed', p.id, e); }
+      try {
+        if (!pays.has(p.studio_id)) pays.set(p.studio_id, payAs(admin, p.studio_id));
+        await sync(p, await pays.get(p.studio_id)!); synced++;
+      } catch (e) { failed++; console.error('sync failed', p.id, e); }
     }
     return json({ synced, failed });
   }
 
   // Single pass: the client who owns it, or staff who manage passes (passes_manage: owner, manager, front desk).
   const passId = String(body.passId ?? '');
-  const me = await whoami(userClient(req));
+  const me = await whoami(userClient(req, String(body.studioId ?? '')));
   const p = must(await admin.from('passes')
-    .select('id, client_id, status, kind, stripe_subscription_id, cancel_at_period_end, paused_from, paused_until, next_billing_at')
+    .select('id, studio_id, client_id, status, kind, stripe_subscription_id, cancel_at_period_end, paused_from, paused_until, next_billing_at')
     .eq('id', passId).maybeSingle()) as (PassRow & { client_id: string }) | null;
   const allowed = !!p && (me.kind === 'client' ? me.client_id === p.client_id : ['owner', 'manager', 'front_desk'].includes(me.role ?? ''));
   if (!p || !allowed) throw new HttpError(404, 'NOT_FOUND', 'We couldn’t find that membership.');
   if (!p.stripe_subscription_id) return json({ synced: false, reason: 'no subscription' });
-  await sync(p);
+  await sync(p, await payAs(admin, p.studio_id));
   return json({ synced: true });
 });
 
-async function sync(p: PassRow): Promise<void> {
+async function sync(p: PassRow, pay: PayAs): Promise<void> {
   if (!p.stripe_subscription_id) return;
-  const sub = await stripe('GET', `subscriptions/${p.stripe_subscription_id}`);
+  const sub = await stripe('GET', `subscriptions/${p.stripe_subscription_id}`, {}, undefined, pay.account);
   if (sub.status === 'canceled') return;
 
   const today = sydneyToday();
@@ -71,7 +76,7 @@ async function sync(p: PassRow): Promise<void> {
     params.pause_collection = ''; // empty string = resume collecting payments
   }
 
-  if (Object.keys(params).length) await stripe('POST', `subscriptions/${p.stripe_subscription_id}`, params);
+  if (Object.keys(params).length) await stripe('POST', `subscriptions/${p.stripe_subscription_id}`, params, undefined, pay.account);
 }
 
 function addDay(date: string): string {

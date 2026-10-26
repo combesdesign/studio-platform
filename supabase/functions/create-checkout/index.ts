@@ -3,13 +3,14 @@
 // Memberships = weekly subscription. Apple Pay / Google Pay show up automatically in Checkout.
 // The pass is created by stripe-webhook when Stripe confirms payment (never here).
 import { adminClient, must, userClient, whoami } from '../_shared/db.ts';
+import { feeCents, feePercent, payAs } from '../_shared/connect.ts';
 import { HttpError, json, readJson, safeReturnUrl, serve } from '../_shared/http.ts';
 import { stripe } from '../_shared/stripe.ts';
 
 serve(async (req) => {
   if (req.method !== 'POST') throw new HttpError(405, 'NOT_ALLOWED', 'Use POST.');
   const body = await readJson(req);
-  const user = userClient(req);
+  const user = userClient(req, String(body.studioId ?? ''));
   const me = await whoami(user);
   if (me.kind !== 'client' || !me.client_id) throw new HttpError(403, 'NOT_ALLOWED', 'Online checkout is for client accounts. Use the till in the studio app.');
   const payerId = me.client_id;
@@ -26,6 +27,8 @@ serve(async (req) => {
   const product = must(await admin.from('products').select('*').eq('id', String(body.productId ?? '')).maybeSingle());
   if (!product || !product.active) throw new HttpError(404, 'NOT_FOUND', 'That product isn’t available.');
   if (product.price_cents <= 0) throw new HttpError(400, 'INVALID', 'That product can’t be bought online.');
+  // Connect mode: paid into the studio's own Stripe account (a friendly 409 if it hasn't connected). Single mode: our own keys, as ever.
+  const pay = await payAs(admin, product.studio_id);
 
   if (product.kind === 'intro' || product.new_clients_only) {
     const ok = must(await user.rpc('is_intro_eligible', { p_client_id: clientId }));
@@ -34,6 +37,7 @@ serve(async (req) => {
 
   const client = must(await admin.from('clients').select('id, email, first_name, last_name, phone').eq('id', payerId).single());   // the parent pays
   const clientStudio = must(await admin.from('clients').select('studio_id').eq('id', clientId).single()) as { studio_id?: string };
+  if (clientStudio?.studio_id && product.studio_id && clientStudio.studio_id !== product.studio_id) throw new HttpError(404, 'NOT_FOUND', 'That product isn’t available.');
   const studioName: string = clientStudio?.studio_id
     ? ((must(await admin.from('studios').select('name').eq('id', clientStudio.studio_id).maybeSingle()) as { name?: string } | null)?.name ?? 'Studio')
     : 'Studio';
@@ -44,7 +48,7 @@ serve(async (req) => {
     const cust = await stripe('POST', 'customers', {
       email: client.email, name: `${client.first_name} ${client.last_name}`.trim(), phone: client.phone ?? undefined,
       metadata: { client_id: payerId },
-    }, `customer-${payerId}`);
+    }, `customer-${payerId}`, pay.account);
     customerId = cust.id as string;
     must(await admin.from('stripe_customers').upsert({ client_id: payerId, stripe_customer_id: customerId }));
   }
@@ -54,7 +58,8 @@ serve(async (req) => {
   const isMembership = product.kind === 'membership';
   const metadata = { client_id: clientId, product_id: product.id, kind: product.kind };
 
-  const lineItem = product.stripe_price_id
+  // A saved Stripe price belongs to one Stripe account, so on a connected account we always send the price itself.
+  const lineItem = product.stripe_price_id && !pay.account
     ? { price: product.stripe_price_id, quantity: 1 }
     : {
         quantity: 1,
@@ -76,10 +81,10 @@ serve(async (req) => {
     cancel_url: cancelUrl,
     allow_promotion_codes: 'true',
     ...(isMembership
-      ? { subscription_data: { metadata, description: product.name } }
+      ? { subscription_data: { metadata, description: product.name, application_fee_percent: feePercent(pay) } }
       // No receipt_email: the app sends its own receipt (with the ABN and GST line), so clients don't get two.
-      : { payment_intent_data: { metadata, description: product.name } }),
-  });
+      : { payment_intent_data: { metadata, description: product.name, application_fee_amount: feeCents(pay, product.price_cents) } }),
+  }, undefined, pay.account);
 
   return json({ url: session.url });
 });

@@ -11,11 +11,12 @@ export function adminClient(): Db {
   return createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-export function userClient(req: Request): Db {
+/** `studio` (id or slug) scopes every call to that studio, like the x-studio header the apps send. Omitted = the default studio. */
+export function userClient(req: Request, studio?: string): Db {
   const auth = req.headers.get('Authorization') ?? '';
   if (!auth.startsWith('Bearer ')) throw new HttpError(401, 'AUTH_REQUIRED', 'Please sign in first.');
   return createClient(env('SUPABASE_URL'), env('SUPABASE_ANON_KEY'), {
-    global: { headers: { Authorization: auth } },
+    global: { headers: { Authorization: auth, ...(studio ? { 'x-studio': studio } : {}) } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
