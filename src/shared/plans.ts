@@ -49,6 +49,7 @@ export function hasFeature(studio: PlanSubject, key?: string | null): boolean {
   if (!key || key === 'core') return true;
   if (singleStudioBuild()) return true;
   if (!studio || !studio.plan) return true;
+  if (!FEATURE_CATALOG.some((f) => f.key === key)) return true;   // only the features plans sell are gated (a module nobody has put on a plan stays on)
   return studio.plan.features.includes(key);
 }
 
