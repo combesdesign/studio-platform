@@ -4,6 +4,7 @@ import { addDays, money, studioDate, weekStart, LOCALE } from '../shared/format'
 import type { ReportRange } from '../shared/types';
 import { Avatar, Icon, Loading, PageHead, Seg, cx, downloadText, useStudio } from './ui';
 import { METHOD_LABEL } from './clients';
+import { LocationFilter, useLocationFilter, useLocations } from './locations';
 
 type Preset = 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom';
 const monthStart = (d: string) => d.slice(0, 8) + '01';
@@ -24,8 +25,11 @@ export function Reports() {
   const [preset, setPreset] = useState<Preset>('this_month');
   const t = studioDate();
   const [custom, setCustom] = useState<ReportRange>({ from: addDays(t, -29), to: t });
+  const places = useLocations();
+  const [locPick, setLocPick] = useLocationFilter(places.locations);
+  const loc = places.many ? locPick : '';
   const range = rangeFor(preset, custom);
-  const rep = useData(() => store.getReport(range), [range.from, range.to]);
+  const rep = useData(() => store.getReport(loc ? { ...range, locationId: loc } : range), [range.from, range.to, loc]);
   const { busy, run } = useAction();
   const r = rep.data;
   const showPay = can('pay');
@@ -52,6 +56,7 @@ export function Reports() {
           { value: 'this_week', label: 'This week' }, { value: 'last_week', label: 'Last week' }, { value: 'this_month', label: 'This month' },
           { value: 'last_month', label: 'Last month' }, { value: 'custom', label: 'Custom' },
         ]} />
+        {places.many && <LocationFilter locations={places.locations} value={locPick} onChange={setLocPick} />}
         {preset === 'custom' && (
           <div className="row custom-range">
             <input className="input sm" type="date" value={custom.from} max={custom.to} onChange={(e) => setCustom({ ...custom, from: e.target.value })} aria-label="From" />
@@ -63,6 +68,7 @@ export function Reports() {
 
       {!r ? (rep.error ? <p className="muted">{rep.error.message}</p> : <Loading />) : (
         <div className={cx('stack lg', rep.loading && 'dim')}>
+          {loc && showRevenue && <p className="muted small">Showing classes at {places.locations.find((l) => l.id === loc)?.name}. Sales aren’t split by location, so revenue is for the whole studio.</p>}
           <div className="kpis">
             {showRevenue && <Kpi label="Revenue" value={money(r.revenueCents - r.refundsCents)} sub={r.refundsCents ? `after ${money(r.refundsCents)} refunds` : `${r.salesCount} sales`} hero />}
             {!showRevenue && <Kpi label="Attendance" value={r.attended} sub={`of ${r.totalBookings} bookings`} hero />}

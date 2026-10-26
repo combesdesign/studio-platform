@@ -687,3 +687,13 @@ h1, h2, h3 { letter-spacing: -.025em; line-height: .98; text-wrap: balance; }
 .who-results .ic { color: var(--primary); flex: none; }
 .fam-row { align-items: center; }
 .fam-row > div { flex: 1; min-width: 0; }
+
+/* ---- locations (only when the studio has more than one) */
+.loc-chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -20px 4px; padding: 4px 20px 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.loc-chips::-webkit-scrollbar { display: none; }
+.loc-chip { flex: none; min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink); font-size: 15px; cursor: pointer; transition: background .2s, color .2s, border-color .2s; }
+.loc-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.cls-where { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; color: var(--primary); }
+.cls-where .ic { flex: none; }
+.cs-where { margin: 10px 0 0; font-size: 15px; color: var(--muted); line-height: 1.45; }
+.cs-dir { display: inline-flex; align-items: center; min-height: 44px; color: var(--primary); text-decoration: underline; text-underline-offset: 4px; text-decoration-color: rgba(var(--primary-rgb), .35); white-space: nowrap; }

@@ -1,7 +1,7 @@
 /** Timetable tab + class detail sheet. */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
-import type { ClassType, SessionWithCounts } from '../shared/types';
+import type { ClassType, Location, SessionWithCounts } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet, leaveSheets, useBackHandler } from '../shared/react';
 import { addDays, dateFormat, dayLong, money, pluralise, startOfStudioDay, studioDate, time } from '../shared/format';
 import { Slot } from '../shared/slots';
@@ -11,6 +11,8 @@ import {
   isLateCancel, sessionState, staffRole, takePendingClass, timeRange, when,
 } from './lib';
 import { weekday } from '../shared/format';
+import { directionsPlatform, directionsUrl, effectiveLocationId, filterByLocation, hasManyLocations } from '../domain';
+import { readLocationPref, validLocationPref, writeLocationPref } from '../shared/locationPref';
 import { WhosComing, creditLine, fullName, useDependants, type WhoOption } from './family';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -47,6 +49,12 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
   const mine = useData(() => store.listClientBookings(cid, { when: 'upcoming', statuses: ['booked', 'waitlisted', 'checked_in'] }), [cid]);
   const credits = useData(() => store.getCreditSummary(cid), [cid]);
 
+  // More than one location: a filter above the days, remembered on this device. A one-location studio never sees it.
+  const manyLocs = hasManyLocations(app.locations);
+  const [locPick, setLocPick] = useState<string>(() => readLocationPref('client', app.studio.id));
+  const loc = manyLocs ? validLocationPref(locPick, app.locations) : '';
+  const pickLoc = (id: string) => { setLocPick(id); writeLocationPref('client', app.studio.id, id); };
+
   const byId = useMemo(() => {
     const m = new Map<string, BookingWithDetails>();
     (mine.data ?? []).forEach((b) => m.set(b.sessionId, b));
@@ -55,7 +63,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
   const bookedDays = useMemo(() => new Set((mine.data ?? []).map((b) => studioDate(b.session.startsAt))), [mine.data]);
 
   const fresh = sessions.data && sessions.data.day === day;
-  const list = fresh ? sessions.data!.list : [];
+  const list = fresh ? filterByLocation(sessions.data!.list, loc, app.locations) : [];
   const comingSoon = app.classTypes.filter((t) => t.active && !t.bookable);
 
   const close = () => setSheet(null);
@@ -69,6 +77,7 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
       <ScreenHead eyebrow={greeting(firstName(app.client.firstName))} title={<>Book a <em>class</em></>} />
       <Slot name="client.timetable" props={{}} />
 
+      {manyLocs && <LocationChips locations={app.locations} value={loc} onPick={pickLoc} />}
       <DateStrip days={days} day={day} onPick={setDay} booked={bookedDays} />
 
       <div className="day-head">
@@ -93,6 +102,15 @@ export function Timetable({ nav, openId }: { nav: Nav; openId?: string }) {
       {comingSoon.length > 0 && <ComingSoon types={comingSoon} />}
 
       <ClassSheet sessionId={sheet} onClose={close} nav={nav} backLabel="Timetable" where="/" />
+    </div>
+  );
+}
+
+function LocationChips({ locations, value, onPick }: { locations: Location[]; value: string; onPick: (id: string) => void }) {
+  const opts = [{ id: '', name: 'All locations' }, ...locations.filter((l) => l.active)];
+  return (
+    <div className="loc-chips" role="group" aria-label="Location">
+      {opts.map((o) => <button key={o.id || 'all'} type="button" className="loc-chip" aria-pressed={o.id === value} onClick={() => onPick(o.id)}>{o.name}</button>)}
     </div>
   );
 }
@@ -152,7 +170,8 @@ function DateStrip({ days, day, onPick, booked }: { days: string[]; day: string;
 }
 
 function SessionCard({ s, ct, mine, onOpen, i }: { s: SessionWithCounts; ct?: ClassType; mine?: BookingWithDetails; onOpen: () => void; i: number }) {
-  const { staff } = useApp();
+  const { staff, locations } = useApp();
+  const where = hasManyLocations(locations) ? locations.find((l) => l.id === effectiveLocationId(s, locations)) : undefined;
   const inst = staff.find((x) => x.id === s.instructorId);
   const st = sessionState(s);
   const t = time(s.startsAt);
@@ -181,6 +200,7 @@ function SessionCard({ s, ct, mine, onOpen, i }: { s: SessionWithCounts; ct?: Cl
           {inst && <Avatar name={inst.name} src={inst.photoUrl} size={24} className="ringed" />}
           <span>{inst ? firstName(inst.name) : 'TBC'}</span><span className="dotsep" />{dur} min
         </span>
+        {where && <span className="cls-where"><Icon name="pin" size={14} />{where.name}</span>}
       </span>
       <span className="cls-state">{status}</span>
     </button>
@@ -313,6 +333,8 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   const full = s.spotsLeft <= 0;
   const bookable = ct?.bookable !== false;
   const className = ct?.name ?? 'Class';
+  // Several locations: say which one, with its address and a way to get there. One location: the page is exactly as before.
+  const place = hasManyLocations(app.locations) ? app.locations.find((l) => l.id === effectiveLocationId(s, app.locations)) : undefined;
   // Leave the sheet (popping its history entry first), then open a flow that knows how to bring us back.
   const toFlow = (to: string) => leaveSheets(() => goFlow(nav, to, { label: className, where, reopen: id }));
   const toShop = () => toFlow('/passes?for=' + encodeURIComponent(id));
@@ -484,8 +506,14 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         <div className="cs-facts">
           <span><Icon name="calendar" size={18} />{dayLong(s.startsAt)}</span>
           <span><Icon name="clock" size={18} />{timeRange(s)}</span>
-          <span><Icon name="pin" size={18} />{app.settings.address.split(',')[0]}</span>
+          <span><Icon name="pin" size={18} />{place ? place.name : app.settings.address.split(',')[0]}</span>
         </div>
+        {place && place.address && (
+          <p className="cs-where">
+            {place.address}{' '}
+            <a className="cs-dir" href={directionsUrl(place.address, directionsPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent))} target="_blank" rel="noopener noreferrer">Get directions<span className="sr-only"> to {place.name}</span></a>
+          </p>
+        )}
       </div>
 
       {st !== 'cancelled' && booked && (

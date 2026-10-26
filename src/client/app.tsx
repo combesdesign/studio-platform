@@ -139,10 +139,11 @@ function Launch() {
 
 function SignedIn({ user, path, nav, refreshAuth }: { user: Extract<AuthUser, { kind: 'client' }>; path: string; nav: Nav; refreshAuth: () => void }) {
   const boot = useData(async () => {
-    const [client, settings, staff, classTypes, studio] = await Promise.all([
+    const [client, settings, staff, classTypes, studio, locations] = await Promise.all([
       store.getClient(user.clientId), store.getSettings(), store.listStaff(), store.listClassTypes(), store.getStudio(),
+      store.listLocations().catch(() => []),   // a studio with one location never needs them
     ]);
-    return { client, settings, staff, classTypes, studio };
+    return { client, settings, staff, classTypes, studio, locations };
   }, [user.clientId]);
 
   const p = pathOnly(path);

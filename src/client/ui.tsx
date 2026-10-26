@@ -1,6 +1,6 @@
 /** Small presentational pieces for the client app. */
 import React, { createContext, useContext } from 'react';
-import type { AuthUser, ClassType, Client, Staff, Studio, StudioSettings } from '../shared/types';
+import type { AuthUser, ClassType, Client, Location, Staff, Studio, StudioSettings } from '../shared/types';
 import { initials } from '../shared/format';
 import { asset } from './lib';
 import { Flower as BrandFlower, Logo as BrandLogo, logoAspect } from '../shared/brand';
@@ -15,6 +15,8 @@ export interface AppCtx {
   studio: Studio;
   staff: Staff[];
   classTypes: ClassType[];
+  /** The studio's active locations (one default location for most studios: then nothing about locations shows). */
+  locations: Location[];
   refreshAuth: () => void;
 }
 export const Ctx = createContext<AppCtx | null>(null);
