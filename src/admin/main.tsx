@@ -15,6 +15,7 @@ import { Accented, Flower, Logo } from '../shared/brand';
 import { applyBranding, brandAsset, defaultBranding, PLATFORM_BRANDING, PLATFORM_NAME, setAssetBase } from '../shared/branding';
 import { BrandingEditor, BrandPreview, PALETTES } from '../shared/branding-editor';
 import { SupportInbox, SupportNavLink } from '../features/support/admin/inbox';
+import { MrrLine, PlanBadge, PlansPage, StudioPlanTab } from './plans';
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong. Please try again.');
 const STATUS: Record<StudioStatus, { label: string; tone: string }> = {
@@ -88,6 +89,7 @@ function Shell({ me }: { me: PlatformUser }) {
   let page: React.ReactNode;
   if (p === '/new') page = <NewStudio />;
   else if (p === '/support') page = <SupportInbox />;
+  else if (p === '/plans') page = <PlansPage />;
   else if ((m = match('/studios/:id', p))) page = <StudioPage id={m.id!} tab="overview" />;
   else if ((m = match('/studios/:id/:tab', p))) page = <StudioPage id={m.id!} tab={m.tab!} />;
   else page = <Studios />;
@@ -95,7 +97,7 @@ function Shell({ me }: { me: PlatformUser }) {
     <div className="ad">
       <header className="ad-top">
         <a href="#/" className="ad-brand"><Logo className="ad-top-logo" label={PLATFORM_NAME} /><span className="ad-tag">Admin</span></a>
-        <nav className="ad-nav" aria-label="Admin sections"><a href="#/" className={p !== '/support' ? 'on' : ''}>Studios</a><SupportNavLink active={p === '/support'} /></nav>
+        <nav className="ad-nav" aria-label="Admin sections"><a href="#/" className={p !== '/support' && p !== '/plans' ? 'on' : ''}>Studios</a><a href="#/plans" className={p === '/plans' ? 'on' : ''}>Plans</a><SupportNavLink active={p === '/support'} /></nav>
         <div className="ad-me">
           <span className="ad-av">{me.name.charAt(0)}</span>
           <span className="ad-me-t"><strong>{me.name}</strong><span>{me.email}</span></span>
@@ -123,7 +125,7 @@ function Studios() {
     <div className="stack lg">
       <div className="ad-head">
         <div>
-          <p className="eyebrow">{(list.data?.length ?? 0)} studios · {counts.live} live · {counts.onboarding} setting up · {counts.suspended} suspended</p>
+          <p className="eyebrow">{(list.data?.length ?? 0)} studios · {counts.live} live · {counts.onboarding} setting up · {counts.suspended} suspended · <MrrLine studios={list.data ?? []} /></p>
           <h1><Accented text="Your *studios*" /></h1>
         </div>
         <a className="btn" href="#/new">New studio</a>
@@ -131,7 +133,7 @@ function Studios() {
       <input className="input ad-search" type="search" placeholder="Search studios" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search studios" />
       {list.error && <p className="form-error">{list.error}</p>}
       <div className="ad-table" role="table" aria-label="Studios">
-        <div className="ad-tr ad-th" role="row"><span role="columnheader">Studio</span><span role="columnheader">Status</span><span role="columnheader">Clients</span><span role="columnheader">Staff</span><span role="columnheader">Classes (7 days)</span><span role="columnheader" /></div>
+        <div className="ad-tr ad-th" role="row"><span role="columnheader">Studio</span><span role="columnheader">Status</span><span role="columnheader">Plan</span><span role="columnheader">Clients</span><span role="columnheader">Staff</span><span role="columnheader">Classes (7 days)</span><span role="columnheader" /></div>
         {shown.map((s) => {
           const st = stats.data?.[s.id];
           return (
@@ -141,6 +143,7 @@ function Studios() {
                 <span className="ad-studio-t"><strong>{s.name}</strong><span>{s.slug} · {s.address || 'No address yet'}</span></span>
               </span>
               <span role="cell"><span className={`chip ${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span></span>
+              <span role="cell"><PlanBadge studio={s} /></span>
               <span role="cell" className="ad-num">{st?.clients ?? '·'}</span>
               <span role="cell" className="ad-num">{st?.staff ?? '·'}</span>
               <span role="cell" className="ad-num">{st?.classesNext7Days ?? '·'}</span>
@@ -215,7 +218,7 @@ function StudioPage({ id, tab }: { id: string; tab: string }) {
   if (s.data === undefined) return <div className="ad-boot"><Flower size={28} spin /></div>;
   if (!s.data) return <p className="muted">That studio could not be found. <a href="#/">Back to studios</a></p>;
   const studio = s.data;
-  const tabs = [['overview', 'Overview'], ['branding', 'Branding'], ['domains', 'Domains'], ['owner', 'Owner']] as const;
+  const tabs = [['overview', 'Overview'], ['plan', 'Plan'], ['branding', 'Branding'], ['domains', 'Domains'], ['owner', 'Owner']] as const;
   return (
     <div className="stack lg">
       <a className="back-pill" href="#/"><svg className="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M14.5 6l-6 6 6 6" /></svg><span>Studios</span></a>
@@ -232,7 +235,7 @@ function StudioPage({ id, tab }: { id: string; tab: string }) {
       <nav className="tabs" aria-label="Studio sections">
         {tabs.map(([k, l]) => <a key={k} href={`#/studios/${studio.id}${k === 'overview' ? '' : '/' + k}`} className={tab === k ? 'on' : ''} aria-current={tab === k ? 'page' : undefined}>{l}</a>)}
       </nav>
-      {tab === 'branding' ? <BrandingPage studio={studio} /> : tab === 'owner' ? <OwnerPage studio={studio} /> : tab === 'domains' ? <DomainsPage studio={studio} /> : <Overview studio={studio} />}
+      {tab === 'plan' ? <StudioPlanTab studio={studio} /> : tab === 'branding' ? <BrandingPage studio={studio} /> : tab === 'owner' ? <OwnerPage studio={studio} /> : tab === 'domains' ? <DomainsPage studio={studio} /> : <Overview studio={studio} />}
     </div>
   );
 }
