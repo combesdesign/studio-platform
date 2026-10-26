@@ -976,6 +976,181 @@ await t('single-account mode is unchanged: the plain webhook secret works, and a
   assert.equal((await post(w, r2, { 'Stripe-Signature': h2 })).status, 400, 'the Connect secret means nothing in single mode');
 });
 
+// ---------------------------------------------------------------- platform billing (what a studio pays Pete)
+console.log('\n-- platform billing (the platform\'s own Stripe account, fake Stripe)');
+{
+  const LIBBY = id('libby'), FRAN = id('fran'), JULIA = id('julia');
+  const PLUS = '9c000000-0000-4000-8000-000000000002', SIG = '9c000000-0000-4000-8000-000000000003';
+  const PLATFORM_SECRET = 'whsec_platform_billing_1';
+  const snowy = sql(`select id from public.studios where slug = 'snowy'`);
+  const as = (u) => ({ Authorization: `Bearer ${u}` });
+  const unix = (days) => Math.floor(Date.now() / 1000) + days * 86400;
+  const studio = () => sql(`select coalesce(plan_id::text,'') || ' ' || billing_status || ' ' || coalesce(past_due_since::text,'-') from public.studios where id = '${snowy}'`).split(' ');
+  const resetSnowy = () => sql(`delete from public.studio_billing where studio_id = '${snowy}';
+    update public.studios set plan_id = '${SIG}', billing_status = 'active', billing_comped = true, trial_ends_at = null, past_due_since = null where id = '${snowy}'`);
+  const platformEnv = (on) => { if (on) { ENV.PLATFORM_STRIPE_SECRET_KEY = 'sk_platform_999'; ENV.PLATFORM_BILLING_WEBHOOK_SECRET = PLATFORM_SECRET; } else { delete ENV.PLATFORM_STRIPE_SECRET_KEY; delete ENV.PLATFORM_BILLING_WEBHOOK_SECRET; delete ENV.STUDIO_SLUG; } };
+  // A fake platform subscription whose price follows what we last asked Stripe to swap it to.
+  const sub = { id: 'sub_snowy', status: 'trialing', price: 'price_plus1', cancel: false };
+  const subObject = () => ({ id: sub.id, status: sub.status, customer: 'cus_snowy', cancel_at_period_end: sub.cancel, trial_end: unix(5), metadata: { studio_id: snowy },
+    items: { data: [{ id: 'si_1', price: { id: sub.price }, current_period_end: unix(20) }] } });
+  const send = async (ev, secret = PLATFORM_SECRET) => { const { raw, header } = signed(ev, secret); return post(await load('platform-webhook'), raw, { 'Stripe-Signature': header }); };
+  const evt = (n, type, o) => ({ id: `evt_plat_${n}`, type, data: { object: o } });
+
+  platformEnv(true);
+  sql(`update public.plans set stripe_price_id = 'price_plus1' where id = '${PLUS}'; update public.plans set stripe_price_id = 'price_sig1' where id = '${SIG}'`);
+  try {
+    await t('platform-subscribe: owner only; a plan with no Stripe price is not on sale yet', async () => {
+      const h = await load('platform-subscribe');
+      assert.equal((await post(h, { planId: PLUS, studioId: 'snowy' }, as(FRAN))).status, 403, 'front desk');
+      assert.equal((await post(h, { planId: PLUS, studioId: 'snowy' }, as(JULIA))).status, 403, 'instructor');
+      sql(`update public.plans set stripe_price_id = null where id = '${PLUS}'`);
+      const r = await post(h, { planId: PLUS, studioId: 'snowy' }, as(LIBBY));
+      assert.equal(r.status, 409); assert.equal((await r.json()).code, 'PLAN_NOT_ON_SALE');
+      sql(`update public.plans set stripe_price_id = 'price_plus1' where id = '${PLUS}'`);
+      assert.equal((await post(h, { planId: '00000000-0000-4000-8000-0000000000ff', studioId: 'snowy' }, as(LIBBY))).status, 404, 'unknown plan');
+    });
+
+    await t('platform-subscribe: Checkout on the PLATFORM key, our metadata, and the free trial carries over', async () => {
+      stripeObjects.customers = { id: 'cus_snowy' };
+      stripeObjects['checkout/sessions'] = { id: 'cs_plat_1', url: 'https://checkout.stripe.com/c/pay/cs_plat_1' };
+      sql(`update public.studios set billing_status = 'trialing', billing_comped = false, trial_ends_at = now() + interval '10 days' where id = '${snowy}'`);
+      const res = await post(await load('platform-subscribe'), { planId: PLUS, studioId: 'snowy', returnUrl: 'https://app.example/studio/#/settings/plan?checkout=done' }, as(LIBBY));
+      assert.equal(res.status, 200);
+      assert.equal((await res.json()).url, 'https://checkout.stripe.com/c/pay/cs_plat_1');
+      const c = lastStripe('checkout/sessions'), f = form(c.body);
+      assert.equal(c.headers.Authorization, 'Bearer sk_platform_999', 'the platform key, not a studio one');
+      assert.equal(f.mode, 'subscription'); assert.equal(f.customer, 'cus_snowy');
+      assert.equal(f['line_items[0][price]'], 'price_plus1');
+      assert.equal(f['metadata[kind]'], 'platform_plan'); assert.equal(f['metadata[studio_id]'], snowy); assert.equal(f['metadata[plan_id]'], PLUS);
+      assert.equal(f['subscription_data[metadata][studio_id]'], snowy);
+      assert.ok(Math.abs(Number(f['subscription_data[trial_end]']) - unix(10)) < 120, 'trial_end is the studio\'s trial end');
+      assert.equal(f.success_url, 'https://app.example/studio/#/settings/plan?checkout=done');
+      assert.equal(lastStripe('customers').headers['Idempotency-Key'], `platform-customer-${snowy}`);
+      assert.equal(sql(`select stripe_customer_id from public.studio_billing where studio_id = '${snowy}'`), 'cus_snowy');
+      assert.equal(studio()[1], 'trialing', 'nothing changes until Stripe tells us');
+      // a trial with under 2 days left can\'t be carried (Stripe needs 48 hours): billing starts at once
+      sql(`update public.studios set trial_ends_at = now() + interval '1 day' where id = '${snowy}'`);
+      await post(await load('platform-subscribe'), { planId: PLUS, studioId: 'snowy' }, as(LIBBY));
+      assert.equal(form(lastStripe('checkout/sessions').body)['subscription_data[trial_end]'], undefined);
+      // and a safe return URL only
+      await post(await load('platform-subscribe'), { planId: PLUS, studioId: 'snowy', returnUrl: 'https://evil.example/x' }, as(LIBBY));
+      assert.equal(form(lastStripe('checkout/sessions').body).success_url, 'https://app.example');
+    });
+
+    await t('platform-webhook: a bad signature or the Connect secret is refused', async () => {
+      assert.equal((await send(evt(0, 'invoice.paid', {}), 'whsec_wrong')).status, 400);
+      assert.equal((await send(evt(0, 'invoice.paid', {}), ENV.STRIPE_WEBHOOK_SECRET)).status, 400, 'the studios\' client-payment secret means nothing here');
+      const w = await load('platform-webhook');
+      assert.equal((await post(w, '{}', {})).status, 400, 'unsigned');
+    });
+
+    await t('platform-webhook: checkout completed sets the plan and trialing; renewals move it through past_due, active and cancelled', async () => {
+      stripeObjects['subscriptions/sub_snowy'] = (body) => {
+        if (body) { const f = form(body); if (f['items[0][price]']) sub.price = f['items[0][price]']; }
+        return subObject();
+      };
+      sub.status = 'trialing'; sub.price = 'price_plus1';
+      let r = await send(evt(1, 'checkout.session.completed', { id: 'cs_plat_1', mode: 'subscription', subscription: 'sub_snowy', customer: 'cus_snowy', metadata: { kind: 'platform_plan', studio_id: snowy, plan_id: PLUS } }));
+      assert.equal(r.status, 200);
+      assert.deepEqual(studio().slice(0, 2), [PLUS, 'trialing']);
+      assert.equal(sql(`select billing_comped from public.studios where id = '${snowy}'`), 'f', 'paying ends the comp');
+      assert.equal(sql(`select stripe_subscription_id from public.studio_billing where studio_id = '${snowy}'`), 'sub_snowy');
+      assert.equal(lastStripe('subscriptions/sub_snowy', 'GET').headers.Authorization, 'Bearer sk_platform_999');
+
+      sub.status = 'active';
+      assert.equal((await send(evt(2, 'customer.subscription.updated', subObject()))).status, 200);
+      assert.deepEqual(studio().slice(0, 2), [PLUS, 'active']);
+
+      sub.status = 'past_due';
+      assert.equal((await send(evt(3, 'invoice.payment_failed', { id: 'in_1', subscription: 'sub_snowy' }))).status, 200);
+      const d = studio(); assert.deepEqual(d.slice(0, 2), [PLUS, 'past_due']); assert.notEqual(d[2], '-', 'past_due_since is set');
+      assert.equal(sql(`select app.studio_read_only('${snowy}')`), 'f', 'inside the grace period');
+
+      sub.status = 'active';
+      assert.equal((await send(evt(4, 'invoice.paid', { id: 'in_2', parent: { subscription_details: { subscription: 'sub_snowy' } } }))).status, 200);
+      assert.deepEqual(studio(), [PLUS, 'active', '-'], 'paying clears past_due');
+
+      sub.status = 'canceled';
+      assert.equal((await send(evt(5, 'customer.subscription.deleted', subObject()))).status, 200);
+      assert.equal(studio()[1], 'cancelled');
+      assert.equal(sql(`select app.studio_read_only('${snowy}')`), 't', 'a cancelled plan is read-only for staff');
+      assert.equal(sql(`select coalesce(stripe_subscription_id, 'none') from public.studio_billing where studio_id = '${snowy}'`), 'none');
+    });
+
+    await t('platform-webhook: the same event twice does nothing; subscriptions that are not ours are ignored', async () => {
+      sub.status = 'active';
+      const ev = evt(6, 'customer.subscription.updated', subObject());
+      assert.equal((await (await send(ev)).json()).duplicate, undefined);
+      const again = await (await send(ev)).json();
+      assert.equal(again.duplicate, true);
+      assert.equal(studio()[1], 'active');
+      const other = evt(7, 'customer.subscription.updated', { id: 'sub_somebody_else', status: 'canceled', customer: 'cus_other', metadata: {}, items: { data: [] } });
+      assert.equal((await send(other)).status, 200);
+      assert.equal(studio()[1], 'active', 'someone else\'s subscription changed nothing');
+      assert.equal((await send(evt(8, 'charge.refunded', { id: 'ch_1' }))).status, 200, 'other events are acknowledged');
+      assert.equal(sql(`select count(*) from public.stripe_events where id like 'evt_plat_%' and processed_at is null`), '0');
+    });
+
+    await t('platform-subscribe: an existing subscription is swapped in place and prorated', async () => {
+      sub.status = 'active'; sub.price = 'price_plus1';
+      sql(`update public.studios set plan_id = '${PLUS}' where id = '${snowy}'`);
+      sql(`select public.billing_apply('${snowy}', '${PLUS}', 'active', 'cus_snowy', 'sub_snowy', now() + interval '20 days', false, null)`);
+      const res = await post(await load('platform-subscribe'), { planId: SIG, studioId: 'snowy' }, as(LIBBY));
+      assert.equal(res.status, 200); assert.deepEqual(await res.json(), { changed: true });
+      const f = form(lastStripe('subscriptions/sub_snowy').body);
+      assert.equal(f['items[0][id]'], 'si_1'); assert.equal(f['items[0][price]'], 'price_sig1'); assert.equal(f.proration_behavior, 'create_prorations');
+      assert.equal(studio()[0], SIG, 'the plan follows at once');
+    });
+
+    await t('platform-portal: owner only, needs a customer, returns the Stripe portal URL', async () => {
+      const h = await load('platform-portal');
+      assert.equal((await post(h, { studioId: 'snowy' }, as(FRAN))).status, 403);
+      stripeObjects['billing_portal/sessions'] = { id: 'bps_1', url: 'https://billing.stripe.com/p/session/x' };
+      const res = await post(h, { studioId: 'snowy', returnUrl: 'https://app.example/studio/#/settings/plan' }, as(LIBBY));
+      assert.equal(res.status, 200); assert.equal((await res.json()).url, 'https://billing.stripe.com/p/session/x');
+      const f = form(lastStripe('billing_portal/sessions').body);
+      assert.equal(f.customer, 'cus_snowy'); assert.equal(f.return_url, 'https://app.example/studio/#/settings/plan');
+      sql(`delete from public.studio_billing where studio_id = '${snowy}'`);
+      assert.equal((await post(h, { studioId: 'snowy' }, as(LIBBY))).status, 404, 'no customer yet');
+    });
+
+    await t('read-only: past the grace period staff refunds and invites are refused (READ_ONLY); inside it they work', async () => {
+      const saleId = sql(`select id from public.sales where stripe_payment_intent_id = 'pi_pay_1'`);
+      stripeObjects.refunds = { id: 're_ro', charge: 'ch_pay_1' };
+      stripeObjects['charges/ch_pay_1'] = { id: 'ch_pay_1', amount_refunded: 2600 };
+      const refund = await load('refund-payment');
+      sql(`update public.studios set billing_status = 'past_due', billing_comped = false, past_due_since = now() - interval '20 days' where id = '${snowy}'`);
+      const n = calls.length;
+      let r = await post(refund, { saleId, amountCents: 100, studioId: 'snowy' }, as(FRAN));
+      assert.equal(r.status, 403); assert.equal((await r.json()).code, 'READ_ONLY');
+      assert.equal(calls.slice(n).filter((c) => c.host === 'api.stripe.com').length, 0, 'Stripe is never reached');
+      sql(`insert into public.staff (name, email, role, studio_id) values ('Ro Staff', 'ro@example.test', 'instructor', '${snowy}') on conflict do nothing`);
+      r = await post(await load('invite-user'), { studioId: snowy, email: 'ro@example.test' }, as(LIBBY));
+      assert.equal(r.status, 403); assert.equal((await r.json()).code, 'READ_ONLY');
+      // paying (or being inside the grace period) lifts it
+      sql(`update public.studios set past_due_since = now() - interval '3 days' where id = '${snowy}'`);
+      r = await post(refund, { saleId, amountCents: 100, studioId: 'snowy' }, as(FRAN));
+      assert.equal(r.status, 200, await r.clone().text());
+    });
+
+    await t('a single-studio deployment (STUDIO_SLUG) has no billing: subscribe says so, the webhook ignores events, nothing is read-only', async () => {
+      ENV.STUDIO_SLUG = 'snowy';
+      let r = await post(await load('platform-subscribe'), { planId: PLUS, studioId: 'snowy' }, as(LIBBY));
+      assert.equal(r.status, 409); assert.equal((await r.json()).code, 'BILLING_OFF');
+      r = await post(await load('platform-portal'), { studioId: 'snowy' }, as(LIBBY));
+      assert.equal(r.status, 409);
+      sql(`update public.studios set past_due_since = now() - interval '40 days' where id = '${snowy}'`);
+      const saleId = sql(`select id from public.sales where stripe_payment_intent_id = 'pi_pay_1'`);
+      stripeObjects.refunds = { id: 're_ro2', charge: 'ch_pay_1' };
+      r = await post(await load('refund-payment'), { saleId, amountCents: 50, studioId: 'snowy' }, as(FRAN));
+      assert.notEqual((await r.clone().json().catch(() => ({}))).code, 'READ_ONLY', 'never read-only on its own deployment');
+      r = await send(evt(9, 'customer.subscription.deleted', subObject()));
+      assert.equal(r.status, 200); assert.equal((await r.json()).ignored, 'single-studio deployment');
+      assert.notEqual(studio()[1], 'cancelled');
+    });
+  } finally { platformEnv(false); resetSnowy(); }
+}
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');
