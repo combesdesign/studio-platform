@@ -1,0 +1,144 @@
+/* Marketing in the studio app: campaigns, automations, audiences, inbox. Theme tokens only. */
+.mk-page { display: grid; gap: 22px; min-width: 0; }
+.mk-page > .tabs { margin-bottom: 0; }
+.mk-sub { margin: -8px 0 0; max-width: 62ch; }
+.mk-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mk-grow { flex: 1; }
+.mk-flip { transform: rotate(180deg); }
+.mk-warn { color: var(--warn); margin: 0; }
+.mk-push { margin-left: auto; }
+.mk-badge { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; margin-left: 8px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 13px; line-height: 1; }
+
+/* KPI strip */
+.mk-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+.mk-kpis.tight { margin-bottom: 16px; }
+.mk-kpi { display: grid; gap: 4px; padding: 16px 18px; border-radius: 18px; background: #fff; border: 1px solid var(--line); min-width: 0; }
+.mk-kpi.mist { background: var(--soft); border-color: transparent; }
+.mk-kpi.hero { background: var(--primary); border-color: transparent; color: #fff; }
+.mk-kpi.hero .mk-kpi-l, .mk-kpi.hero .mk-kpi-s { color: rgba(255, 255, 255, .78); }
+.mk-kpi.hero .mk-kpi-v { color: #fff; }
+.mk-kpi-l, .mk-kpi-s { font-size: 14px; color: var(--muted); }
+.mk-kpi-v { font-size: 34px; line-height: 1.05; font-weight: 400; color: var(--ink); font-variant-numeric: lining-nums; }
+
+.mk-tone { display: inline-flex; align-items: center; min-height: 28px; padding: 0 12px; border-radius: 999px; font-size: 14px; line-height: 1; background: var(--soft); color: var(--ink); white-space: nowrap; }
+.mk-tone.ok { background: var(--ok-bg); color: var(--ok); }
+.mk-tone.warn { background: var(--warn-bg); color: var(--warn); }
+.mk-tone.danger { background: var(--danger-bg); color: var(--danger); }
+
+/* switch */
+.mk-switch { position: relative; width: 52px; height: 32px; padding: 0; border: 0; border-radius: 999px; background: var(--line); cursor: pointer; flex: none; transition: background .2s; margin-left: auto; }
+.mk-switch span { position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(var(--ink-rgb), .3); transition: transform .2s; }
+.mk-switch.on { background: var(--primary); }
+.mk-switch.on span { transform: translateX(20px); }
+.mk-switch:disabled { opacity: .5; cursor: default; }
+
+/* campaign list */
+.mk-list { padding: 6px; overflow: hidden; }
+.mk-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 150px auto; align-items: center; gap: 16px; width: 100%; min-height: 68px; padding: 10px 14px; border: 0; border-radius: 14px; background: transparent; text-align: left; cursor: pointer; color: inherit; font: inherit; transition: background .15s; }
+.mk-row.static { cursor: default; grid-template-columns: 40px minmax(0, 1fr); }
+.mk-row + .mk-row { border-top: 1px solid var(--line); border-radius: 0; }
+.mk-row:not(.static):hover { background: var(--soft); border-radius: 14px; }
+.mk-row-ic { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--soft); color: var(--primary); flex: none; }
+.mk-row-main { display: grid; gap: 2px; min-width: 0; }
+.mk-row-main > strong { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.mk-row-main > span { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.mk-row-stats { display: grid; gap: 2px; justify-items: end; text-align: right; font-size: 14px; color: var(--muted); }
+.mk-row-stats strong { font-family: var(--display); font-size: 22px; font-weight: 400; color: var(--ink); }
+
+/* editor */
+.mk-form { display: grid; gap: 16px; }
+.mk-aud { margin: 0; color: var(--muted); }
+.mk-aud strong { color: var(--ink); }
+.mk-blocks { display: grid; gap: 12px; }
+.mk-block { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.mk-block-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mk-block-type { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mk-block-tools { display: flex; gap: 2px; }
+.mk-hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; width: 100%; }
+.mk-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-frame { width: 100%; height: 480px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.mk-test { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.mk-test .input { flex: 1; min-width: 180px; }
+.mk-foot { align-items: center; }
+.mk-when { display: inline-flex; }
+.mk-recips { margin-top: 4px; }
+
+/* automations */
+.mk-autos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.mk-auto { display: grid; gap: 10px; padding: 20px; align-content: start; }
+.mk-auto-top { display: flex; align-items: center; gap: 12px; }
+.mk-auto-top h3 { margin: 0; font-size: 22px; font-weight: 400; color: var(--ink); }
+.mk-auto p { margin: 0; }
+.mk-auto-when { color: var(--ink); }
+.mk-auto-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.mk-skip { margin: 12px 0 0; }
+
+/* audiences */
+.mk-segs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.mk-seg { display: grid; gap: 4px; padding: 18px; text-align: left; cursor: pointer; font: inherit; color: inherit; align-content: start; transition: border-color .2s, box-shadow .2s; }
+.mk-seg:hover { border-color: rgba(var(--primary-rgb), .35); box-shadow: var(--shadow); }
+.mk-seg-n { font-size: 40px; line-height: 1; font-weight: 400; color: var(--primary); }
+.mk-seg-name { font-weight: 600; color: var(--ink); }
+.mk-rules { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.mk-rules-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mk-rule { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mk-rule .select { min-width: 190px; flex: 1; }
+.mk-num { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+.mk-num .input { width: 76px; }
+.mk-preview p { margin: 0; }
+.mk-tags h3 { margin: 0 0 6px; }
+.mk-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.mk-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; border-radius: 999px; background: var(--soft); color: var(--ink); font-size: 14px; }
+.mk-chip em { font-style: normal; color: var(--muted); }
+.mk-chip button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--muted); display: inline-flex; }
+.mk-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mk-inline .input { flex: 1; min-width: 140px; }
+
+/* inbox */
+.mk-inbox { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; min-height: 520px; }
+.mk-threads { padding: 6px; overflow: auto; max-height: 70vh; }
+.mk-thread { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; text-decoration: none; color: inherit; }
+.mk-thread:hover { background: var(--soft); }
+.mk-thread.on { background: var(--soft); box-shadow: inset 3px 0 0 var(--primary); }
+.mk-thread-main { display: grid; gap: 2px; min-width: 0; }
+.mk-thread-top { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+.mk-thread.unread .mk-thread-top strong { color: var(--ink); }
+.mk-thread-prev { font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.mk-thread .mk-badge { margin: 0; }
+.mk-convo { display: grid; grid-template-rows: auto 1fr auto; min-height: 520px; max-height: 70vh; overflow: hidden; }
+.mk-convo-empty { grid-row: 1 / -1; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); }
+.mk-convo-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.mk-convo-head > div { display: grid; }
+.mk-back { display: none; }
+.mk-msgs { display: flex; flex-direction: column; gap: 10px; padding: 18px; overflow-y: auto; }
+.mk-bubble { max-width: 78%; padding: 10px 14px; border-radius: 18px; display: grid; gap: 4px; }
+.mk-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mk-bubble span { font-size: 13px; }
+.mk-bubble.theirs { align-self: flex-start; background: var(--soft); border-bottom-left-radius: 6px; }
+.mk-bubble.mine { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 6px; }
+.mk-bubble.mine span { color: rgba(255, 255, 255, .75); }
+.mk-compose { display: flex; gap: 10px; align-items: flex-end; padding: 12px 14px; border-top: 1px solid var(--line); }
+.mk-compose .textarea { flex: 1; min-height: 52px; resize: none; }
+
+/* settings + widgets */
+.mk-set-sub { margin: 0 0 12px; }
+.mk-prov { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
+.mk-prov li { display: flex; gap: 14px; justify-content: space-between; align-items: flex-start; }
+.mk-prov li > span { display: grid; gap: 2px; color: var(--muted); font-size: 14.5px; }
+.mk-prov strong { color: var(--ink); }
+.mk-widget h3 { margin: 0 0 10px; }
+.mk-widget-list { display: grid; gap: 4px; margin-bottom: 8px; }
+.mk-widget-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 12px; text-decoration: none; color: inherit; }
+.mk-widget-row:hover { background: var(--soft); }
+.mk-widget-row > span:first-child { display: grid; min-width: 0; }
+.mk-profile h3 { margin: 0 0 4px; }
+
+@media (max-width: 900px) {
+  .mk-inbox { grid-template-columns: 1fr; }
+  .mk-inbox.has-open .mk-threads { display: none; }
+  .mk-inbox:not(.has-open) .mk-convo { display: none; }
+  .mk-back { display: inline-flex; }
+  .mk-convo { max-height: none; min-height: 60vh; }
+  .mk-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
+  .mk-row-stats { display: none; }
+}

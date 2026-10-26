@@ -7,9 +7,9 @@ import type { Db } from './db.ts';
 import { must } from './db.ts';
 import { sendViaResend, studioLink } from './email.ts';
 import { env } from './http.ts';
-import { automationBlocks, buildSms, renderEmail, type EmailBrand, type RenderBlock } from './marketing-render.ts';
+import { automationBlocks, buildSms, mergeTags, renderEmail, type EmailBrand, type RenderBlock } from './marketing-render.ts';
 
-export { renderEmail, buildSms };
+export { renderEmail, buildSms, mergeTags };
 export type { RenderBlock };
 
 // deno-lint-ignore no-explicit-any
@@ -98,7 +98,7 @@ async function deliver(job: Job): Promise<{ providerId?: string; links?: (string
     return { providerId: await sendSms(job.to, body, job.settings.smsSender) };
   }
   const m = buildEmail(job, vars);
-  const subject = (job.subject ?? '').trim() || job.campaign?.subject || job.automation?.subject || job.studio.name;
+  const subject = mergeTags((job.subject ?? '').trim() || job.campaign?.subject || job.automation?.subject || '', vars).trim() || job.studio.name;
   await sendViaResend(job.to, { subject, html: m.html, text: m.text }, { fromName: job.settings.fromName || job.studio.name, replyTo: job.settings.replyTo || job.studio.email || undefined });
   return { links: m.links };
 }
@@ -113,7 +113,7 @@ export async function drainMarketing(admin: Db, limit = 50): Promise<{ sent: num
   for (const job of jobs) {
     try {
       const r = await deliver(job);
-      must(await admin.rpc('marketing_finish', { p_id: job.id, p_error: null, p_provider_id: r.providerId ?? null, p_links: r.links ?? null }));
+      must(await admin.rpc('marketing_finish', { p_id: job.id, p_error: null, p_provider_id: r.providerId ?? null, p_links: r.links ? { urls: r.links } : null }));
       sent++;
     } catch (e) {
       failed++;

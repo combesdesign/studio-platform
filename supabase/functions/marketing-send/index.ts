@@ -14,7 +14,7 @@
 import { adminClient, must, userClient, type Db } from '../_shared/db.ts';
 import { sendViaResend } from '../_shared/email.ts';
 import { HttpError, json, readJson, requireCronSecret, serve } from '../_shared/http.ts';
-import { brandFor, buildSms, drainMarketing, renderEmail, sendSms, varsFor, type Any, type Job, type RenderBlock } from '../_shared/marketing.ts';
+import { brandFor, buildSms, drainMarketing, mergeTags, renderEmail, sendSms, varsFor, type Any, type Job, type RenderBlock } from '../_shared/marketing.ts';
 
 // ---------------------------------------------------------------- who is asking (staff calls)
 
@@ -42,7 +42,7 @@ async function sendTest(admin: Db, studioId: string, to: string, t: Any, staffNa
     subject, preheader: String(t.preheader ?? ''), blocks: (t.blocks ?? []) as RenderBlock[], brand: brandFor(studio), vars, address: studio.address,
     footerNote: settings.footerNote, baseUrl: vars.app_url, reason: `This is a test of a message from ${studio.name}. Nobody else received it.`,
   });
-  await sendViaResend(to, { subject: `[Test] ${subject || studio.name}`, html: out.html, text: out.text }, { fromName: settings.fromName || studio.name, replyTo: settings.replyTo || studio.email || undefined });
+  await sendViaResend(to, { subject: `[Test] ${mergeTags(subject, vars).trim() || studio.name}`, html: out.html, text: out.text }, { fromName: settings.fromName || studio.name, replyTo: settings.replyTo || studio.email || undefined });
 }
 
 // ---------------------------------------------------------------- tracking (GET)

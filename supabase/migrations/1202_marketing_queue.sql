@@ -76,12 +76,13 @@ begin
     sent_at = case when p_error is null then now() else sent_at end,
     error = left(p_error, 500),
     provider_id = coalesce(p_provider_id, provider_id),
-    payload = case when p_links is not null then payload || jsonb_build_object('links', p_links) else payload end,
+    payload = case when p_links is not null then payload || jsonb_build_object('links', coalesce(p_links -> 'urls', p_links)) else payload end,
     claimed_at = case when p_error is null then claimed_at end
    where id = p_id;
   perform app.marketing_settle_campaigns();
 end $$;
 
+-- (marketing_finish takes p_links as { urls: [...] } or a bare array.)
 -- Open / click / unsubscribe from an email. p_link is the link's index in the rendered email (click only).
 -- Returns where a click goes (looked up from what we sent, so the tracker can't be used as an open redirect).
 create function public.marketing_track(p_id uuid, p_kind text, p_link integer default null) returns jsonb
