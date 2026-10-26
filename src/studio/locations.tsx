@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Sheet, store, useAction, useData } from '../shared/react';
 import { hasFeature } from '../shared/plans';
+import { isSingleStudio } from '../shared/boot';
 import { readLocationPref, validLocationPref, writeLocationPref } from '../shared/locationPref';
 import { effectiveLocationId, hasManyLocations, hasManyRooms, roomsAt } from '../domain';
 import type { ID, Location, Room } from '../shared/types';
@@ -15,11 +16,14 @@ export function useLocations() {
   return { locations, rooms, ready: !!res.data, many: hasManyLocations(locations), manyRooms: hasManyRooms(rooms), reload: res.reload };
 }
 
-/** Is the Locations & rooms settings tab shown? The plan has it, or the studio already runs more than one location. */
+/**
+ * Is the Locations & rooms settings tab shown? The plan has multi_location, or the studio already runs more than one location.
+ * A single-studio build (Snowy's own app) has no plans, so there it only shows once a second location exists.
+ */
 export function useLocationsTabVisible(): boolean {
   const { studio } = useStudio();
   const { locations, ready } = useLocations();
-  return hasFeature(studio, 'multi_location') || (ready && locations.filter((l) => l.active).length > 1);
+  return (hasFeature(studio, 'multi_location') && !isSingleStudio()) || (ready && locations.filter((l) => l.active).length > 1);
 }
 
 /** The filter, remembered on this device. Returns '' for all locations. */
