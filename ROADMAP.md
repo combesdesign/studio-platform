@@ -33,13 +33,14 @@ Every feature built from here lands in both.
 
 ## Phase B: Momence features
 ### B1 Appointments and events
-- [ ] Private and duet appointments:
-  - instructor availability
-  - bookable slots
-  - pricing and appointment packs
-  - buffer times
-- [ ] Workshops, courses (multi-session) and events with their own pricing, capacity and sign-up
-- [ ] Spot or mat selection (optional, per class)
+- [x] Private and duet appointments:
+  - [x] instructor availability
+  - [x] bookable slots
+  - [x] pricing and appointment packs
+  - [x] buffer times
+  - [x] client booking and cancelling with the studio's policy windows, studio calendar, confirmation and reminder emails
+- [x] Workshops, courses (multi-session) and events with their own pricing, capacity and sign-up (demo payment, live through Stripe Checkout)
+- [ ] Spot or mat selection (optional, per class): not started. It needs its own table and RPCs (a spot per booking), so it isn't cheap through `client.class` / `roster.entry` alone. See NOTES.md › appointments.
 
 ### B2 Marketing and messaging
 - [x] Email campaigns, using segments built from client filters

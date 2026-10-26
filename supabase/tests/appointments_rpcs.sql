@@ -295,7 +295,12 @@ select test.ok(:'rem'::int > 0, 'reminders queue for sessions in the next 24 hou
 select test.ok((select count(*) from public.appointments_outbox where kind in ('appointment_reminder','event_reminder')) = :'rem'::int, 'one reminder per upcoming session');
 select test.service();
 select test.eq(public.appointments_queue_reminders(24), 0, 'and never twice');
+select test.login('mia');
 select test.throws($$select public.appointments_claim_outbox(1)$$, '42501', 'nobody else can drain the outbox');
+select test.eq(test.count_rows('appointments_outbox') > 0, true, 'the owner and manager can read the outbox');
+select test.login('alice');
+select test.eq(test.count_rows('appointments_outbox'), 0, 'clients can''t');
+select test.at('2026-10-19 08:00+11');
 
 -- ---------------------------------------------------------------- another studio can't see or use any of it
 select test.admin();
