@@ -16,7 +16,7 @@ select cron.schedule('housekeeping', '*/15 * * * *', $$
 $$);
 
 -- Every 2 min: send any emails waiting in the outbox (booking confirmations, waitlist, receipts…), queue gift cards whose
--- send date has come, and send the gift card e-cards and staff cover emails (commerce_outbox, payroll_outbox).
+-- send date has come, and send the gift card e-cards, staff cover emails and marketing (commerce_outbox, payroll_outbox, marketing campaigns and automations).
 -- (The database webhook in GO-LIVE.md sends them instantly; this is the safety net.)
 select cron.schedule('send-emails', '*/2 * * * *', $$
   select net.http_post(

@@ -614,6 +614,55 @@ await t('support-assist: staff get a written answer (Anthropic stubbed), no key 
   }
 });
 
+await t('marketing: the existing drains (send-reminders, send-email flush) send campaigns as the studio, with an unsubscribe link; opted-out clients are skipped; texts use the stub', async () => {
+  const alice = id('alice_client'), bob = id('bob_client');
+  sql(`update public.clients set marketing_opt_in = true, phone = '0412 345 678' where id in ('${alice}', '${bob}')`);
+  sql(`insert into public.marketing_campaigns (id, studio_id, name, channel, status, subject, blocks, body, segment_name)
+    values ('00000000-0000-4000-8000-0000000000e1', '${SNOWY_ID}', 'Spring news', 'email', 'sending', 'Hello {{first_name}}',
+            '[{"id":"b1","type":"heading","text":"Spring term, {{first_name}}"},{"id":"b2","type":"button","label":"Book now","url":"{{app_url}}"}]'::jsonb, null, 'All clients'),
+           ('00000000-0000-4000-8000-0000000000e2', '${SNOWY_ID}', 'Text blast', 'sms', 'sending', null, '[]'::jsonb, 'Hi {{first_name}}, new classes are up', 'All clients')`);
+  const msg = (mid, cid, camp, ch, to) => sql(`insert into public.marketing_messages (id, studio_id, client_id, channel, source, campaign_id, ref_name, to_address, subject, dedupe_key)
+    values ('${mid}', '${SNOWY_ID}', '${cid}', '${ch}', 'campaign', '${camp}', 'x', '${to}', 'Hello {{first_name}}', '${mid}')`);
+  const M1 = '00000000-0000-4000-8000-0000000000f1', M2 = '00000000-0000-4000-8000-0000000000f2', M3 = '00000000-0000-4000-8000-0000000000f3';
+  msg(M1, alice, '00000000-0000-4000-8000-0000000000e1', 'email', 'alice@example.test');
+  msg(M2, bob, '00000000-0000-4000-8000-0000000000e1', 'email', 'bob@example.test');
+  msg(M3, alice, '00000000-0000-4000-8000-0000000000e2', 'sms', '0412 345 678');
+  sql(`update public.clients set marketing_opt_in = false where id = '${bob}'`); // opted out after it was queued
+  const mails = (n) => calls.filter((c) => c.host === 'api.resend.com').slice(n).map((c) => JSON.parse(c.body));
+  try {
+    const before = calls.filter((c) => c.host === 'api.resend.com').length;
+    const j = await (await post(await load('send-reminders'), {}, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    const got = mails(before).filter((m) => m.to[0] === 'alice@example.test');
+    assert.equal(got.length, 1, 'alice got her campaign email');
+    assert.ok(mails(before).every((m) => m.to[0] !== 'bob@example.test'), 'bob opted out: nothing sent');
+    assert.ok(got[0].subject === 'Hello Alice', got[0].subject);
+    assert.ok(got[0].html.includes('Spring term, Alice') && got[0].html.includes('Snowy Pilates Club'), 'merged, in the studio\'s name');
+    assert.ok(/k=u/.test(got[0].html) && got[0].html.includes('Unsubscribe') && /Unsubscribe: https:/.test(got[0].text), 'unsubscribe link in html and text');
+    assert.equal(sql(`select status from public.marketing_messages where id = '${M2}'`), 'skipped');
+    assert.equal(sql(`select status || ':' || coalesce(provider_id, '') from public.marketing_messages where id = '${M3}'`), 'sent:stub-sms', 'sms goes through the stub');
+    assert.equal(sql(`select status from public.marketing_campaigns where id = '00000000-0000-4000-8000-0000000000e1'`), 'sent');
+    // the unsubscribe link switches marketing off for that client and is safe to open twice
+    const href = got[0].html.match(/href="([^"]*k=u[^"]*)"/)[1].replace(/&amp;/g, '&');
+    const ms = await load('marketing-send');
+    for (let i = 0; i < 2; i++) {
+      const r = await ms(new Request(href, { method: 'GET' }));
+      assert.equal(r.status, 200);
+      assert.ok((await r.text()).includes('unsubscribed'));
+    }
+    assert.equal(sql(`select marketing_opt_in from public.clients where id = '${alice}'`), 'f');
+    assert.equal(sql(`select unsubscribed from public.marketing_campaigns where id = '00000000-0000-4000-8000-0000000000e1'`), '1');
+    // nothing is sent twice
+    const n = calls.filter((c) => c.host === 'api.resend.com').length;
+    await (await post(await load('send-email'), { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+    assert.equal(calls.filter((c) => c.host === 'api.resend.com').length, n);
+  } finally {
+    sql(`delete from public.marketing_messages where studio_id = '${SNOWY_ID}'`);
+    sql(`delete from public.marketing_campaigns where studio_id = '${SNOWY_ID}'`);
+    sql(`update public.clients set marketing_opt_in = false where id in ('${alice}', '${bob}')`);
+  }
+});
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');

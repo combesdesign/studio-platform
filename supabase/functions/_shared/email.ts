@@ -1,5 +1,6 @@
 // Email templates + Resend sender + outbox drain. Used by send-email and send-reminders.
 import { type Db, must } from './db.ts';
+import { drainMarketing } from './marketing.ts';
 import { env } from './http.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -207,7 +208,8 @@ async function drainNotifications(admin: Db, opts: { id?: string; limit?: number
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Feature outboxes: commerce_outbox (gift card e-cards), payroll_outbox (cover request emails to staff) and
+// Feature outboxes: commerce_outbox (gift card e-cards), payroll_outbox (cover request emails to staff), marketing_messages
+// (campaigns and automations: _shared/marketing.ts) and
 // support_alert_outbox (urgent support requests to the platform's own SUPPORT_ALERT_EMAIL).
 // Each email is sent as the row's own studio: its name, colours, address and reply-to come from the studios row.
 // ---------------------------------------------------------------------------------------------------------------
@@ -291,7 +293,9 @@ export async function drainFeatureOutboxes(admin: Db, limit = 25): Promise<{ sen
     payload: { ...r.payload, ...base(r, st), to_name: String(names.get(r.to_staff_id ?? '') ?? '').split(' ')[0], cta_url: studioLink(st.slug, 'studio'), cta_label: 'Open the studio app' },
   }));
   const c = await drainSupportAlerts(admin, limit);
-  return { sent: a.sent + b.sent + c.sent, failed: a.failed + b.failed + c.failed };
+  // Marketing: queue due scheduled campaigns and each studio's automations (once each, the sent log stops repeats), then send the queue.
+  const d = await drainMarketing(admin, limit * 2);
+  return { sent: a.sent + b.sent + c.sent + d.sent, failed: a.failed + b.failed + c.failed + d.failed };
 }
 
 /** Where the platform admin inbox lives (subdomain setup: the platform domain; single studio: APP_URL). */
