@@ -8,7 +8,7 @@ import { StoreError } from '../../shared/store';
 import type { BookResult, CancelResult, RestoreSessionResult, UndoCancelResult, VoidResult } from '../../shared/store';
 import type {
   Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, Product, Sale,
-  Room, ScheduleTemplate, SessionWithCounts, Staff, StudioSettings,
+  Room, ScheduleTemplate, SessionWithCounts, SpotLayout, Staff, StudioSettings,
 } from '../../shared/types';
 import { addDays, time as clockTime } from '../../shared/format';
 import { directFull, directSpotsLeft } from '../../domain/capacity';
@@ -17,7 +17,7 @@ import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
   isCountedPass, isFamilyShareable, isIntroEligible, isPausedOn, nextBillingAfter, pickWaitlistPromotion, withinBookingWindow,
-  studioDay as studioDate, classUses, clashMessage, findRoomClash, locationOfRoom, type Eligibility, type PassUse,
+  studioDay as studioDate, classUses, sessionLayout, isBookableSpot, pickSpot, clashMessage, findRoomClash, locationOfRoom, type Eligibility, type PassUse,
 } from '../../domain';
 
 export const STATE_VERSION = 1;
@@ -72,6 +72,8 @@ export interface BookOpts {
   passId?: ID;
   allowOverCapacity?: boolean;
   skipCredit?: boolean;
+  /** A spot to take in a class with spot picking. Without it a booked client gets the first free one. */
+  spot?: string;
 }
 
 let counter = 0;
@@ -403,6 +405,83 @@ export class Engine {
         ? `Sorry, your class on ${studioDate(s.startsAt)} has been cancelled${reason ? ` (${reason})` : ''}. Your credit has been returned.`
         : `The class on ${studioDate(s.startsAt)} you were waitlisted for has been cancelled.`);
     }
+    this.syncSpots(id);
+  }
+
+  // ---------------------------------------------------------------- spots
+  /** The layout this class uses, or undefined when spots are off for it (class type off, no room, or no layout on the room). */
+  layoutFor(session: ClassSession): SpotLayout | undefined {
+    const ct = this.s.classTypes.find((c) => c.id === session.classTypeId);
+    if (!ct?.spotPicking) return undefined;
+    const { locations, rooms } = this.ensureLocations();
+    return sessionLayout(session, ct, rooms, locations);
+  }
+
+  /** Spots held by booked or checked-in people in a class, spot -> booking id. */
+  takenSpots(sessionId: ID): Map<string, ID> {
+    const m = new Map<string, ID>();
+    for (const b of this.s.bookings) if (b.sessionId === sessionId && b.spot && SPOT_STATUSES.includes(b.status)) m.set(b.spot, b.id);
+    return m;
+  }
+
+  /** Throws when the class has no spots, the spot isn't in the layout, or someone else holds it. */
+  assertSpotFree(session: ClassSession, spot: string, exceptBookingId?: ID): SpotLayout {
+    const layout = this.layoutFor(session);
+    if (!layout) throw err('INVALID', "This class doesn't use spots.");
+    if (!isBookableSpot(layout, spot)) throw err('INVALID', "That spot isn't available in this class.");
+    const holder = this.takenSpots(session.id).get(spot);
+    if (holder && holder !== exceptBookingId) throw err('SPOT_TAKEN', 'That spot has just been taken. Please pick another.');
+    return layout;
+  }
+
+  /**
+   * Keep spots true for the classes that use them (all of them, or one): people who aren't booked hold none (cancelling frees
+   * the spot), and everyone booked without a spot is given the first free one, or the nearest to their family. Run after any change.
+   */
+  syncSpots(only?: ID): void {
+    if (!this.s.classTypes.some((c) => c.spotPicking)) return;
+    const sessions = only ? [this.session(only)] : this.s.sessions.filter((x) => this.s.classTypes.find((c) => c.id === x.classTypeId)?.spotPicking);
+    for (const session of sessions) {
+      const bs = this.sessionBookings(session.id);
+      for (const b of bs) if (b.spot && !SPOT_STATUSES.includes(b.status)) delete b.spot;
+      const layout = this.layoutFor(session);
+      if (!layout) continue;
+      const taken = new Set(bs.filter((b) => b.spot && SPOT_STATUSES.includes(b.status)).map((b) => b.spot as string));
+      const need = bs.filter((b) => !b.spot && SPOT_STATUSES.includes(b.status)).sort((a, c) => Date.parse(a.createdAt) - Date.parse(c.createdAt) || a.id.localeCompare(c.id));
+      for (const b of need) {
+        const family = bs.filter((x) => x.id !== b.id && x.spot && SPOT_STATUSES.includes(x.status) && this.sameFamily(x.clientId, b.clientId)).map((x) => x.spot as string);
+        const pick = pickSpot(layout, taken, family);
+        if (!pick) continue;   // fewer spots than people: no spot, still booked
+        b.spot = pick; taken.add(pick);
+      }
+    }
+  }
+
+  private sameFamily(a: ID, b: ID): boolean {
+    const ca = this.clientsById.get(a), cb = this.clientsById.get(b);
+    return !!ca && !!cb && (ca.guardianClientId === b || cb.guardianClientId === a || (!!ca.guardianClientId && ca.guardianClientId === cb.guardianClientId));
+  }
+
+  /** Pick or move a booked person's spot. spot null = "pick for me". Clients until the class starts, staff until it ends. */
+  chooseSpot(bookingId: ID, spot: string | null, by: Actor): Booking {
+    const b = this.booking(bookingId);
+    const session = this.session(b.sessionId);
+    const now = this.now();
+    if (!SPOT_STATUSES.includes(b.status)) throw err('INVALID', 'Only booked clients have a spot.');
+    if (session.status === 'cancelled') throw err('CLASS_CANCELLED', 'This class has been cancelled.');
+    if (by.kind === 'client' ? hasStarted(session, now) : hasEnded(session, now)) throw err('TOO_LATE', by.kind === 'client' ? 'This class has already started, so the spot can’t be changed.' : 'This class has finished.');
+    if (spot === null) {
+      const layout = this.layoutFor(session);
+      if (!layout) throw err('INVALID', "This class doesn't use spots.");
+      const others = this.takenSpots(session.id);
+      const pick = pickSpot(layout, [...others.entries()].filter(([, id]) => id !== b.id).map(([sp]) => sp));
+      if (!pick) throw err('SPOT_TAKEN', 'Every spot is taken.');
+      b.spot = pick;
+      return b;
+    }
+    this.assertSpotFree(session, spot, b.id);
+    b.spot = spot;
+    return b;
   }
 
   // ---------------------------------------------------------------- bookings
@@ -441,6 +520,7 @@ export class Engine {
       return { booking, outcome: 'waitlisted' };
     }
 
+    if (o.spot !== undefined) this.assertSpotFree(session, o.spot);   // before any credit is taken
     let pass: Pass | undefined;
     if (!(staff && o.skipCredit)) {
       if (o.passId) {
@@ -455,8 +535,9 @@ export class Engine {
       }
       this.consume(pass);
     }
-    const booking: Booking = { ...base, ...(pass ? { passId: pass.id } : {}) };
+    const booking: Booking = { ...base, ...(pass ? { passId: pass.id } : {}), ...(o.spot !== undefined ? { spot: o.spot } : {}) };
     this.addBooking(booking);
+    this.syncSpots(sessionId);
     return pass ? { booking, outcome: 'booked', pass } : { booking, outcome: 'booked' };
   }
 
@@ -479,6 +560,7 @@ export class Engine {
     else if (b.passId) { const p = this.passesById.get(b.passId); if (p) p.status = computePassStatus(p, now); }
     if (out.lateCancel && this.s.settings.lateCancelFeeCents > 0) this.feeSale(b.clientId, 'Late cancellation fee', this.s.settings.lateCancelFeeCents, b.id);
     const promoted = this.promote(session.id);
+    this.syncSpots(session.id);
     return { booking: b, creditReturned: out.creditReturned, lateCancel: out.lateCancel, ...(promoted[0] ? { promoted: promoted[0] } : {}) };
   }
 
@@ -516,6 +598,7 @@ export class Engine {
       this.notify(pick.clientId, 'waitlist_promoted', `Good news — a spot opened up and you're booked in for class on ${studioDate(s.startsAt)}.`);
     }
     this.renumberWaitlist(sessionId);
+    if (out.length) this.syncSpots(sessionId);   // promoted people get a spot (near their family)
     return out;
   }
 
@@ -561,6 +644,7 @@ export class Engine {
     if (b.status !== 'no_show') throw err('INVALID', 'This booking is no longer marked as a no-show.');
     this.setStatus(b, 'booked');
     this.dropPenaltyFee(b.id, 'delete');
+    this.syncSpots(b.sessionId);
     return b;
   }
 
@@ -618,6 +702,7 @@ export class Engine {
     delete b.cancelledAt;
     this.dropPenaltyFee(b.id, 'delete');
     this.renumberWaitlist(session.id);
+    this.syncSpots(session.id);
     return { booking: b, creditTaken: needsCredit, ...(demoted ? { demoted } : {}) };
   }
 
@@ -676,6 +761,7 @@ export class Engine {
     }
     this.renumberWaitlist(id);
     this.promote(id);
+    this.syncSpots(id);
     for (const r of out.restored) r.status = this.booking(r.bookingId).status;   // a spare spot may have gone to the waitlist
     out.session = this.withCounts(s);
     return out;
@@ -725,6 +811,7 @@ export class Engine {
     }
     const res = this.book(b.clientId, toSessionId, { by, ...(passId ? { passId } : {}), skipCredit: !oldPassId, allowOverCapacity: false });
     this.promote(fromSession);
+    this.syncSpots(fromSession);
     return res;
   }
 

@@ -335,6 +335,21 @@ export interface ClassType {
   active: boolean;
   /** Optional photo for this class type (else the studio branding's class photos). */
   imageUrl?: string;
+  /** "Let clients pick a spot". Off by default. Only classes in a room with a spot layout use it. */
+  spotPicking?: boolean;
+}
+
+/** What a cell in a room's spot layout is. */
+export type SpotKind = 'spot' | 'instructor' | 'unavailable';
+/** One cell: a bookable spot (its label is its id, e.g. "7"), the instructor's place, or somewhere clients can't book. */
+export interface SpotCell { label: string; kind: SpotKind }
+/** A simple grid of spots (mats or reformers), `cells` row by row (rows x cols of them). */
+export interface SpotLayout { rows: number; cols: number; cells: SpotCell[] }
+/** What the spot picker needs for a class: the layout and which spots are taken (never who by). */
+export interface SessionSpots {
+  enabled: boolean;
+  layout?: SpotLayout;
+  taken: string[];
 }
 
 /** A place the studio runs classes. Every studio has a default one; most never see this. */
@@ -358,6 +373,8 @@ export interface Room {
   /** Prefills the capacity of classes held in this room. */
   capacity?: number;
   active: boolean;
+  /** Optional grid of spots (mats or reformers) clients can pick from, for class types with spot picking on. */
+  spotLayout?: SpotLayout;
 }
 
 /** A recurring weekly slot that generates ClassSessions. */
@@ -509,6 +526,8 @@ export interface Booking {
   /** What it was before its last status change (and its waitlist spot, if it was waitlisted). Undo uses these. */
   priorStatus?: BookingStatus;
   priorWaitlistPosition?: number;
+  /** The spot (mat or reformer) held in a class that has spot picking. Only booked and checked-in bookings have one. */
+  spot?: string;
 }
 
 // ---------------------------------------------------------------- money

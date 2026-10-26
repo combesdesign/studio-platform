@@ -12,12 +12,12 @@ import type {
 } from '../../shared/store';
 import type {
   AuthUser, BillingInfo, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, Plan,
-  Product, ReportRange, Room, Sale, ScheduleTemplate, SessionWithCounts, Staff, Studio, StudioReport, StudioSettings,
+  Product, ReportRange, Room, Sale, ScheduleTemplate, SessionSpots, SessionWithCounts, SpotLayout, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
 import {
   FINANCIAL_SETTINGS_KEYS, buildReport, can, clientsCsv, comparePassPriority, computePassStatus, creditLabel, isIntroEligible,
-  isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, type FeatureAction, type StaffAction,
+  isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, validateLayout, cleanLayout, type FeatureAction, type StaffAction,
 } from '../../domain';
 import type { Actor, DemoState, Engine } from './engine';
 import { PERSONA_EMAILS } from './seed';
@@ -109,6 +109,7 @@ export class DemoStore implements DataStore {
         throw err('STUDIO_SUSPENDED', `${this.studioRec.name} is paused on the platform right now. Please contact the studio.`);
       }
       out = this.inFormat(fn);
+      this.inFormat(() => this.engine.syncSpots());   // spots stay true whatever just changed (a class type switched on, a layout edited)
     } catch (e) {
       this.db.replaceState(this.studioId, JSON.parse(snap) as DemoState);
       Object.assign(this.studioRec, JSON.parse(studioSnap));
@@ -625,7 +626,7 @@ export class DemoStore implements DataStore {
     });
   }
 
-  async upsertRoom(input: Omit<Room, 'id'> & { id?: ID }): Promise<Room> {
+  async upsertRoom(input: Omit<Room, 'id' | 'spotLayout'> & { id?: ID; spotLayout?: SpotLayout | null }): Promise<Room> {
     return this.write(() => {
       this.requireStaff('settings');
       const { locations, rooms } = this.engine.ensureLocations();
@@ -636,8 +637,15 @@ export class DemoStore implements DataStore {
       const existing = input.id ? rooms.find((r) => r.id === input.id) : undefined;
       if (input.id && !existing) throw err('NOT_FOUND', 'That room could not be found.');
       if (rooms.some((r) => r.id !== input.id && r.locationId === input.locationId && r.name.toLowerCase() === name.toLowerCase())) throw err('INVALID', 'That location already has a room with that name.');
+      if (input.spotLayout) { const bad = validateLayout(input.spotLayout); if (bad) throw err('INVALID', bad); }
       const rec: Room = { id: existing?.id ?? '', locationId: input.locationId, name, active: input.active !== false, ...(input.capacity ? { capacity: input.capacity } : {}) };
-      if (existing) { Object.assign(existing, rec, { id: existing.id }); if (!input.capacity) delete existing.capacity; return clone(existing); }
+      if (existing) {
+        Object.assign(existing, rec, { id: existing.id });
+        if (!input.capacity) delete existing.capacity;
+        if (input.spotLayout) existing.spotLayout = cleanLayout(input.spotLayout); else if (input.spotLayout === null) delete existing.spotLayout;   // omitted = unchanged
+        return clone(existing);
+      }
+      if (input.spotLayout) rec.spotLayout = cleanLayout(input.spotLayout);
       const out: Room = { ...rec, id: this.engine.newId('room') };
       rooms.push(out);
       return clone(out);
@@ -729,7 +737,7 @@ export class DemoStore implements DataStore {
   }
 
   // ---------------------------------------------------------------- bookings
-  async bookClass(clientId: ID, sessionId: ID, opts: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean } = {}) {
+  async bookClass(clientId: ID, sessionId: ID, opts: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean; spot?: string } = {}) {
     return this.write(() => {
       const u = this.me();
       this.engine.session(sessionId);
@@ -742,7 +750,28 @@ export class DemoStore implements DataStore {
       return this.engine.book(clientId, sessionId, {
         by: this.actor(u), ...(opts.passId ? { passId: opts.passId } : {}),
         allowOverCapacity: !!opts.allowOverCapacity, skipCredit: !!opts.skipCredit,
+        ...(opts.spot ? { spot: opts.spot } : {}),
       });
+    });
+  }
+
+  // ---------------------------------------------------------------- spots
+  async getSessionSpots(sessionId: ID): Promise<SessionSpots> {
+    return this.read(() => {
+      this.me();
+      const layout = this.engine.layoutFor(this.engine.session(sessionId));
+      return layout ? { enabled: true, layout, taken: [...this.engine.takenSpots(sessionId).keys()] } : { enabled: false, taken: [] };
+    });
+  }
+
+  async chooseSpot(bookingId: ID, spot: string | null): Promise<Booking> {
+    return this.write(() => {
+      const u = this.me();
+      const b = this.engine.booking(bookingId);
+      if (u.kind === 'client') {
+        if (b.clientId !== u.clientId && !this.isGuardianOf(u.clientId, b.clientId)) throw err('NOT_ALLOWED', 'You can only change your own booking.');
+      } else this.requireRoster(b.sessionId);
+      return this.engine.chooseSpot(bookingId, spot, this.actor(u));
     });
   }
 

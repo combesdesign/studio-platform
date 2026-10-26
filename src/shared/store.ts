@@ -17,7 +17,7 @@
 import type {
   BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Room,
-  Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff,
+  Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionSpots, SessionWithCounts, SpotLayout, Staff,
   StudioReport, StudioSettings, ReportRange, HealthForm,
 } from './types';
 
@@ -201,7 +201,8 @@ export interface DataStore {
   listRooms(): Promise<Room[]>;
   /** Owners and managers. Adding a location past the first needs the plan's multi_location feature. Locations are never deleted, only made inactive. */
   upsertLocation(l: Omit<Location, 'id' | 'isDefault'> & { id?: ID }): Promise<Location>;
-  upsertRoom(r: Omit<Room, 'id'> & { id?: ID }): Promise<Room>;
+  /** `spotLayout`: omitted = unchanged, null = remove the layout. */
+  upsertRoom(r: Omit<Room, 'id' | 'spotLayout'> & { id?: ID; spotLayout?: SpotLayout | null }): Promise<Room>;
 
   listTemplates(): Promise<ScheduleTemplate[]>;
   upsertTemplate(t: Omit<ScheduleTemplate, 'id'> & { id?: ID }): Promise<ScheduleTemplate>;
@@ -226,8 +227,9 @@ export interface DataStore {
    * (see RULES.md: soonest-expiring eligible pass first, memberships before packs).
    * If full -> waitlist (no credit taken). Throws NO_CREDITS if no eligible pass and not full.
    * Staff may pass {asStaff:true, allowOverCapacity?:true, skipCredit?:true} (comp / squeeze in).
+   * `spot` asks for a spot in a class with spot picking (SPOT_TAKEN if someone has it); without it a booked client is given the first free one.
    */
-  bookClass(clientId: ID, sessionId: ID, opts?: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean }): Promise<BookResult>;
+  bookClass(clientId: ID, sessionId: ID, opts?: { passId?: ID; asStaff?: boolean; allowOverCapacity?: boolean; skipCredit?: boolean; spot?: string }): Promise<BookResult>;
   /** Client or staff cancel. Applies the cancellation window unless staff waives it. Promotes from waitlist. */
   cancelBooking(bookingId: ID, opts?: { asStaff?: boolean; waivePenalty?: boolean }): Promise<CancelResult>;
   /** Leave the waitlist (no penalty). */
@@ -253,6 +255,14 @@ export interface DataStore {
 
   /** Staff: move a booking to another session (credit moves with it). */
   moveBooking?(bookingId: ID, toSessionId: ID): Promise<BookResult>;
+
+  /**
+   * Spot picking (optional; see NOTES.md > spots). getSessionSpots says whether the class uses spots and which are taken (never by whom).
+   * chooseSpot picks or moves a booked client's spot (spot null = "pick for me"): clients until the class starts, staff until it ends.
+   * Throws SPOT_TAKEN when someone holds it, INVALID for a spot that isn't in the layout.
+   */
+  getSessionSpots?(sessionId: ID): Promise<SessionSpots>;
+  chooseSpot?(bookingId: ID, spot: string | null): Promise<Booking>;
 
   /** Staff roster for a session: booked/checked-in/no-show first, then waitlist in order. */
   getRoster(sessionId: ID): Promise<RosterEntry[]>;
@@ -398,4 +408,4 @@ export interface PlatformStore {
 }
 
 export type { BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PlatformUser, Studio, StudioMembership, StudioStatus };
-export type { Location, Room, AuthUser, Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff, StudioReport, StudioSettings, ReportRange, HealthForm };
+export type { Location, Room, AuthUser, Booking, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionSpots, SessionWithCounts, Staff, StudioReport, StudioSettings, ReportRange, HealthForm };

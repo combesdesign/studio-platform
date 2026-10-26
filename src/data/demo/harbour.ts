@@ -3,7 +3,7 @@
  * classes, ~16 clients and three weeks of history, replayed through the real Engine so credits add up.
  * Personas (same order as Snowy's): brand new, member (1 of 2 left this week), pack (1 left), intro.
  */
-import type { ClassType, Client, ID, Location, Product, Room, ScheduleTemplate, Staff, StudioSettings } from '../../shared/types';
+import type { ClassType, Client, ID, Location, Product, Room, ScheduleTemplate, SpotCell, SpotLayout, Staff, StudioSettings } from '../../shared/types';
 import { addDays, studioToUTC, weekStart } from '../../shared/format';
 import { DAY_MS, HOUR_MS, MINUTE_MS, studioDay } from '../../domain';
 import { Engine, STATE_VERSION, type DemoState } from './engine';
@@ -46,11 +46,11 @@ const STAFF: Staff[] = [
 ];
 
 const CLASS_TYPES: ClassType[] = [
-  { id: 'hb_ct_found', name: 'Reformer Foundations', level: 'Beginners', durationMin: 50, color: '#1F4A3D', defaultCapacity: 8, bookable: true, active: true,
+  { id: 'hb_ct_found', name: 'Reformer Foundations', level: 'Beginners', durationMin: 50, color: '#1F4A3D', defaultCapacity: 8, bookable: true, active: true, spotPicking: true,
     description: 'Learn the reformer properly: springs, footwork, breath and control. The best place to start.' },
-  { id: 'hb_ct_flow', name: 'Reformer Flow', level: 'All levels', durationMin: 50, color: '#C9A877', defaultCapacity: 8, bookable: true, active: true,
+  { id: 'hb_ct_flow', name: 'Reformer Flow', level: 'All levels', durationMin: 50, color: '#C9A877', defaultCapacity: 8, bookable: true, active: true, spotPicking: true,
     description: 'A flowing full-body reformer class with plenty of core and a long stretch to finish.' },
-  { id: 'hb_ct_jump', name: 'Jumpboard Burn', level: 'Intermediate', durationMin: 45, color: '#6E8B7E', defaultCapacity: 8, bookable: true, active: true,
+  { id: 'hb_ct_jump', name: 'Jumpboard Burn', level: 'Intermediate', durationMin: 45, color: '#6E8B7E', defaultCapacity: 8, bookable: true, active: true, spotPicking: true,
     description: 'Low-impact cardio on the jumpboard, then strength. Bring water.',
     bookingNote: 'You’ll need at least 5 reformer classes before Jumpboard Burn.' },
 ];
@@ -70,10 +70,16 @@ const LOCATIONS: Location[] = [
   { id: 'hb_loc_bondi', name: 'Bondi', address: '2/118 Campbell Parade, Bondi Beach NSW 2026', active: true, isDefault: true, sortOrder: 0 },
   { id: 'hb_loc_sh', name: 'Surry Hills', address: '45 Crown Street, Surry Hills NSW 2010', active: true, sortOrder: 1 },
 ];
+/** A 2 x 6 reformer room: the instructor's place front left, eight reformers (the class capacity), the corners unavailable. */
+function reformerLayout(): SpotLayout {
+  const gap: SpotCell = { label: '', kind: 'unavailable' };
+  const r = (n: number): SpotCell => ({ label: String(n), kind: 'spot' });
+  return { rows: 2, cols: 6, cells: [{ label: 'Instructor', kind: 'instructor' }, r(1), r(2), r(3), r(4), gap, gap, r(5), r(6), r(7), r(8), gap] };
+}
 const ROOMS: Room[] = [
-  { id: 'hb_room_bondi_a', locationId: 'hb_loc_bondi', name: 'Studio A', capacity: 8, active: true },
-  { id: 'hb_room_bondi_b', locationId: 'hb_loc_bondi', name: 'Studio B', capacity: 8, active: true },
-  { id: 'hb_room_sh_loft', locationId: 'hb_loc_sh', name: 'The Loft', capacity: 8, active: true },
+  { id: 'hb_room_bondi_a', locationId: 'hb_loc_bondi', name: 'Studio A', capacity: 8, active: true, spotLayout: reformerLayout() },
+  { id: 'hb_room_bondi_b', locationId: 'hb_loc_bondi', name: 'Studio B', capacity: 8, active: true, spotLayout: reformerLayout() },
+  { id: 'hb_room_sh_loft', locationId: 'hb_loc_sh', name: 'The Loft', capacity: 8, active: true, spotLayout: reformerLayout() },
   { id: 'hb_room_sh_back', locationId: 'hb_loc_sh', name: 'Back room', capacity: 6, active: true },
 ];
 const BONDI_A = { locationId: 'hb_loc_bondi', roomId: 'hb_room_bondi_a' }, BONDI_B = { locationId: 'hb_loc_bondi', roomId: 'hb_room_bondi_b' };
@@ -114,7 +120,7 @@ export function seedHarbour(now: Date): DemoState {
   const historyFrom = addDays(thisMon, -21);
   const state: DemoState = {
     version: STATE_VERSION, seededAt: now.toISOString(), historyFrom, settings: settings(),
-    staff: STAFF.map((s) => ({ ...s })), classTypes: CLASS_TYPES.map((c) => ({ ...c })), templates: templates('2025-01-01'), locations: LOCATIONS.map((l) => ({ ...l })), rooms: ROOMS.map((r) => ({ ...r })),
+    staff: STAFF.map((s) => ({ ...s })), classTypes: CLASS_TYPES.map((c) => ({ ...c })), templates: templates('2025-01-01'), locations: LOCATIONS.map((l) => ({ ...l })), rooms: JSON.parse(JSON.stringify(ROOMS)) as Room[],
     sessions: [], bookings: [], clients: [], products: PRODUCTS.map((p) => ({ ...p })), passes: [], sales: [], passSale: {}, outbox: [],
     personas: [HARBOUR_PERSONAS.newClient, HARBOUR_PERSONAS.member, HARBOUR_PERSONAS.pack, HARBOUR_PERSONAS.intro],
     personaHints: {
