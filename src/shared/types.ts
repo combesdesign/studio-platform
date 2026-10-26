@@ -238,6 +238,14 @@ export interface Client {
   /** Imported from Momence etc. */
   source?: 'app' | 'staff' | 'import';
   archived?: boolean;
+  /**
+   * Family accounts: set on a dependant (a child, or a partner without their own login). It's the parent's client id.
+   * A dependant is an ordinary client row (so bookings, rosters and reports just work) with no login and, usually, no email.
+   * Guardians can't be dependants themselves (one level only). See docs/features/family.md.
+   */
+  guardianClientId?: ID;
+  /** Derived on read (never stored): the guardian's full name, for "via Sarah" tags. */
+  guardianName?: string;
 }
 
 // ---------------------------------------------------------------- classes
@@ -330,6 +338,11 @@ export interface Product {
   classTypeIds?: ID[];
   /** No studio class access (the Online membership: on-demand video only). Never books a class, never reads as "Unlimited". */
   noClasses?: boolean;
+  /**
+   * Family accounts: may the buyer's dependants spend this pass's credits? Unset = packs and drop-ins yes, memberships and
+   * intro offers no (see isFamilyShareable). Copied onto the pass at purchase.
+   */
+  familyShareable?: boolean;
 
   // --- retail
   stock?: number | null;
@@ -363,6 +376,8 @@ export interface Pass {
   classTypeIds?: ID[];
   /** Copied from the product at purchase: gives no studio class access. */
   noClasses?: boolean;
+  /** Copied from the product at purchase (see Product.familyShareable). */
+  familyShareable?: boolean;
   /** Free-text history of manual adjustments by staff. */
   adjustments?: { at: ISODateTime; staffId?: ID; delta: number; reason: string }[];
 }

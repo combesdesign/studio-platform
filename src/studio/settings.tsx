@@ -311,6 +311,8 @@ function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () 
   useEffect(() => { if (p) { setV(p); setPrice(toDollars(p.priceCents ?? 0)); } }, [p]);
   const kind = v.kind ?? 'pack';
   const unlimited = v.credits === null;
+  const familyDefault = kind === 'pack' || kind === 'dropin';
+  const shareable = v.familyShareable ?? familyDefault;
   const save = async () => {
     const isPass = kind !== 'retail';
     const r = await run(() => store.upsertProduct({
@@ -321,6 +323,8 @@ function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () 
       billingInterval: kind === 'membership' ? v.billingInterval ?? 'week' : undefined,
       newClientsOnly: kind === 'intro' ? true : undefined,
       classTypeIds: v.classTypeIds, noClasses: isPass && v.noClasses ? true : undefined,
+      // only stored when it differs from the default (packs and drop-ins share, memberships and intro offers don't)
+      familyShareable: isPass && !v.noClasses && shareable !== familyDefault ? shareable : undefined,
       stock: kind === 'retail' ? (v.stock ?? null) : undefined,
     }), 'Product saved');
     if (r) onClose();
@@ -351,6 +355,7 @@ function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () 
         <label className="field"><span>Badge (optional)</span><input className="input" value={v.highlight ?? ''} onChange={(e) => setV({ ...v, highlight: e.target.value })} placeholder="Recommended" /></label>
         <label className="field"><span>Sort order</span><input className="input" type="number" value={v.sortOrder ?? 0} onChange={(e) => setV({ ...v, sortOrder: Number(e.target.value) })} /></label>
         <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>On sale (shown in the shop and POS)</span></label>
+        {kind !== 'retail' && !v.noClasses && <label className="check span2"><input type="checkbox" checked={shareable} onChange={(e) => setV({ ...v, familyShareable: e.target.checked })} /><span>Family-shareable (a parent's kids and partner can use these credits. Off means they need their own pass)</span></label>}
       </div>
       {kind === 'intro' && <p className="small faint" style={{ marginTop: 12 }}>Intro offers are unlimited for the period and only for clients who've never had a class pass.</p>}
       <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim()}>Save</button></div>

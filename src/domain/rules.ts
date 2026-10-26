@@ -151,6 +151,20 @@ export function checkPassForSession(input: EligibilityInput): Eligibility {
   return { eligible: true, remaining };
 }
 
+// ---------------------------------------------------------------- family accounts
+
+/**
+ * Family accounts, the one rule: a dependant spends their own passes first, then the parent's passes that are family-shareable.
+ * Shareable = the pass (copied from its product) says so; if it doesn't say, packs and drop-ins are shareable and memberships
+ * and intro offers (which belong to one person) are not. Staff can flip it per product in Settings.
+ */
+export function isFamilyShareable(p: Pick<Pass, 'kind' | 'familyShareable'>): boolean {
+  return p.familyShareable ?? (p.kind === 'pack' || p.kind === 'dropin');
+}
+
+/** A dependant is a client with a guardian. */
+export const isDependant = (c: Pick<Client, 'guardianClientId'>): boolean => !!c.guardianClientId;
+
 /**
  * Sort key for best-pass selection (lower = use first):
  *   0 unlimited (membership or intro), 1 membership with weekly credits, 2 packs/drop-ins.

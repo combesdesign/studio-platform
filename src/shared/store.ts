@@ -94,6 +94,16 @@ export interface BookingWithDetails extends Booking {
   instructor?: Staff;
 }
 
+/** A dependant (family account) to add or change. The parent signs the waiver separately, with submitWaiver. */
+export interface DependantInput {
+  id?: ID;
+  firstName: string;
+  lastName?: string;
+  birthday?: ISODate | undefined;
+  /** Notes or injuries: shown to instructors on the roster. */
+  injuries?: string | undefined;
+}
+
 export interface RosterEntry extends Booking {
   client: Client;
   pass?: Pass;
@@ -232,6 +242,20 @@ export interface DataStore {
    */
   setNewPassword?(password: string): Promise<void>;
   onPasswordRecovery?(handler: (kind?: 'invite' | 'recovery') => void): Unsubscribe;
+
+  /**
+   * Family accounts (optional; see docs/features/family.md). A dependant is a client row with guardianClientId set.
+   * A parent manages their own dependants; staff (clients_edit) can manage anyone's. Dependants have no login.
+   * - listDependants: the guardian's dependants (not archived), oldest first.
+   * - saveDependant: add or edit one. The guardian can't be a dependant.
+   * - removeDependant: archives them (their history stays). Blocked while they have upcoming classes.
+   * - bookAttendees: book several people (the parent and/or dependants) into one class, all or nothing. Each takes a spot and a credit;
+   *   errors name the person ("Mia needs a pass for this class"). The result is in the same order as `clientIds`.
+   */
+  listDependants?(guardianId: ID): Promise<Client[]>;
+  saveDependant?(guardianId: ID, input: DependantInput): Promise<Client>;
+  removeDependant?(dependantId: ID): Promise<void>;
+  bookAttendees?(sessionId: ID, clientIds: ID[], opts?: { passId?: ID }): Promise<BookResult[]>;
 
   listClients(opts?: { search?: string; includeArchived?: boolean }): Promise<Client[]>;
   getClient(id: ID): Promise<Client>;

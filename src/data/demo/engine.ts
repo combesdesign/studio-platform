@@ -16,7 +16,7 @@ import { demoFeatures } from './features';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
-  isCountedPass, isIntroEligible, isPausedOn, nextBillingAfter, pickWaitlistPromotion, withinBookingWindow,
+  isCountedPass, isFamilyShareable, isIntroEligible, isPausedOn, nextBillingAfter, pickWaitlistPromotion, withinBookingWindow,
   studioDay as studioDate, type Eligibility, type PassUse,
 } from '../../domain';
 
@@ -203,12 +203,23 @@ export class Engine {
   eligibility(pass: Pass, session: Pick<ClassSession, 'startsAt' | 'classTypeId'>): Eligibility {
     return checkPassForSession({ pass, validityDays: this.validityDays(pass), session, uses: this.passUses(pass.id), now: this.now() });
   }
-  /** Eligible passes for a session, best first. */
+  /** The client's guardian, if they're a dependant. */
+  guardianOf(clientId: ID): Client | undefined {
+    const g = this.clientsById.get(clientId)?.guardianClientId;
+    return g ? this.clientsById.get(g) : undefined;
+  }
+  /** Can `clientId` spend this pass? Their own, or (dependants) their guardian's family-shareable ones. */
+  canSpend(clientId: ID, pass: Pass): boolean {
+    return pass.clientId === clientId || (pass.clientId === this.clientsById.get(clientId)?.guardianClientId && isFamilyShareable(pass));
+  }
+  /** Eligible passes for a session, best first. A dependant's own passes come before the parent's shareable ones. */
   eligiblePasses(clientId: ID, session: ClassSession): { pass: Pass; eligibility: Eligibility }[] {
-    return this.clientPasses(clientId)
+    const rank = (list: Pass[]) => list
       .map((pass) => ({ pass, eligibility: this.eligibility(pass, session) }))
       .filter((x) => x.eligibility.eligible)
       .sort((a, b) => comparePassPriority(a.pass, b.pass));
+    const g = this.guardianOf(clientId);
+    return [...rank(this.clientPasses(clientId)), ...(g ? rank(this.clientPasses(g.id).filter(isFamilyShareable)) : [])];
   }
   bestPass(clientId: ID, session: ClassSession): Pass | undefined {
     return this.eligiblePasses(clientId, session)[0]?.pass;
@@ -360,13 +371,16 @@ export class Engine {
       if (!ct.bookable) throw err('NOT_BOOKABLE', `${ct.name} isn't open for bookings yet.`);
       if (hasStarted(session, now)) throw err('TOO_LATE', 'This class has already started.');
       if (!withinBookingWindow(session, now, this.s.settings.bookingWindowDays)) throw err('TOO_EARLY', `Bookings open ${this.s.settings.bookingWindowDays} days before class.`);
-      if (!client.waiverSignedAt) throw err('WAIVER_REQUIRED', 'Please sign the waiver and health form before your first booking.');
+      if (!client.waiverSignedAt) throw err('WAIVER_REQUIRED', client.guardianClientId ? `${client.firstName}'s waiver and health form needs signing before their first booking.` : 'Please sign the waiver and health form before your first booking.');
     } else if (hasEnded(session, now)) {
       throw err('TOO_LATE', 'This class has finished.');
     }
     if (client.archived) throw err('NOT_ALLOWED', 'This client account is archived.');
     const dupe = this.sessionBookings(sessionId).find((b) => b.clientId === clientId && ACTIVE_BOOKING_STATUSES.includes(b.status));
-    if (dupe) throw err('ALREADY_BOOKED', dupe.status === 'waitlisted' ? "You're already on the waitlist for this class." : "You're already booked into this class.");
+    if (dupe) {
+      const who = client.guardianClientId ? `${client.firstName} is` : "You're";
+      throw err('ALREADY_BOOKED', dupe.status === 'waitlisted' ? `${who} already on the waitlist for this class.` : `${who} already booked into this class.`);
+    }
 
     const base: Booking = {
       id: this.newId('bk'), sessionId, clientId, status: 'booked', createdAt: now.toISOString(),
@@ -385,13 +399,13 @@ export class Engine {
     if (!(staff && o.skipCredit)) {
       if (o.passId) {
         const p = this.pass(o.passId);
-        if (p.clientId !== clientId) throw err('NOT_FOUND', 'That pass could not be found.');
+        if (!this.canSpend(clientId, p)) throw err('NOT_FOUND', 'That pass could not be found.');
         const e = this.eligibility(p, session);
         if (!e.eligible) throw err('NO_CREDITS', ineligibleMessage(p, e));
         pass = p;
       } else {
         pass = this.bestPass(clientId, session);
-        if (!pass) throw err('NO_CREDITS', "You don't have a pass with a credit for this class.");
+        if (!pass) throw err('NO_CREDITS', client.guardianClientId ? `${client.firstName} needs a pass for this class. Buy one for them, or use a family-shareable pass of yours.` : "You don't have a pass with a credit for this class.");
       }
       this.consume(pass);
     }
@@ -722,6 +736,7 @@ export class Engine {
       ...(product.kind === 'membership' ? { billingInterval: product.billingInterval ?? 'week' } : {}),
       ...(product.classTypeIds?.length ? { classTypeIds: [...product.classTypeIds] } : {}),
       ...(product.noClasses ? { noClasses: true } : {}),
+      ...(product.familyShareable !== undefined ? { familyShareable: product.familyShareable } : {}),
     };
   }
 

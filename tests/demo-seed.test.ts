@@ -19,14 +19,14 @@ test('zero-arg demo store seeds a realistic, consistent studio', async () => {
   const store = createDemoStore();
   assert.equal(store.mode, 'demo');
   const personas = await store.demoPersonas();
-  assert.equal(personas.filter((p) => p.kind === 'client').length, 4);
+  assert.equal(personas.filter((p) => p.kind === 'client').length, 5);
   assert.equal(personas.filter((p) => p.kind === 'staff').length, 4);
   assert.ok(mem.get(STATE_KEY), 'persisted to localStorage');
 
   const libby = personas.find((p) => p.kind === 'staff' && p.role === 'owner')!;
   await store.demoSignInAs!(libby);
   const clients = await store.listClients();
-  assert.ok(clients.length >= 40 && clients.length <= 50, `~45 clients (${clients.length})`);
+  assert.ok(clients.length >= 40 && clients.length <= 52, `~45 clients (${clients.length})`);
 
   const today = studioDate(new Date());
   const mon = weekStart(today);

@@ -16,6 +16,7 @@ export const PERSONA_EMAILS = {
   member: 'hannah.mitchell@example.com',
   pack: 'jess.walker@example.com',
   intro: 'mia.roberts@example.com',
+  family: 'sophie.archer@example.com',
 } as const;
 
 function mulberry32(seed: number): () => number {
@@ -396,6 +397,26 @@ export function seedState(now: Date): DemoState {
 
   // A recent sign-up who hasn't bought anything yet (intro eligible).
   mkClient('cl_isla', 'Isla', 'Grant', nowT - 2 * DAY_MS - 5 * HOUR_MS, { marketingOptIn: true });
+
+  // Persona: Sophie — a mum with a baby dependant (Poppy), both booked into the next Mums + Bubs on her 4 class pack.
+  const sophie = mkClient('cl_family', 'Sophie', 'Archer', nowT - 60 * DAY_MS, {
+    email: PERSONA_EMAILS.family, mums: true, birthday: '1992-05-14', injuries: 'Postnatal (5 months) — cleared by women’s health physio.',
+  });
+  clock.t = nowT - 45 * DAY_MS;
+  eng.checkout({ clientId: sophie.id, items: [{ productId: 'pr_p4', qty: 1 }], method: 'card_online' });
+  clock.t = nowT - 44 * DAY_MS;
+  const poppy: Client = {
+    id: 'cl_family_poppy', firstName: 'Poppy', lastName: 'Archer', email: '', createdAt: new Date(clock.t).toISOString(), marketingOptIn: false, source: 'app',
+    guardianClientId: sophie.id, birthday: studioDay(new Date(nowT - 150 * DAY_MS)), waiverSignedAt: new Date(clock.t).toISOString(),
+    healthForm: { answers: {}, submittedAt: new Date(clock.t).toISOString() }, injuries: 'Crawling soon. Bring a mat and a bouncer.',
+    emergencyContactName: 'Sophie Archer', emergencyContactPhone: sophie.phone ?? '',
+  };
+  eng.addClient(poppy);
+  clock.t = nowT - 20 * MINUTE_MS;
+  const mumsNext = state.sessions
+    .filter((x) => x.status === 'scheduled' && x.classTypeId === 'ct_mums' && Date.parse(x.startsAt) > nowT + 12 * HOUR_MS && Date.parse(x.startsAt) < nowT + 10 * DAY_MS)
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt)).find((x) => eng.counts(x.id).booked + 2 <= x.capacity);
+  if (mumsNext) for (const id of [sophie.id, poppy.id]) eng.book(id, mumsNext.id, { by: { kind: 'client', clientId: sophie.id } });
 
   // Make sure Hannah (member persona) has something coming up.
   const hannah = sim.find((x) => x.p.first === 'Hannah')?.c;

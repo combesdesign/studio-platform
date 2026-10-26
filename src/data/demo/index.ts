@@ -8,7 +8,7 @@
  */
 import { StoreError } from '../../shared/store';
 import type {
-  BookingWithDetails, CreditSummary, DataStore, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
+  BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod,
@@ -17,7 +17,7 @@ import type {
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
 import {
   FINANCIAL_SETTINGS_KEYS, buildReport, can, clientsCsv, comparePassPriority, computePassStatus, creditLabel, isIntroEligible,
-  isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, type FeatureAction, type StaffAction,
+  isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, type FeatureAction, type StaffAction,
 } from '../../domain';
 import type { Actor, DemoState, Engine } from './engine';
 import { PERSONA_EMAILS } from './seed';
@@ -188,11 +188,19 @@ export class DemoStore implements DataStore {
   private requireSelfOrStaff(clientId: ID, action: StaffAction | FeatureAction = 'clients_view'): AuthUser {
     const u = this.me();
     if (u.kind === 'client') {
-      if (u.clientId !== clientId) throw err('NOT_ALLOWED', 'You can only see your own account.');
+      if (u.clientId !== clientId && !this.isGuardianOf(u.clientId, clientId)) throw err('NOT_ALLOWED', 'You can only see your own account.');
       return u;
     }
     this.requireStaff(action);
     return u;
+  }
+  /** Is `clientId` a dependant of `guardianId`? (Family accounts.) */
+  private isGuardianOf(guardianId: ID, clientId: ID): boolean {
+    return this.engine.findClient(clientId)?.guardianClientId === guardianId;
+  }
+  /** The signed-in client and their dependants: everyone they may book, pay and sign for. */
+  private familyIds(clientId: ID): ID[] {
+    return [clientId, ...this.state.clients.filter((c) => c.guardianClientId === clientId && !c.archived).map((c) => c.id)];
   }
   private canRoster(st: Staff, sessionId: ID): boolean {
     if (can(st.role, 'roster_all')) return true;
@@ -212,9 +220,10 @@ export class DemoStore implements DataStore {
   }
   private redactClient(c: Client): Client {
     const st = this.viewerStaff();
-    if (st && can(st.role, 'client_staff_notes')) return c;
-    const { staffNotes: _omit, ...rest } = c;
-    return rest;
+    let out: Client = c;
+    if (!(st && can(st.role, 'client_staff_notes'))) { const { staffNotes: _omit, ...rest } = c; out = rest; }
+    const g = c.guardianClientId ? this.engine.findClient(c.guardianClientId) : undefined;
+    return g ? { ...out, guardianName: `${g.firstName} ${g.lastName}`.trim() } : out;
   }
   private redactStaff(s: Staff, viewer: Staff | undefined): Staff {
     const out: Staff = { ...s };
@@ -588,7 +597,7 @@ export class DemoStore implements DataStore {
       const u = this.me();
       this.engine.session(sessionId);
       if (u.kind === 'client') {
-        if (u.clientId !== clientId) throw err('NOT_ALLOWED', 'You can only book for yourself.');
+        if (u.clientId !== clientId && !this.isGuardianOf(u.clientId, clientId)) throw err('NOT_ALLOWED', 'You can only book for yourself and your family.');
         if (opts.asStaff || opts.allowOverCapacity || opts.skipCredit) throw err('NOT_ALLOWED', 'Only studio staff can do that.');
       } else {
         this.requireRoster(sessionId);
@@ -605,7 +614,7 @@ export class DemoStore implements DataStore {
       const u = this.me();
       const b = this.engine.booking(bookingId);
       if (u.kind === 'client') {
-        if (b.clientId !== u.clientId) throw err('NOT_ALLOWED', 'You can only cancel your own bookings.');
+        if (b.clientId !== u.clientId && !this.isGuardianOf(u.clientId, b.clientId)) throw err('NOT_ALLOWED', 'You can only cancel your own bookings.');
         if (opts.waivePenalty || opts.asStaff) throw err('NOT_ALLOWED', 'Only studio staff can waive the cancellation policy.');
       } else this.requireRoster(b.sessionId);
       return this.engine.cancel(bookingId, { by: this.actor(u), waive: !!opts.waivePenalty });
@@ -616,7 +625,7 @@ export class DemoStore implements DataStore {
     return this.write(() => {
       const u = this.me();
       const b = this.engine.booking(bookingId);
-      if (u.kind === 'client') { if (b.clientId !== u.clientId) throw err('NOT_ALLOWED', 'You can only change your own bookings.'); }
+      if (u.kind === 'client') { if (b.clientId !== u.clientId && !this.isGuardianOf(u.clientId, b.clientId)) throw err('NOT_ALLOWED', 'You can only change your own bookings.'); }
       else this.requireRoster(b.sessionId);
       this.engine.leaveWaitlist(bookingId);
     });
@@ -739,7 +748,8 @@ export class DemoStore implements DataStore {
         .filter((c) => opts.includeArchived || !c.archived)
         .filter((c) => {
           if (!terms.length) return true;
-          const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone ?? ''} ${(c.phone ?? '').replace(/\D/g, '')}`.toLowerCase();
+          const g = c.guardianClientId ? this.engine.findClient(c.guardianClientId) : undefined;
+          const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone ?? ''} ${(c.phone ?? '').replace(/\D/g, '')} ${g ? `${g.firstName} ${g.lastName} ${g.email}` : ''}`.toLowerCase();
           return terms.every((t) => hay.includes(t));
         })
         .sort((a, b) => a.firstName.localeCompare(b.firstName) || a.lastName.localeCompare(b.lastName))
@@ -771,7 +781,14 @@ export class DemoStore implements DataStore {
       }
       const st = this.requireStaff('clients_edit');
       const patch: Partial<Client> = { ...input, email };
+      delete patch.guardianName; // derived on read, never stored
       if (!can(st.role, 'client_staff_notes')) delete patch.staffNotes;
+      if (patch.guardianClientId) {
+        const g = this.engine.findClient(patch.guardianClientId);
+        if (!g || g.archived) throw err('NOT_FOUND', 'We couldn’t find that parent.');
+        if (g.guardianClientId) throw err('INVALID', 'A dependant can’t be a parent as well.');
+        if (existing && (existing.id === g.id || this.state.clients.some((c) => c.guardianClientId === existing.id))) throw err('INVALID', 'Someone with dependants of their own can’t be a dependant.');
+      }
       if (existing) {
         delete patch.createdAt;
         Object.assign(existing, patch);
@@ -795,6 +812,80 @@ export class DemoStore implements DataStore {
       c.healthForm = { ...health, answers: { ...(health.answers ?? {}) }, submittedAt: at };
       if (health.injuries?.trim()) c.injuries = health.injuries.trim();
       return this.redactClient(c);
+    });
+  }
+
+  // ---------------------------------------------------------------- family accounts (see docs/features/family.md)
+  async listDependants(guardianId: ID): Promise<Client[]> {
+    return this.read(() => {
+      this.requireSelfOrStaff(guardianId);
+      return this.state.clients.filter((c) => c.guardianClientId === guardianId && !c.archived)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((c) => this.redactClient(c));
+    });
+  }
+
+  async saveDependant(guardianId: ID, input: DependantInput): Promise<Client> {
+    return this.write(() => {
+      const u = this.me();
+      if (u.kind === 'client') { if (u.clientId !== guardianId) throw err('NOT_ALLOWED', 'You can only manage your own family.'); }
+      else this.requireStaff('clients_edit');
+      const g = this.engine.client(guardianId);
+      if (g.archived) throw err('NOT_ALLOWED', 'This client account is archived.');
+      if (g.guardianClientId) throw err('INVALID', 'A dependant can’t have dependants of their own.');
+      const firstName = (input.firstName ?? '').trim();
+      if (!firstName) throw err('INVALID', 'Please enter a first name.');
+      if (input.birthday && (!DATE_RE.test(input.birthday) || input.birthday > studioDay(this.now()))) throw err('INVALID', 'Please enter a valid date of birth.');
+      const existing = input.id ? this.engine.findClient(input.id) : undefined;
+      if (input.id && (!existing || existing.guardianClientId !== guardianId)) throw err('NOT_FOUND', 'We couldn’t find that person.');
+      const lastName = (input.lastName ?? '').trim() || g.lastName;
+      const injuries = (input.injuries ?? '').trim() || undefined;
+      const twin = this.state.clients.find((c) => c.guardianClientId === guardianId && !c.archived && c.id !== existing?.id
+        && c.firstName.toLowerCase() === firstName.toLowerCase() && c.lastName.toLowerCase() === lastName.toLowerCase());
+      if (twin) throw err('INVALID', `${firstName} is already in your family.`);
+      if (existing) {
+        existing.firstName = firstName; existing.lastName = lastName;
+        if (input.birthday) existing.birthday = input.birthday; else delete existing.birthday;
+        if (injuries) existing.injuries = injuries; else delete existing.injuries;
+        return this.redactClient(existing);
+      }
+      const c: Client = {
+        id: this.engine.newId('cl'), firstName, lastName, email: '', createdAt: this.now().toISOString(), marketingOptIn: false,
+        source: u.kind === 'client' ? 'app' : 'staff', guardianClientId: guardianId,
+        // the parent is the emergency contact, and the one who signs the waiver
+        ...(g.phone ? { emergencyContactName: `${g.firstName} ${g.lastName}`.trim(), emergencyContactPhone: g.phone } : {}),
+        ...(input.birthday ? { birthday: input.birthday } : {}), ...(injuries ? { injuries } : {}),
+      };
+      this.engine.addClient(c);
+      return this.redactClient(c);
+    });
+  }
+
+  async removeDependant(dependantId: ID): Promise<void> {
+    await this.write(() => {
+      const u = this.me();
+      const d = this.engine.client(dependantId);
+      if (!d.guardianClientId) throw err('INVALID', 'That isn’t a dependant.');
+      if (u.kind === 'client') { if (d.guardianClientId !== u.clientId) throw err('NOT_ALLOWED', 'You can only manage your own family.'); }
+      else this.requireStaff('clients_edit');
+      const now = this.now().getTime();
+      const upcoming = this.engine.clientBookings(dependantId).some((b) => ['booked', 'waitlisted', 'checked_in'].includes(b.status)
+        && Date.parse(this.engine.session(b.sessionId).startsAt) >= now);
+      if (upcoming) throw err('INVALID', `Cancel ${d.firstName}’s upcoming classes first, then remove them.`);
+      d.archived = true;
+    });
+  }
+
+  async bookAttendees(sessionId: ID, clientIds: ID[], opts: { passId?: ID } = {}): Promise<BookResult[]> {
+    return this.write(() => {
+      const u = this.me();
+      if (u.kind !== 'client') throw err('NOT_ALLOWED', 'Staff add people to a class one at a time from the roster.');
+      const ids = [...new Set(clientIds)];
+      if (!ids.length) throw err('INVALID', 'Choose who’s coming.');
+      this.engine.session(sessionId);
+      for (const id of ids) if (id !== u.clientId && !this.isGuardianOf(u.clientId, id)) throw err('NOT_ALLOWED', 'You can only book for yourself and your family.');
+      const pass = opts.passId ? this.engine.findPass(opts.passId) : undefined;
+      // all or nothing: the first failure throws and write() rolls every booking back
+      return ids.map((id) => this.engine.book(id, sessionId, { by: this.actor(u), ...(pass && this.engine.canSpend(id, pass) ? { passId: pass.id } : {}) }));
     });
   }
 
@@ -844,7 +935,8 @@ export class DemoStore implements DataStore {
         return this.engine.eligiblePasses(clientId, s).map(({ pass, eligibility }) => summary(pass, eligibility.remaining, creditLabel(pass, eligibility.remaining)));
       }
       const today = studioDay(now);
-      return this.engine.clientPasses(clientId).filter((p) => isPassCurrent(p, now)).sort(comparePassPriority).map((p) => {
+      const guardian = this.engine.guardianOf(clientId);
+      return [...this.engine.clientPasses(clientId), ...(guardian ? this.engine.clientPasses(guardian.id).filter(isFamilyShareable) : [])].filter((p) => isPassCurrent(p, now)).sort(comparePassPriority).map((p) => {
         const remaining = remainingCredits(p, this.engine.passUses(p.id), today);
         const paused = computePassStatus(p, now) === 'paused' && p.pausedUntil;
         const label = paused ? `Paused until ${dayShort(studioToUTC(p.pausedUntil as string, '12:00'))}` : creditLabel(p, remaining);
@@ -864,7 +956,7 @@ export class DemoStore implements DataStore {
     const u = this.me();
     if (u.kind === 'client') {
       const clientId = input.clientId ?? u.clientId;
-      if (clientId !== u.clientId) throw err('NOT_ALLOWED', 'You can only buy for yourself.');
+      if (clientId !== u.clientId && !this.isGuardianOf(u.clientId, clientId)) throw err('NOT_ALLOWED', 'You can only buy for yourself and your family.');
       if (input.method !== 'card_online') throw err('NOT_ALLOWED', 'Online purchases are paid by card.');
       if (input.discountCents) throw err('NOT_ALLOWED', 'Discounts are applied by the studio.');
       return this.engine.checkout({ clientId, items: input.items, method: 'card_online', ...(input.note ? { note: input.note } : {}) });
@@ -895,7 +987,7 @@ export class DemoStore implements DataStore {
   private requirePassOwnerOrStaff(passId: ID): AuthUser {
     const p = this.engine.pass(passId);
     const u = this.me();
-    if (u.kind === 'client') { if (p.clientId !== u.clientId) throw err('NOT_ALLOWED', 'You can only manage your own passes.'); }
+    if (u.kind === 'client') { if (p.clientId !== u.clientId && !this.isGuardianOf(u.clientId, p.clientId)) throw err('NOT_ALLOWED', 'You can only manage your own passes.'); }
     else this.requireStaff('passes_manage');
     return u;
   }
@@ -917,12 +1009,14 @@ export class DemoStore implements DataStore {
     return this.read(() => {
       const u = this.me();
       let clientId = range.clientId;
+      let family: ID[] | undefined;   // a parent also sees what they bought for their dependants
       if (u.kind === 'client') {
-        if (clientId && clientId !== u.clientId) throw err('NOT_ALLOWED', 'You can only see your own purchases.');
-        clientId = u.clientId;
+        if (clientId && clientId !== u.clientId && !this.isGuardianOf(u.clientId, clientId)) throw err('NOT_ALLOWED', 'You can only see your own purchases.');
+        clientId = clientId ?? u.clientId;
+        if (clientId === u.clientId) family = this.familyIds(u.clientId);
       } else this.requireStaff('sales_view');
       return this.state.sales
-        .filter((s) => (!clientId || s.clientId === clientId) && studioDay(s.createdAt) >= range.from && studioDay(s.createdAt) <= range.to)
+        .filter((s) => (family ? !!s.clientId && family.includes(s.clientId) : (!clientId || s.clientId === clientId)) && studioDay(s.createdAt) >= range.from && studioDay(s.createdAt) <= range.to)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     });
   }
