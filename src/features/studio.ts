@@ -9,3 +9,4 @@ import './payroll/studio/index';
 import './kiosk/studio/index';
 import './reviews/studio/index';
 import './integrations/studio/index';
+import './ondemand/studio/index';
