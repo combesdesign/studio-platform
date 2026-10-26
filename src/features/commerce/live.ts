@@ -172,7 +172,13 @@ registerLiveFeature({
         try {
           const res = (await ctx.sb.functions.invoke('commerce-checkout', { body: { cardId: card.id, studioId: ctx.studioId, returnUrl: `${here}#/gift-cards` } })) as { data?: Row; error?: unknown };
           url = str(obj(res.data).url);
-        } catch { /* handled below */ }
+          if (!url && res.error) {
+            // Connect: this studio hasn't connected Stripe yet. Say so plainly (the pending card is never switched on).
+            const c = obj(obj(res.error).context) as { json?: () => Promise<unknown> };
+            const j = typeof c.json === 'function' ? obj(await c.json().catch(() => ({}))) : {};
+            if (str(j.code) === 'PAYMENTS_NOT_SET_UP') throw ctx.error('PAYMENTS_NOT_SET_UP', str(j.message) || 'Online payments aren’t set up yet, pay at the studio.');
+          }
+        } catch (e) { if ((e as { code?: string } | null)?.code === 'PAYMENTS_NOT_SET_UP') throw e; /* anything else: handled below */ }
         if (!url) throw ctx.error('PAYMENT_UNAVAILABLE', 'Paying for gift cards online isn’t switched on yet. Please ask the studio to sell you one at the front desk.');
         return { card, checkoutUrl: url };
       }),

@@ -14,7 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 import type {
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
-  Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser,
+  Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus,
 } from '../../shared/types';
 import {
   StoreError,
@@ -295,6 +295,13 @@ export type ClientSaveResult = Client & { pendingEmail?: string };
 const NO_PERMISSION = 'You don’t have permission to do that.';
 
 /** Turn a PostgREST / Postgres / Auth / Functions error into a StoreError. */
+function toPaymentsStatus(r: Row): PaymentsStatus {
+  return {
+    connectMode: r.connectMode === true, connected: r.connected === true, ...(str(r.accountId) ? { accountId: str(r.accountId) } : {}),
+    chargesEnabled: r.chargesEnabled === true, payoutsEnabled: r.payoutsEnabled === true, detailsSubmitted: r.detailsSubmitted === true,
+  };
+}
+
 export function toStoreError(e: unknown): StoreError {
   if (e instanceof StoreError) return e;
   const err = obj(e) as DbError;
@@ -739,6 +746,23 @@ class SupabaseStore implements DataStore {
   async getStudio(): Promise<Studio> {
     await this.ready();
     return toStudio(await this.one(this.sb.from('studios').select('*').eq('id', this.studioId).limit(1), 'We couldn’t find this studio.'));
+  }
+
+  // ------------------------------------------------------------------ payments (Stripe Connect, owner only)
+
+  async getPaymentsStatus(): Promise<PaymentsStatus> {
+    const u = await this.requireMe();
+    if (u.kind !== 'staff' || u.role !== 'owner') throw new StoreError('NOT_ALLOWED', 'Only the studio owner can see payment settings.');
+    return toPaymentsStatus(await this.invoke('connect-status', {}));
+  }
+
+  async startPaymentsOnboarding(returnUrl: string): Promise<{ url: string } | null> {
+    const u = await this.requireMe();
+    if (u.kind !== 'staff' || u.role !== 'owner') throw new StoreError('NOT_ALLOWED', 'Only the studio owner can connect Stripe.');
+    const r = await this.invoke('connect-onboard', { returnUrl });
+    const url = str(r.url);
+    if (!url) throw new StoreError('ERROR', 'We couldn’t open Stripe. Please try again.');
+    return { url };
   }
 
   /** Logos and photos go to the public 'branding' bucket under <studio id>/ (owner / manager only, see 0007). */

@@ -25,6 +25,20 @@ export type Cents = number;
 
 export type StudioStatus = 'onboarding' | 'live' | 'suspended';
 
+/**
+ * A studio's card-payment connection (Stripe Connect), for its owner only.
+ * `connectMode` false = this deployment takes payments on its own single Stripe account (Snowy): nothing to connect.
+ */
+export interface PaymentsStatus {
+  connectMode: boolean;
+  /** Connected and Stripe says charges are on. */
+  connected: boolean;
+  accountId?: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+}
+
 /** One studio on the platform. */
 export interface Studio {
   id: ID;

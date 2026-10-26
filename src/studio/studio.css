@@ -947,3 +947,7 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .fam-parent { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fam-parent .fl-t { display: grid; flex: 1; min-width: 180px; line-height: 1.3; }
 .fam-parent .fl-t span { font-size: 14px; color: var(--muted); }
+
+/* Settings -> Payments / setup wizard: Stripe Connect status */
+.pay-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.pay-list li { display: flex; align-items: center; gap: 8px; }

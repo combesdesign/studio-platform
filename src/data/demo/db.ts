@@ -27,6 +27,8 @@ export interface PlatformDemoState {
   /** Each studio's own demo data, by studio id. */
   data: Record<ID, DemoState>;
   platformAdmins: { email: string; name: string }[];
+  /** Fake Stripe Connect: studios whose owner has run the demo "Connect Stripe" flow. Missing in older saved demos = none. */
+  connected?: Record<ID, boolean>;
 }
 
 /** What's kept under the app's auth key: the person, plus the studio record they signed in as (if any). */

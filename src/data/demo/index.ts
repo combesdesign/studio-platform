@@ -11,7 +11,7 @@ import type {
   BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
-  AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod,
+  AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass, PaymentMethod, PaymentsStatus,
   Product, ReportRange, Sale, ScheduleTemplate, SessionWithCounts, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
@@ -24,6 +24,7 @@ import { PERSONA_EMAILS } from './seed';
 import { AUTH_KEYS, DemoDb, REV_KEY, STATE_KEY, memoryStorage, type DemoDbOptions, type StorageLike } from './db';
 import { demoFeatures, type DemoFeatureContext } from './features';
 import { createDemoPlatform } from './platform';
+import { SNOWY_ID } from '../studios';
 import '../../features/demo';
 
 export { STATE_KEY, REV_KEY, AUTH_KEYS, PERSONA_EMAILS, memoryStorage, DemoDb, createDemoPlatform };
@@ -418,6 +419,29 @@ export class DemoStore implements DataStore {
     let bin = '';
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     return `data:${file.type || 'application/octet-stream'};base64,${btoa(bin)}`;
+  }
+
+  // ---------------------------------------------------------------- payments (fake Stripe Connect)
+  /** Snowy (the default studio) takes payments on its own Stripe account, like the real single-account deployment. Every other studio starts unconnected. */
+  async getPaymentsStatus(): Promise<PaymentsStatus> {
+    return this.read(() => {
+      const st = this.staffMe();
+      if (st.role !== 'owner') throw err('NOT_ALLOWED', 'Only the studio owner can see payment settings.');
+      const single = this.studioId === SNOWY_ID;
+      const on = !single && !!this.db.ps.connected?.[this.studioId];
+      return { connectMode: !single, connected: on, ...(on ? { accountId: 'acct_demo' + this.studioRec.slug } : {}), chargesEnabled: on, payoutsEnabled: on, detailsSubmitted: on };
+    });
+  }
+
+  /** Demo: no Stripe to visit, so "Connect Stripe" just marks the studio connected. */
+  async startPaymentsOnboarding(): Promise<{ url: string } | null> {
+    return this.write(() => {
+      const st = this.staffMe();
+      if (st.role !== 'owner') throw err('NOT_ALLOWED', 'Only the studio owner can connect Stripe.');
+      if (this.studioId === SNOWY_ID) throw err('CONNECT_OFF', 'This app takes card payments on its own Stripe account, so there’s nothing to connect.');
+      (this.db.ps.connected ??= {})[this.studioId] = true;
+      return null;
+    });
   }
 
   // ---------------------------------------------------------------- studio (details + branding)

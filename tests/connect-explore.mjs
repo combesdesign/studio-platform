@@ -1,0 +1,33 @@
+// Visual + console pass for Stripe Connect in the demo: Harbour's owner opens Settings -> Payments at 1024, connects (fake) and sees "Connected ✓".
+//   node build.mjs && python3 -m http.server 4307 -d dist &   node tests/connect-explore.mjs screenshots/connect harbour
+import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+import { localFonts } from './_fonts.mjs';
+const OUT = (process.argv[2] || 'screenshots/connect').replace(/\/?$/, '/');
+const slug = process.argv[3] || 'harbour';
+const BASE = process.env.BASE || 'http://localhost:4307';
+mkdirSync(OUT, { recursive: true });
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1024, height: 768 }, locale: 'en-AU', timezoneId: 'Australia/Sydney' });
+await localFonts(ctx);
+const errs = [];
+const say = (m) => console.log(m);
+const s = await ctx.newPage();
+s.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g|ERR_TUNNEL|ERR_NAME|net::ERR/.test(m.text())) errs.push(m.text()); });
+s.on('pageerror', (e) => errs.push(`pageerror: ${e.message}`));
+await s.goto(`${BASE}/studio/?studio=${slug}`);
+await s.waitForSelector('.persona', { timeout: 8000 });
+await s.locator('.persona', { hasText: 'Ava' }).first().click();
+await s.waitForSelector('.today .stats', { timeout: 8000 });
+await s.evaluate(() => { location.hash = '/settings/payments'; });
+await s.waitForSelector('[data-testid="payments-panel"]', { timeout: 8000 });
+say('before: ' + (await s.locator('[data-testid="payments-panel"]').innerText()).replace(/\s+/g, ' '));
+await s.getByRole('button', { name: 'Connect Stripe' }).click();
+await s.getByText('Connected ✓').waitFor({ timeout: 5000 });
+say('after: ' + (await s.locator('[data-testid="payments-panel"]').innerText()).replace(/\s+/g, ' '));
+await s.evaluate(() => { window.scrollTo(0, 0); document.querySelectorAll('*').forEach((e) => { if (e.scrollTop) e.scrollTop = 0; }); });
+await s.waitForTimeout(400);
+await s.screenshot({ path: `${OUT}settings-payments-1024.png` });
+await browser.close();
+say(errs.length ? 'CONSOLE ERRORS:\n' + errs.join('\n') : 'no console errors');
+process.exit(errs.length ? 1 : 0);

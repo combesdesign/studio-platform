@@ -9,22 +9,28 @@ import { settingsTabsList } from '../shared/registry';
 import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, replaceRoute, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
 import { BrandingTab } from './branding';
+import { PaymentsPanel } from './payments';
+import { isSingleStudio } from '../shared/boot';
 
 const TABS: { key: string; label: string; perm?: Perm | string; order: number }[] = [
   { key: 'studio', label: 'Studio', order: 10 }, { key: 'branding', label: 'Branding', order: 15 }, { key: 'policies', label: 'Policies', order: 20 },
   { key: 'classes', label: 'Class types', order: 30 }, { key: 'products', label: 'Products & pricing', perm: 'products', order: 40 },
   { key: 'staff', label: 'Staff', perm: 'staff', order: 50 },
+  // Stripe Connect: each studio on the platform is paid into its own Stripe account. The single-studio Snowy build never shows this.
+  { key: 'payments', label: 'Payments', perm: 'studioFinance', order: 45 },
 ];
 
 export function Settings({ tab = 'studio' }: { tab?: string }) {
   const { can } = useStudio();
   const feature = settingsTabsList();
-  const all = [...TABS, ...feature.map((t) => ({ key: t.id, label: t.label, ...(t.perm ? { perm: t.perm } : {}), order: t.order ?? 100 }))]
+  const all = [...TABS.filter((t) => t.key !== 'payments' || !isSingleStudio()), ...feature.map((t) => ({ key: t.id, label: t.label, ...(t.perm ? { perm: t.perm } : {}), order: t.order ?? 100 }))]
     .concat(store.mode === 'demo' ? [{ key: 'demo', label: 'Demo', order: 90 }] : [])
     .sort((x, y) => x.order - y.order);
   const tabs = all.filter((t) => !t.perm || can(t.perm));
   const cur = tabs.find((t) => t.key === tab)?.key ?? 'studio';
   const featureTab = feature.find((t) => t.id === cur);
+  // With many tabs the strip scrolls sideways: keep the open one in view (deep links and returning from Stripe land on a late tab).
+  useEffect(() => { document.querySelector<HTMLElement>('.settings .tabs a.on')?.scrollIntoView?.({ inline: 'center', block: 'nearest' }); }, [cur]);
   return (
     <div className="settings">
       <PageHead eyebrow="Settings" title={<>Studio <em>setup</em></>} />
@@ -40,6 +46,7 @@ export function Settings({ tab = 'studio' }: { tab?: string }) {
       {cur === 'staff' && <StaffTab />}
       {cur === 'demo' && <DemoTab />}
       {cur === 'branding' && <BrandingTab />}
+      {cur === 'payments' && <PaymentsTab />}
       {featureTab && featureTab.render()}
     </div>
   );
@@ -92,6 +99,16 @@ function StudioTab() {
         </div>
       </section>
       <SaveBar dirty={dirty} busy={busy} onSave={save} onReset={reset} />
+    </div>
+  );
+}
+
+function PaymentsTab() {
+  return (
+    <div className="card pad" style={{ maxWidth: 640 }}>
+      <h3>Card <em>payments</em></h3>
+      <p className="muted small" style={{ margin: '6px 0 18px' }}>Clients pay by card in the app and the money goes straight to your own Stripe account.</p>
+      <PaymentsPanel returnRoute="/settings/payments" />
     </div>
   );
 }

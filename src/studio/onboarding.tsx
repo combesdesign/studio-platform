@@ -11,17 +11,22 @@ import { BrandingEditor, BrandPreview } from '../shared/branding-editor';
 import { Accented, Flower } from '../shared/brand';
 import { CURRENCY, money } from '../shared/format';
 import { Icon, cx, useStudio } from './ui';
+import { PaymentsPanel } from './payments';
+import { isSingleStudio } from '../shared/boot';
 
-const STEPS = [
+const ALL_STEPS = [
   { key: 'details', label: 'Your studio' },
   { key: 'branding', label: 'Look + feel' },
   { key: 'classes', label: 'Classes' },
   { key: 'pricing', label: 'Pricing' },
   { key: 'policies', label: 'Policies' },
   { key: 'staff', label: 'Your team' },
+  { key: 'payments', label: 'Payments' },
   { key: 'live', label: 'Go live' },
 ] as const;
-type StepKey = (typeof STEPS)[number]['key'];
+type StepKey = (typeof ALL_STEPS)[number]['key'];
+/** The Payments step (Stripe Connect) is for studios on the platform; a single-studio build has its own Stripe account. */
+const STEPS: readonly (typeof ALL_STEPS)[number][] = isSingleStudio() ? ALL_STEPS.filter((s) => s.key !== 'payments') : ALL_STEPS;
 
 const TIMEZONES = ['Australia/Sydney', 'Australia/Melbourne', 'Australia/Brisbane', 'Australia/Adelaide', 'Australia/Perth', 'Australia/Hobart', 'Pacific/Auckland', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 const CURRENCIES = ['AUD', 'NZD', 'GBP', 'USD', 'EUR'];
@@ -57,6 +62,7 @@ export function Onboarding({ step }: { step?: string }) {
         {cur === 'pricing' && <Pricing />}
         {cur === 'policies' && <Policies onDone={next} />}
         {cur === 'staff' && <Team />}
+        {cur === 'payments' && <PaymentsStep />}
         {cur === 'live' && <GoLive />}
       </section>
       <footer className="onb-foot">
@@ -256,7 +262,18 @@ function Team() {
   );
 }
 
-// ------------------------------------------------------------------ 7. go live
+// ------------------------------------------------------------------ 7. payments (Stripe Connect)
+function PaymentsStep() {
+  return (
+    <div className="stack lg">
+      <h2>Card <em>payments</em></h2>
+      <p className="muted">Connect your own Stripe account so clients can pay by card. You can skip this and do it later in Settings → Payments; until then clients are asked to pay at the studio.</p>
+      <PaymentsPanel returnRoute="/welcome/payments" />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ 8. go live
 function GoLive() {
   const { studio } = useStudio();
   const data = useData(async () => {

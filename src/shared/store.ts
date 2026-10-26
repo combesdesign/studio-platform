@@ -15,7 +15,7 @@
  * All methods are async. Errors are thrown as StoreError with a user-friendly message.
  */
 import type {
-  PlatformUser, Studio, StudioMembership, StudioStatus,
+  PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime,
   Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionWithCounts, Staff,
   StudioReport, StudioSettings, ReportRange, HealthForm,
@@ -139,6 +139,16 @@ export interface DataStore {
   getStudio(): Promise<Studio>;
   /** Owner (and manager for branding): change details or branding; 'live' finishes onboarding. Platform admins use PlatformStore. */
   updateStudio(patch: StudioPatch): Promise<Studio>;
+  /**
+   * Owner only: is this studio connected to its own Stripe account (Stripe Connect)? Live: asks the connect-status edge function,
+   * which refreshes the flags from Stripe. Demo: a fake status.
+   */
+  getPaymentsStatus(): Promise<PaymentsStatus>;
+  /**
+   * Owner only: start (or finish) connecting Stripe. Returns Stripe's hosted onboarding URL to open, or null when there is
+   * nothing to open (demo: the studio is marked connected straight away).
+   */
+  startPaymentsOnboarding(returnUrl: string): Promise<{ url: string } | null>;
   /** Optional: store a logo / photo for this studio's branding and return its URL (live: the 'branding' Storage bucket). */
   uploadBrandingImage?(file: Blob): Promise<string>;
 
