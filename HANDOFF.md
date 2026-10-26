@@ -17,33 +17,16 @@
    3. Get Snowy launch-ready.
    4. Park the rest of B5 (on-demand video, kiosk, family accounts, etc.) until a second studio is actually interested.
 
-## State as of 20 Oct 2026
-- **Done and tested on master:**
-  - client app, studio app, admin app
-  - booking engine, demo store
-  - Supabase backend (RLS, RPCs, Stripe/Resend functions, Momence import)
-  - platform foundation (multi-studio, white-label, admin, onboarding wizard, second demo studio "Harbour Reformer Co.")
-- **Feature branches.** Each is a WIP commit, roughly 70–80% written, about 7k lines each, paused at a usage limit:
+## State as of 27 Oct 2026
+- **Everything is merged on master** (all 4 feature branches done). Master passes tsc, `npm test` (144), build and the full SQL suite.
+- Built since 20 Oct: commerce, payroll, marketing, appointments/workshops, kiosk, reviews, ClassPass/Gympass hooks (held spots enforced), Xero export, domains, desktop web layout + deep links, online video classes (`ondemand`), support (Help button, help centre, reply-by promise, AI quick answers, admin inbox, status banner, urgent alert email), undo for common mistakes, bank-debit NOT done (Pete: keep Stripe as is).
+- Website (`/home/claude/snowy-pilates-club`): timetable strip on local branch `feat/timetable-strip`, NOT pushed (goes live on push). Times are from demo data, check with Libby.
+- **Open (ROADMAP):** spot/mat selection, family accounts, multi-location/rooms, Stripe Terminal, onboarding service, Phase C (Capacitor, real accounts, Momence import, security review). Gaps per feature are in NOTES.md.
+- **Platform backlog:** Stripe Connect per studio (only Snowy can take cards), platform billing.
+- **GitHub push still 403**: Pete must give the Claude GitHub App access to combesdesign/studio-platform (from his laptop).
+- **Waiting on Pete/Libby:** Momence export; Supabase/Stripe/Resend/Anthropic/Twilio accounts in Libby's name; billing from sign-up vs first class; Apple/Google dev accounts.
 
-  | Branch | What's left |
-  |---|---|
-  | `feat/payroll` | live.ts and SQL tests |
-  | `feat/commerce` | gift cards, promos, referrals, stock; finish, test |
-  | `feat/marketing` | migration 1200 being applied/tested; edge functions |
-  | `feat/appointments` | edge functions; finish, test |
-
-  Each must follow docs/FEATURE-BRIEF.md and the AGENTS.md convention. Only touch your own feature folder and SQL ranges.
-- **Platform backlog** (NOTES.md "## platform"):
-  - Stripe Connect per studio, so only Snowy can take card payments for now
-  - platform billing
-  - per-studio app icons
-- **Waiting on Pete or Libby:**
-  - the Momence export
-  - Supabase, Stripe and Resend accounts in Libby's business name
-  - whether memberships bill from sign-up or from the first class
-  - Apple and Google developer accounts
-
-**Demo.** The clickable demo is published as an Artifact. Pete has the link. It was built from master before the platform work. Republish it after the features merge, from `node build.mjs` dist, landing page in the artifact.
+**Demo.** The clickable demo is published as an Artifact. Pete has the link. It was built from master before the platform work. Republished 26 Oct from a `STUDIO_SLUG=snowy` build (before online classes/support/marketing/appointments); republish again when convenient.
 
 **Sandbox notes:**
 - There's no npm registry. `node_modules` is a symlink to `/opt/npm-tools/node_modules` (`ln -sfn …`).
