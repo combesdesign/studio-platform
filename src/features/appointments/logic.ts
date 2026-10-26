@@ -12,7 +12,7 @@ import type {
 export const MINUTE_MS = 60_000;
 export const HOUR_MS = 3_600_000;
 
-export const DEFAULT_SETTINGS: AppointmentSettings = { slotStepMin: 30, minNoticeHours: 4, horizonDays: 28 };
+export const DEFAULT_SETTINGS: AppointmentSettings = { slotStepMin: 30, minNoticeHours: 4, horizonDays: 28, waitlistClaimHours: 12 };
 
 /** Statuses that occupy the instructor's time. Cancelled and late-cancelled sessions free the slot. */
 export const BUSY_STATUSES: readonly Appointment['status'][] = ['booked', 'completed', 'no_show', 'pending_payment'];
@@ -178,4 +178,33 @@ export function eventProblem(e: Pick<StudioEvent, 'title' | 'capacity' | 'priceC
   }
   if (e.refundCutoffHours < 0) return 'The refund cut-off can’t be negative.';
   return null;
+}
+
+// ---------------------------------------------------------------- event waitlist
+
+/** A person in an event's line. `offered` = a spot is being held for them until offerExpiresAt. */
+export interface WaitlistLine { id: ID; status: 'waiting' | 'offered'; joinedAt: ISODateTime; offerExpiresAt?: ISODateTime }
+
+/**
+ * What to do with an event's waitlist right now (the SQL app.ap_waitlist_advance does the same):
+ *  - if the event is closed (cancelled, or the first session has started) everyone in line is let go;
+ *  - offers past their claim window lapse;
+ *  - every spot that is neither taken nor held by a live offer goes to the next person waiting, first come first served.
+ * `taken` = people registered (and paying) already. An offer lasts `claimHours`, but never past the start of the event.
+ */
+export function planWaitlist(a: { line: readonly WaitlistLine[]; capacity: number; taken: number; now: Date; claimHours: number; eventStart: ISODateTime; open: boolean }):
+  { expire: ID[]; offer: { id: ID; expiresAt: ISODateTime }[] } {
+  const now = a.now.getTime();
+  if (!a.open) return { expire: a.line.map((w) => w.id), offer: [] };
+  const lapsed = a.line.filter((w) => w.status === 'offered' && Date.parse(w.offerExpiresAt ?? '') <= now).map((w) => w.id);
+  const held = a.line.filter((w) => w.status === 'offered' && !lapsed.includes(w.id)).length;
+  let free = Math.max(0, a.capacity - a.taken - held);
+  const expiresAt = new Date(Math.min(now + a.claimHours * HOUR_MS, Date.parse(a.eventStart))).toISOString();
+  const offer: { id: ID; expiresAt: ISODateTime }[] = [];
+  for (const w of [...a.line].filter((x) => x.status === 'waiting').sort((x, y) => x.joinedAt.localeCompare(y.joinedAt) || x.id.localeCompare(y.id))) {
+    if (free <= 0) break;
+    offer.push({ id: w.id, expiresAt });
+    free--;
+  }
+  return { expire: lapsed, offer };
 }

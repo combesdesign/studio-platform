@@ -153,10 +153,10 @@ export function AppointmentsScreen({ nav, path }: { nav: Nav; path: string }) {
                 <button key={e.id} className={'ap-card' + (e.imageUrl ? ' img' : '')} onClick={() => setEvent(e.id)}>
                   {e.imageUrl && <span className="ap-thumb" style={{ backgroundImage: `url(${brandAsset(e.imageUrl)})` }} />}
                   <span className="ap-body">
-                    <span className="ap-row"><span className={'tag ' + (e.mine ? 'ok' : 'cream')}>{e.mine ? 'You’re in' : KIND_LABEL[e.kind]}</span><span className="ap-price">{price(e.priceCents)}</span></span>
+                    <span className="ap-row"><span className={'tag ' + (e.mine || e.myWaitlist?.status === 'offered' ? 'ok' : 'cream')}>{e.mine ? 'You’re in' : e.myWaitlist?.status === 'offered' ? 'A place is held for you' : e.myWaitlist ? 'On the waitlist' : KIND_LABEL[e.kind]}</span><span className="ap-price">{price(e.priceCents)}</span></span>
                     <span className="ap-t">{e.title}</span>
                     <span className="ap-meta"><span>{eventWhen(e)}</span>{e.location && <span>{e.location}</span>}</span>
-                    <span className="ap-meta"><span>{e.spotsLeft <= 0 ? 'Full' : e.spotsLeft <= 3 ? `${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left` : `${e.spotsLeft} spots`}</span></span>
+                    <span className="ap-meta"><span>{e.spotsLeft <= 0 ? 'Full · waitlist open' : e.spotsLeft <= 3 ? `${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left` : `${e.spotsLeft} spots`}</span></span>
                   </span>
                 </button>
               ))}
@@ -395,7 +395,9 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
   if (!e) return <div className="stack lg ap-stack"><SheetHead onClose={onClose} />{ev.error ? <ErrorBlock error={ev.error} onRetry={ev.reload} /> : <CardSkeletons n={2} h={90} />}</div>;
 
   const started = Date.now() >= Date.parse(eventStart(e));
-  const full = e.spotsLeft <= 0;
+  const offered = e.myWaitlist?.status === 'offered' ? e.myWaitlist : undefined;   // a place is being held for them
+  const avail = offered ? Math.max(1, e.spotsLeft) : e.spotsLeft;
+  const full = avail <= 0;
   const me = app.client.id;
   const famIn = (famRegs.data ?? []).filter((r) => r.eventId === e.id && r.status === 'registered' && r.clientId !== me);
   const options = [
@@ -412,7 +414,7 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
   const unsigned = deps.find((x) => signUp.includes(x.id) && !x.waiverSignedAt);
   const register = async (viaCard: boolean) => {
     if (unsigned) { leaveSheets(() => goFlow(nav, `/family?sign=${encodeURIComponent(unsigned.id)}&then=1`, { label: 'Privates and events', where: '/appointments?tab=events' })); return; }
-    if (signUp.length > e.spotsLeft) { toast(e.spotsLeft === 1 ? 'There’s only 1 spot left.' : `There are only ${e.spotsLeft} spots left.`); return; }
+    if (signUp.length > avail) { toast(avail === 1 ? 'There’s only 1 spot left.' : `There are only ${avail} spots left.`); return; }
     setBusy(true);
     try {
       if (viaCard) await fakeCardDelay();
@@ -433,6 +435,18 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
     }
     catch (x: any) { if (x?.code === 'WAIVER_REQUIRED') setWaiver(true); else toast(errorMessage(x)); }
     finally { setBusy(false); }
+  };
+  const joinLine = async () => {
+    setBusy(true);
+    try { await ap.joinWaitlist({ eventId: e.id }); toast('You’re on the waitlist. We’ll email you if a place opens.'); ev.reload(); }
+    catch (x: any) { if (x?.code === 'WAIVER_REQUIRED') setWaiver(true); else toast(errorMessage(x)); }
+    finally { setBusy(false); }
+  };
+  const leaveLine = async () => {
+    if (!e.myWaitlist) return;
+    setBusy(true);
+    try { await ap.leaveWaitlist(e.myWaitlist.id); toast(offered ? 'Thanks for letting us know. The place goes to the next person.' : 'You’re off the waitlist.'); ev.reload(); }
+    catch (x) { toast(errorMessage(x)); } finally { setBusy(false); }
   };
   const target = ctarget ?? (e.mine ? { id: e.mine.id, name: '' } : null);
   const cancel = async () => {
@@ -465,8 +479,14 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
       <ul className="ap-sessions">
         {e.sessions.map((s, i) => <li key={s.startsAt}><span>{e.sessions.length > 1 ? `Session ${i + 1} · ` : ''}{dayLabel(s.startsAt)}</span><span>{range(s.startsAt, s.endsAt)}</span></li>)}
       </ul>
-      <div className="ap-meta"><span>{price(e.priceCents)}{e.sessions.length > 1 && e.priceCents > 0 ? ' for all sessions' : ''}</span>{e.location && <span>{e.location}</span>}<span>{full ? 'Full' : `${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left`}</span></div>
+      <div className="ap-meta"><span>{price(e.priceCents)}{e.sessions.length > 1 && e.priceCents > 0 ? ' for all sessions' : ''}</span>{e.location && <span>{e.location}</span>}<span>{e.spotsLeft <= 0 ? 'Full' : `${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left`}</span></div>
       {waiver && <WaiverNote nav={nav} where="/appointments?tab=events" />}
+      {offered && (
+        <div className="note ok"><Icon name="check" size={20} /><div><strong>A place has opened up for you.</strong> It’s yours until {dayLabel(offered.offerExpiresAt!)}, {clock(offered.offerExpiresAt!)}. {e.priceCents > 0 ? 'Sign up and pay to keep it.' : 'Save your spot to keep it.'}</div></div>
+      )}
+      {e.myWaitlist && !offered && (
+        <div className="note cream"><Icon name="info" size={20} /><div>You’re number {e.myWaitlist.position} on the waitlist. We’ll email you if a place opens up, and hold it for you for a little while.</div></div>
+      )}
       {e.mine && <div className="note ok"><Icon name="check" size={20} /><div>You’re registered{e.mine.payment.amountCents > 0 ? ` and paid ${money(e.mine.payment.amountCents, { cents: true })}` : ''}.</div></div>}
       {famIn.map((r) => (
         <div key={r.id} className="note ok fam-row"><Icon name="check" size={20} /><div>{r.clientName.split(' ')[0]} is registered.</div>
@@ -484,12 +504,18 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
       {step !== 'cancel' && (!e.mine || showWho) && (
         <>
           {showWho && !started && !full && <WhosComing options={options} selected={sel} onChange={setWho} single={onePerCheckout} />}
-          {!e.mine && <p className="ap-fine">{e.priceCents > 0 ? cancelNote(eventStart(e), e.refundCutoffHours, 'payment').replace('Free to cancel', 'Full refund if you cancel') : 'Free to join. Please cancel if you can’t make it so someone else can come.'}</p>}
-          {(!e.mine || showWho) && (
+          {!e.mine && full && !started && !e.myWaitlist && <p className="ap-fine">This one is full. Join the waitlist and we’ll email you if a place opens up.</p>}
+          {!e.mine && !(full && !started) && <p className="ap-fine">{e.priceCents > 0 ? cancelNote(eventStart(e), e.refundCutoffHours, 'payment').replace('Free to cancel', 'Full refund if you cancel') : 'Free to join. Please cancel if you can’t make it so someone else can come.'}</p>}
+          {(!e.mine || showWho) && (full && !e.mine && !started ? (
+            e.myWaitlist
+              ? <button className="btn ghost block" disabled={busy} onClick={leaveLine}>Leave the waitlist</button>
+              : <button className="btn block big" disabled={busy} onClick={joinLine}>{busy ? 'One moment…' : 'Join the waitlist'}</button>
+          ) : (
             <button className="btn block big" disabled={busy || full || started || (showWho && sel.length === 0)} onClick={start}>
               {started ? 'Sign-up has closed' : full ? 'Sorry, this one is full' : busy ? 'One moment…' : showWho && sel.length === 0 ? 'Choose who’s coming' : e.priceCents === 0 ? (signUp.length > 1 ? `Save ${signUp.length} spots` : 'Save my spot') : `Sign up for ${money(total)}`}
             </button>
-          )}
+          ))}
+          {offered && !started && <button className="btn ghost block" disabled={busy} onClick={leaveLine}>Give the place back</button>}
         </>
       )}
     </div>
@@ -513,6 +539,7 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
   const past = list.filter((a) => !upcoming.includes(a)).sort((a, b) => b.startsAt.localeCompare(a.startsAt)).slice(0, 8);
   const myRegs = (regs.data ?? []).filter((r) => r.status === 'registered').sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const active = credits.filter((c) => c.status === 'active');
+  const waiting = events.filter((e) => e.myWaitlist);
   const cancel = async () => {
     if (!open) return;
     setBusy(true);
@@ -524,7 +551,7 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
   };
   if (appts.error && !appts.data) return <div className="mt-20"><ErrorBlock error={appts.error} onRetry={appts.reload} /></div>;
   if (!appts.data || !regs.data) return <div className="mt-20"><CardSkeletons n={2} h={80} /></div>;
-  const nothing = upcoming.length === 0 && myRegs.length === 0 && past.length === 0 && active.length === 0;
+  const nothing = upcoming.length === 0 && myRegs.length === 0 && past.length === 0 && active.length === 0 && waiting.length === 0;
   return (
     <div className="stack mt-20">
       {nothing && <Empty title="Nothing booked yet">Your privates, workshops and credits will live here.</Empty>}
@@ -557,6 +584,19 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
           </div>
         </div>
       )}
+      {waiting.length > 0 && (
+        <div className="group"><div className="group-label">Waitlist</div>
+          <div className="list-card">{waiting.map((e) => {
+            const w = e.myWaitlist!;
+            return (
+              <div key={w.id} className="list-row" style={{ cursor: 'default' }}><span className="row-ic"><Flower size={20} /></span>
+                <span className="list-row-main"><span className="list-row-title">{e.title}</span>
+                  <span className="list-row-sub">{w.status === 'offered' ? `A place is held for you until ${dayLabel(w.offerExpiresAt!)}, ${clock(w.offerExpiresAt!)}` : `Number ${w.position} in line`}</span></span>
+                <button className={'btn sm ' + (w.status === 'offered' ? '' : 'soft')} onClick={() => nav('/appointments?tab=events')}>{w.status === 'offered' ? 'Claim' : 'Details'}</button></div>
+            );
+          })}</div>
+        </div>
+      )}
       {past.length > 0 && (
         <div className="group"><div className="group-label">Recent</div>
           <div className="list-card">{past.map((a) => (
@@ -587,6 +627,16 @@ export function TimetableBanner({ nav }: { nav: Nav }) {
   const events = useData(async () => (ap ? ap.listEvents() : []), []);
   if (!ap || (!(types.data ?? []).length && !(events.data ?? []).length)) return null;
   const n = (events.data ?? []).length;
+  const offer = (events.data ?? []).find((e) => e.myWaitlist?.status === 'offered');
+  if (offer) {
+    return (
+      <button className="ap-promo" style={{ margin: '0 0 16px' }} onClick={() => nav('/appointments?tab=events')}>
+        <ApptIcon size={26} />
+        <span style={{ flex: 1 }}><strong>A place opened up</strong><span>{offer.title} is held for you until {dayLabel(offer.myWaitlist!.offerExpiresAt!)}, {clock(offer.myWaitlist!.offerExpiresAt!)}</span></span>
+        <Icon name="chevron" size={18} />
+      </button>
+    );
+  }
   return (
     <button className="ap-promo" style={{ margin: '0 0 16px' }} onClick={() => nav('/appointments')}>
       <ApptIcon size={26} />

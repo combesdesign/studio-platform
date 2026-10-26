@@ -158,6 +158,7 @@ ${gst ? `<p style="font-size:13px">Total includes ${esc(taxName)} of ${money(gst
     case 'event_registered':
     case 'event_cancelled':
     case 'event_reminder':
+    case 'waitlist_offer':
       return renderAppointments(n.kind, p, hi, policy);
     default:
       return { subject: `A message from ${studioName(p)}`, html: layout('Hello', `<p>${hi}</p>`, p), text: hi };
@@ -166,7 +167,7 @@ ${gst ? `<p style="font-size:13px">Total includes ${esc(taxName)} of ${money(gst
 
 /** Appointments, workshops, courses and events (appointments_outbox). Everything shown comes from the row and the studio. */
 function renderAppointments(kind: string, p: Payload, hi: string, policy: string): { subject: string; html: string; text: string } {
-  const isEvent = kind.startsWith('event_');
+  const isEvent = kind.startsWith('event_') || kind === 'waitlist_offer';
   const title = String(p.title ?? (isEvent ? 'your event' : 'your session'));
   const what = isEvent ? (p.event_kind === 'course' ? 'course' : p.event_kind === 'workshop' ? 'workshop' : 'event') : 'session';
   const count = Number(p.sessions ?? 1);
@@ -186,6 +187,16 @@ function renderAppointments(kind: string, p: Payload, hi: string, policy: string
         subject: `You're booked: ${title}, ${p.when}`,
         html: layout(isEvent ? 'You’re in' : 'You’re booked in', `<p>${hi}</p><p>Your ${what} is confirmed.${esc(paid)}</p>${box}${note}${policy}`, p),
         text: txt(`Your ${what} is confirmed.${paid}`),
+      };
+    }
+    case 'waitlist_offer': {
+      const paid = Number(p.amount_cents ?? 0) > 0;
+      const how = paid ? `To take it, open the app and pay ${money(Number(p.amount_cents), p)} before then.` : 'To take it, open the app and save your spot before then.';
+      const until = `It’s held for you until ${esc(p.claim_by)}. After that it goes to the next person in line.`;
+      return {
+        subject: `A place opened up: ${title}`,
+        html: layout('A place has opened up', `<p>${hi}</p><p>Good news, a place has opened up in the ${what} you were waiting for.</p>${box}<p>${until}</p><p>${esc(how)}</p>${policy}`, p),
+        text: txt(`Good news, a place has opened up in the ${what} you were waiting for. It's held for you until ${p.claim_by}. After that it goes to the next person in line. ${how}`),
       };
     }
     case 'appointment_reminder':
@@ -331,6 +342,7 @@ async function drainOne(admin: Db, rows: OutboxRow[], finish: string, prep: (r: 
 export async function drainFeatureOutboxes(admin: Db, limit = 25): Promise<{ sent: number; failed: number }> {
   must(await admin.rpc('commerce_send_due'));
   must(await admin.rpc('appointments_queue_reminders', { p_hours: 24 }));
+  must(await admin.rpc('appointments_waitlist_sweep'));   // lapse waitlist offers by the clock and offer the place to the next person
   const base = (_r: OutboxRow, st: StudioInfo) => studioPayload(st);
 
   const cards = (must(await admin.rpc('commerce_claim_outbox', { p_limit: limit })) ?? []) as OutboxRow[];

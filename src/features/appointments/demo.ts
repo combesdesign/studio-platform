@@ -12,10 +12,10 @@ import type { Client, ID, Sale, Staff } from '../../shared/types';
 import type { DemoState } from '../../data/demo/engine';
 import type {
   Appointment, AppointmentCredit, AppointmentPack, AppointmentPayMethod, AppointmentSettings, AppointmentType, AppointmentsStore, AvailabilityRule,
-  BookAppointmentInput, EventRegistration, RegisterInput, StudioEvent, StudioEventSummary, TimeOff,
+  BookAppointmentInput, EventRegistration, RegisterInput, StudioEvent, StudioEventSummary, TimeOff, WaitlistEntry,
 } from './types';
 import {
-  DEFAULT_SETTINGS, HOUR_MS, allocateCredits, availabilityProblem, computeSlots, creditStatus, eventEnd, eventProblem, eventStart, isLateCancel,
+  DEFAULT_SETTINGS, HOUR_MS, allocateCredits, availabilityProblem, computeSlots, creditStatus, eventEnd, eventProblem, eventStart, isLateCancel, planWaitlist,
 } from './logic';
 import { seedAppointments } from './seed';
 
@@ -24,6 +24,7 @@ import { seedAppointments } from './seed';
 export type StoredCredit = Omit<AppointmentCredit, 'remaining' | 'status'>;
 export type StoredAppointment = Omit<Appointment, 'staffName' | 'clientName'>;
 export type StoredRegistration = Omit<EventRegistration, 'clientName' | 'eventTitle' | 'eventKind' | 'startsAt'>;
+export type StoredWaitlist = Omit<WaitlistEntry, 'clientName' | 'eventTitle' | 'position'>;
 
 export interface Slice {
   settings: AppointmentSettings;
@@ -35,8 +36,10 @@ export interface Slice {
   appointments: StoredAppointment[];
   events: StudioEvent[];
   registrations: StoredRegistration[];
-  /** Emails the live system would send (confirmations, cancellations); the demo just records them, newest last, capped. */
-  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'event_registered' | 'event_cancelled'; text: string }[];
+  /** Event waitlists (added after the first demos: may be missing). */
+  waitlist?: StoredWaitlist[];
+  /** Emails the live system would send (confirmations, cancellations, waitlist offers); the demo just records them, newest last, capped. */
+  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'event_registered' | 'event_cancelled' | 'waitlist_offer'; text: string }[];
 }
 
 const err = (code: string, message: string) => new StoreError(code, message);
@@ -82,10 +85,50 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     return { ...r, clientName: fullName(clientOf(r.clientId)), eventTitle: e?.title ?? 'Event', eventKind: e?.kind ?? 'event', startsAt: e ? eventStart(e) : r.createdAt };
   };
   const registeredCount = (eventId: ID) => S().registrations.filter((r) => r.eventId === eventId && r.status === 'registered').length;
+
+  // ------------------------------------------------------------ waitlist
+  const waitlist = (): StoredWaitlist[] => (S().waitlist ??= []);
+  const inLine = (eventId: ID) => waitlist().filter((w) => w.eventId === eventId && (w.status === 'waiting' || w.status === 'offered'))
+    .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt) || a.id.localeCompare(b.id));
+  const decWait = (w: StoredWaitlist): WaitlistEntry => ({
+    ...w, clientName: fullName(clientOf(w.clientId)), eventTitle: S().events.find((x) => x.id === w.eventId)?.title ?? 'Event',
+    position: Math.max(1, inLine(w.eventId).findIndex((x) => x.id === w.id) + 1),
+  });
+  /** Places held by live offers, not counting `except`'s own (their place is theirs to take). */
+  const heldOffers = (eventId: ID, except?: ID) =>
+    inLine(eventId).filter((w) => w.status === 'offered' && w.clientId !== except && Date.parse(w.offerExpiresAt ?? '') > ctx.now().getTime()).length;
+  const spotsFree = (e: StudioEvent, forClient?: ID) => Math.max(0, e.capacity - registeredCount(e.id) - heldOffers(e.id, forClient));
+  /**
+   * Let lapsed offers go and offer free places to whoever is next (same rules as app.ap_waitlist_advance in SQL). Runs whenever
+   * places can have opened (cancelling, more capacity, time passing). Emails are only recorded in the demo.
+   */
+  const advance = (eventId: ID): void => {
+    const e = S().events.find((x) => x.id === eventId);
+    const line = inLine(eventId);
+    if (!e || !line.length) return;
+    const now = ctx.now();
+    const plan = planWaitlist({
+      line: line.map((w) => ({ id: w.id, status: w.status as 'waiting' | 'offered', joinedAt: w.joinedAt, ...(w.offerExpiresAt ? { offerExpiresAt: w.offerExpiresAt } : {}) })),
+      capacity: e.capacity, taken: registeredCount(e.id), now, claimHours: settings().waitlistClaimHours, eventStart: eventStart(e),
+      open: !e.cancelled && now.toISOString() < eventStart(e),
+    });
+    for (const id of plan.expire) { const w = line.find((x) => x.id === id)!; w.status = 'expired'; delete w.offerExpiresAt; }
+    for (const o of plan.offer) {
+      const w = line.find((x) => x.id === o.id)!;
+      w.status = 'offered'; w.offeredAt = now.toISOString(); w.offerExpiresAt = o.expiresAt;
+      queueEmail(w.clientId, 'waitlist_offer', `A place opened up in ${e.title}. It’s yours until ${o.expiresAt}`);
+    }
+  };
+  const advanceAll = () => { for (const id of new Set(waitlist().map((w) => w.eventId))) advance(id); };
   const summary = (e: StudioEvent, clientId?: ID): StudioEventSummary => {
+    advance(e.id);
     const registered = registeredCount(e.id);
     const mine = clientId ? S().registrations.find((r) => r.eventId === e.id && r.clientId === clientId && r.status === 'registered') : undefined;
-    return { ...e, registered, spotsLeft: Math.max(0, e.capacity - registered), ...(mine ? { mine: decReg(mine) } : {}) };
+    const line = clientId ? inLine(e.id).find((w) => w.clientId === clientId) : undefined;
+    return {
+      ...e, registered, spotsLeft: spotsFree(e), waitlisted: inLine(e.id).length,
+      ...(mine ? { mine: decReg(mine) } : {}), ...(line ? { myWaitlist: decWait(line) } : {}),
+    };
   };
 
   // ------------------------------------------------------------ emails (recorded only: the live outbox sends them)
@@ -137,7 +180,11 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (!(next.slotStepMin >= 5 && next.slotStepMin <= 120)) throw err('INVALID', 'Slots can start every 5 to 120 minutes.');
       if (!(next.minNoticeHours >= 0 && next.minNoticeHours <= 336)) throw err('INVALID', 'Minimum notice can be 0 to 336 hours.');
       if (!(next.horizonDays >= 1 && next.horizonDays <= 365)) throw err('INVALID', 'Clients can book 1 to 365 days ahead.');
-      S().settings = { slotStepMin: Math.round(next.slotStepMin), minNoticeHours: Math.round(next.minNoticeHours), horizonDays: Math.round(next.horizonDays) };
+      if (!(next.waitlistClaimHours >= 1 && next.waitlistClaimHours <= 72)) throw err('INVALID', 'A waitlist offer can be open for 1 to 72 hours.');
+      S().settings = {
+        slotStepMin: Math.round(next.slotStepMin), minNoticeHours: Math.round(next.minNoticeHours), horizonDays: Math.round(next.horizonDays),
+        waitlistClaimHours: Math.round(next.waitlistClaimHours),
+      };
       return S().settings;
     }),
 
@@ -394,6 +441,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       const list = S().events;
       const i = list.findIndex((x) => x.id === e.id);
       if (i >= 0) list[i] = e; else list.push(e);
+      advance(e.id);   // more places than before? offer them
       return e;
     }),
     cancelEvent: (id, reason) => ctx.write(() => {
@@ -407,6 +455,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         if (r.payment.amountCents > 0) r.refundDue = true;
         queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled by the studio`);
       }
+      advance(e.id);   // the line is let go
       return e;
     }),
     register: (input: RegisterInput) => ctx.write(() => {
@@ -418,7 +467,8 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (w.kind === 'client' && now.toISOString() >= eventStart(e)) throw err('TOO_LATE', 'Sign-up closed when it started.');
       if (now.toISOString() >= eventEnd(e)) throw err('TOO_LATE', 'That one has finished.');
       if (S().registrations.some((r) => r.eventId === e.id && r.clientId === clientId && r.status === 'registered')) throw err('ALREADY_BOOKED', 'You’re already registered.');
-      if (registeredCount(e.id) >= e.capacity) throw err('EVENT_FULL', 'Sorry, that one is full.');
+      advance(e.id);
+      if (spotsFree(e, clientId) <= 0) throw err('EVENT_FULL', 'Sorry, that one is full.');
       requireWaiver(clientId, w);
       const free = e.priceCents === 0;
       const method: AppointmentPayMethod = free ? 'comp' : input.method;
@@ -432,6 +482,8 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         payment: { method, amountCents: sale?.totalCents ?? 0, ...(sale ? { saleId: sale.id } : {}) },
       };
       S().registrations.push(r);
+      // a place taken from the waitlist (or any other way) ends their turn in line
+      for (const x of inLine(e.id).filter((y) => y.clientId === clientId)) { x.status = 'claimed'; delete x.offerExpiresAt; }
       queueEmail(clientId, 'event_registered', `${e.title} confirmed`);
       return { registration: decReg(r), ...(sale ? { sale } : {}) };
     }),
@@ -453,6 +505,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       const refundDue = !late && r.payment.amountCents > 0;
       if (refundDue) r.refundDue = true;
       queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled${late ? ' (late)' : ''}`);
+      advance(e.id);   // the place goes to the next person in line
       return { registration: decReg(r), refundDue, late };
     }),
     listRegistrations: (q) => ctx.read(() => {
@@ -484,6 +537,53 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (r.status !== 'registered') throw err('INVALID', 'This registration was cancelled.');
       r.attended = present ? [...new Set([...r.attended, sessionStartsAt])].sort() : r.attended.filter((s) => s !== sessionStartsAt);
       return decReg(r);
+    }),
+
+    // ---------------------------------------------------------- waitlist
+    joinWaitlist: (input) => ctx.write(() => {
+      const w = who();
+      const { clientId } = booker(w, input.clientId, 'join the waitlist');
+      const e = S().events.find((x) => x.id === input.eventId);
+      if (!e || e.cancelled || (w.kind === 'client' && !e.published)) throw err('NOT_FOUND', 'We couldn’t find that event.');
+      const now = ctx.now();
+      if (now.toISOString() >= eventStart(e)) throw err('TOO_LATE', 'Sign-up closed when it started.');
+      advance(e.id);
+      if (S().registrations.some((r) => r.eventId === e.id && r.clientId === clientId && r.status === 'registered')) throw err('ALREADY_BOOKED', 'You’re already registered.');
+      if (inLine(e.id).some((x) => x.clientId === clientId)) throw err('ALREADY_BOOKED', 'You’re already on the waitlist.');
+      if (spotsFree(e) > 0) throw err('NOT_FULL', 'There are places left, so you can sign up now.');
+      requireWaiver(clientId, w);
+      const entry: StoredWaitlist = { id: ctx.newId('awl'), eventId: e.id, clientId, status: 'waiting', joinedAt: now.toISOString() };
+      waitlist().push(entry);
+      return decWait(entry);
+    }),
+    leaveWaitlist: (id) => ctx.write(() => {
+      const w = who();
+      const x = waitlist().find((y) => y.id === id);
+      if (!x) throw err('NOT_FOUND', 'We couldn’t find that waitlist spot.');
+      if (w.kind === 'client') { if (x.clientId !== w.clientId && guardianOf(x.clientId) !== w.clientId) throw err('NOT_FOUND', 'We couldn’t find that waitlist spot.'); }
+      else ctx.requireStaff('appointments.book');
+      if (x.status !== 'waiting' && x.status !== 'offered') return;
+      x.status = 'left'; delete x.offerExpiresAt;
+      advance(x.eventId);   // an offer given back goes to the next in line
+    }),
+    listWaitlist: (q) => ctx.read(() => {
+      const w = who();
+      advanceAll();
+      let rows: StoredWaitlist[];
+      if ('clientId' in q) {
+        if (w.kind === 'client') { if (q.clientId !== w.clientId && guardianOf(q.clientId) !== w.clientId) throw err('NOT_ALLOWED', 'You can only see your own waitlist spots.'); }
+        else requireView();
+        const ids = w.kind === 'client' && q.clientId === w.clientId ? familyOf(w.clientId) : [q.clientId];
+        rows = waitlist().filter((x) => ids.includes(x.clientId) && (x.status === 'waiting' || x.status === 'offered'));
+      } else {
+        if (w.kind === 'client') throw err('NOT_ALLOWED', 'Only staff can see the waitlist.');
+        const e = S().events.find((x) => x.id === q.eventId);
+        if (!e) throw err('NOT_FOUND', 'We couldn’t find that event.');
+        const me = requireView();
+        if (!can(me.role, 'appointments.book') && e.hostStaffId !== me.id) throw err('NOT_ALLOWED', 'Only the host and the front desk can see the waitlist.');
+        rows = inLine(e.id);
+      }
+      return rows.map(decWait).sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
     }),
 
     markRefunded: (target) => ctx.write(() => {

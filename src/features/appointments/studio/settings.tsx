@@ -13,17 +13,17 @@ export function AppointmentSettingsTab() {
   const cur = useData(() => ap.getSettings(), []);
   const types = useData(() => ap.listTypes({ includeInactive: true }), []);
   const packs = useData(() => ap.listPacks({ includeInactive: true }), []);
-  const [s, setS] = useState<{ slotStepMin: string; minNoticeHours: string; horizonDays: string } | null>(null);
+  const [s, setS] = useState<{ slotStepMin: string; minNoticeHours: string; horizonDays: string; waitlistClaimHours: string } | null>(null);
   const [type, setType] = useState<AppointmentType | 'new' | null>(null);
   const [pack, setPack] = useState<AppointmentPack | 'new' | null>(null);
-  useEffect(() => { if (cur.data) setS({ slotStepMin: String(cur.data.slotStepMin), minNoticeHours: String(cur.data.minNoticeHours), horizonDays: String(cur.data.horizonDays) }); }, [cur.data]);
+  useEffect(() => { if (cur.data) setS({ slotStepMin: String(cur.data.slotStepMin), minNoticeHours: String(cur.data.minNoticeHours), horizonDays: String(cur.data.horizonDays), waitlistClaimHours: String(cur.data.waitlistClaimHours) }); }, [cur.data]);
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     if (!s) return;
-    const patch: Partial<AppointmentSettings> = { slotStepMin: Number(s.slotStepMin), minNoticeHours: Number(s.minNoticeHours), horizonDays: Number(s.horizonDays) };
+    const patch: Partial<AppointmentSettings> = { slotStepMin: Number(s.slotStepMin), minNoticeHours: Number(s.minNoticeHours), horizonDays: Number(s.horizonDays), waitlistClaimHours: Number(s.waitlistClaimHours) };
     void run(async () => { await ap.updateSettings(patch); cur.reload(); }, 'Saved');
   };
-  const dirty = !!cur.data && !!s && (String(cur.data.slotStepMin) !== s.slotStepMin || String(cur.data.minNoticeHours) !== s.minNoticeHours || String(cur.data.horizonDays) !== s.horizonDays);
+  const dirty = !!cur.data && !!s && (String(cur.data.slotStepMin) !== s.slotStepMin || String(cur.data.minNoticeHours) !== s.minNoticeHours || String(cur.data.horizonDays) !== s.horizonDays || String(cur.data.waitlistClaimHours) !== s.waitlistClaimHours);
   return (
     <div className="stack lg">
       <section className="card pad">
@@ -35,6 +35,7 @@ export function AppointmentSettingsTab() {
               <label className="field"><span>Times start every (minutes)</span><input className="input" inputMode="numeric" value={s.slotStepMin} onChange={(e) => setS({ ...s, slotStepMin: e.target.value })} /></label>
               <label className="field"><span>Minimum notice (hours)</span><input className="input" inputMode="numeric" value={s.minNoticeHours} onChange={(e) => setS({ ...s, minNoticeHours: e.target.value })} /></label>
               <label className="field"><span>Clients can book up to (days ahead)</span><input className="input" inputMode="numeric" value={s.horizonDays} onChange={(e) => setS({ ...s, horizonDays: e.target.value })} /></label>
+              <label className="field"><span>Waitlist offers stay open for (hours)</span><input className="input" inputMode="numeric" value={s.waitlistClaimHours} onChange={(e) => setS({ ...s, waitlistClaimHours: e.target.value })} /></label>
             </div>
             <div className="ap-actions"><button className="btn" disabled={busy || !dirty}>Save</button></div>
           </form>

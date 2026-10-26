@@ -11,7 +11,7 @@ import { StoreError } from '../../shared/store';
 import type { PaymentMethod, Sale } from '../../shared/types';
 import type {
   Appointment, AppointmentCredit, AppointmentPack, AppointmentSettings, AppointmentSlot, AppointmentType, AppointmentsStore, AvailabilityRule,
-  EventRegistration, StudioEvent, StudioEventSummary, TimeOff,
+  EventRegistration, StudioEvent, StudioEventSummary, TimeOff, WaitlistEntry,
 } from './types';
 import { DEFAULT_SETTINGS } from './logic';
 
@@ -50,10 +50,12 @@ const toCredit = (v: unknown): AppointmentCredit => {
 };
 const toAppt = (v: unknown): Appointment => obj(v) as unknown as Appointment;
 const toReg = (v: unknown): EventRegistration => { const r = obj(v); return { ...(r as unknown as EventRegistration), attended: arr(r.attended).map(str) }; };
+const toWait = (v: unknown): WaitlistEntry => obj(v) as unknown as WaitlistEntry;
 const toEvent = (v: unknown): StudioEventSummary => {
   const r = obj(v);
-  const e = { ...(r as unknown as StudioEventSummary), sessions: arr(r.sessions).map((s) => ({ startsAt: str(obj(s).startsAt), endsAt: str(obj(s).endsAt) })) };
+  const e = { ...(r as unknown as StudioEventSummary), sessions: arr(r.sessions).map((s) => ({ startsAt: str(obj(s).startsAt), endsAt: str(obj(s).endsAt) })), waitlisted: num(r.waitlisted) };
   if (r.mine) e.mine = toReg(r.mine);
+  if (r.myWaitlist) e.myWaitlist = toWait(r.myWaitlist);
   return e;
 };
 const hhmm = (v: unknown) => str(v).slice(0, 5);
@@ -62,20 +64,20 @@ registerLiveFeature({ name: 'appointments', create: (ctx) => createStore(ctx) })
 
 function createStore(ctx: LiveFeatureContext): AppointmentsStore {
   const rpc = (name: string, args: Row = {}) => ctx.rpc(name, args);
+  const readSettings = async (): Promise<AppointmentSettings> => {
+    const [r] = await ctx.rows(ctx.sb.from('appointment_settings').select('slot_step_min, min_notice_hours, horizon_days, waitlist_claim_hours').limit(1));
+    return r
+      ? { slotStepMin: num(r.slot_step_min), minNoticeHours: num(r.min_notice_hours), horizonDays: num(r.horizon_days), waitlistClaimHours: num(r.waitlist_claim_hours, DEFAULT_SETTINGS.waitlistClaimHours) }
+      : { ...DEFAULT_SETTINGS };
+  };
 
   return {
-    getSettings: () => ctx.read(async () => {
-      const [r] = await ctx.rows(ctx.sb.from('appointment_settings').select('slot_step_min, min_notice_hours, horizon_days').limit(1));
-      return r ? { slotStepMin: num(r.slot_step_min), minNoticeHours: num(r.min_notice_hours), horizonDays: num(r.horizon_days) } : { ...DEFAULT_SETTINGS };
-    }),
+    getSettings: () => ctx.read(readSettings),
     updateSettings: (patch) => ctx.write(async () => {
-      const cur = await (async () => {
-        const [r] = await ctx.rows(ctx.sb.from('appointment_settings').select('slot_step_min, min_notice_hours, horizon_days').limit(1));
-        return r ? { slotStepMin: num(r.slot_step_min), minNoticeHours: num(r.min_notice_hours), horizonDays: num(r.horizon_days) } : { ...DEFAULT_SETTINGS };
-      })();
-      const next: AppointmentSettings = { ...cur, ...patch };
+      const next: AppointmentSettings = { ...(await readSettings()), ...patch };
       return (await rpc('appointments_update_settings', {
         p_slot_step_min: Math.round(next.slotStepMin), p_min_notice_hours: Math.round(next.minNoticeHours), p_horizon_days: Math.round(next.horizonDays),
+        p_waitlist_claim_hours: Math.round(next.waitlistClaimHours),
       })) as AppointmentSettings;
     }),
 
@@ -154,6 +156,12 @@ function createStore(ctx: LiveFeatureContext): AppointmentsStore {
     setAttendance: (registrationId, sessionStartsAt, present) => ctx.write(async () => toReg(await rpc('appointments_set_attendance', {
       p_registration_id: registrationId, p_session_starts_at: sessionStartsAt, p_present: present,
     }))),
+    joinWaitlist: (input) => ctx.write(async () => toWait(await rpc('appointments_join_waitlist', { p_event_id: input.eventId, p_client_id: input.clientId ?? null }))),
+    leaveWaitlist: (id) => ctx.write(async () => { await rpc('appointments_leave_waitlist', { p_id: id }); }),
+    listWaitlist: (q) => ctx.read(async () => arr(await rpc('appointments_list_waitlist', {
+      p_client_id: 'clientId' in q ? q.clientId : null, p_event_id: 'eventId' in q ? q.eventId : null,
+    })).map(toWait)),
+
     markRefunded: (target) => ctx.write(async () => {
       await rpc('appointments_mark_refunded', {
         p_appointment_id: 'appointmentId' in target ? target.appointmentId : null, p_registration_id: 'registrationId' in target ? target.registrationId : null,

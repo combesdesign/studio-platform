@@ -5,7 +5,7 @@ import { createDemoStore, memoryStorage } from '../src/data/demo';
 import { studioToUTC, studioDate, addDays, weekday } from '../src/shared/format';
 import type { AuthUser, ID } from '../src/shared/types';
 import type { DataStore } from '../src/shared/store';
-import { allocateCredits, availabilityProblem, computeSlots, creditStatus, isLateCancel, DEFAULT_SETTINGS } from '../src/features/appointments/logic';
+import { allocateCredits, availabilityProblem, computeSlots, creditStatus, isLateCancel, planWaitlist, DEFAULT_SETTINGS, type WaitlistLine } from '../src/features/appointments/logic';
 import type { AppointmentCredit } from '../src/features/appointments/types';
 import { asClient, at, rejects } from './helpers';
 
@@ -327,6 +327,140 @@ test('workshops and courses: register, pay, capacity, cancel with the refund cut
   assert.equal((await a.listEvents()).find((e) => e.id === workshop.id)!.cancelled, true, 'staff still see it, marked cancelled');
   await as(asClient(hannah));
   assert.ok(!(await a.listEvents()).some((e) => e.id === workshop.id), 'clients no longer see it');
+});
+
+// ---------------------------------------------------------------- waitlist
+const START = '2026-10-17T22:30:00.000Z'; // the Sunday workshop: Sunday 18 Oct, 9:30am Sydney
+const wl = (id: string, status: WaitlistLine['status'], joinedAt: string, offerExpiresAt?: string): WaitlistLine => ({ id, status, joinedAt, ...(offerExpiresAt ? { offerExpiresAt } : {}) });
+const plan = (line: WaitlistLine[], over: Partial<Parameters<typeof planWaitlist>[0]> = {}) =>
+  planWaitlist({ line, capacity: 12, taken: 11, now: NOW, claimHours: 12, eventStart: START, open: true, ...over });
+
+test('waitlist plan: a free place goes to whoever joined first, and is held for the claim window', () => {
+  const line = [wl('b', 'waiting', '2026-10-14T01:00:00.000Z'), wl('a', 'waiting', '2026-10-14T00:00:00.000Z')];
+  assert.deepEqual(plan(line, { taken: 12 }), { expire: [], offer: [] }, 'full: nothing to offer');
+  assert.deepEqual(plan(line), { expire: [], offer: [{ id: 'a', expiresAt: new Date(NOW.getTime() + 12 * 3_600_000).toISOString() }] }, 'one place: the first in line');
+  assert.deepEqual(plan(line, { taken: 10 }).offer.map((o) => o.id), ['a', 'b'], 'two places: two offers, in order');
+  assert.equal(plan(line, { taken: 10, claimHours: 2 }).offer[0]!.expiresAt, new Date(NOW.getTime() + 2 * 3_600_000).toISOString(), 'the studio sets the window');
+});
+
+test('waitlist plan: a held place isn\'t offered twice, a lapsed offer passes on, and nothing outlives the event', () => {
+  const later = new Date(NOW.getTime() + 3_600_000).toISOString();
+  const held = [wl('a', 'offered', '2026-10-14T00:00:00.000Z', later), wl('b', 'waiting', '2026-10-14T01:00:00.000Z')];
+  assert.deepEqual(plan(held), { expire: [], offer: [] }, 'a live offer holds the only place');
+  const lapsed = [wl('a', 'offered', '2026-10-14T00:00:00.000Z', NOW.toISOString()), wl('b', 'waiting', '2026-10-14T01:00:00.000Z')];
+  const p = plan(lapsed);
+  assert.deepEqual(p.expire, ['a'], 'exactly at the deadline it has lapsed');
+  assert.deepEqual(p.offer.map((o) => o.id), ['b'], 'and the next person gets it');
+  const soon = plan([wl('a', 'waiting', '2026-10-14T00:00:00.000Z')], { eventStart: new Date(NOW.getTime() + 5 * 3_600_000).toISOString() });
+  assert.equal(soon.offer[0]!.expiresAt, new Date(NOW.getTime() + 5 * 3_600_000).toISOString(), 'never past the start');
+  const closed = plan(held, { open: false });
+  assert.deepEqual(closed, { expire: ['a', 'b'], offer: [] }, 'cancelled or started: everyone is let go');
+});
+
+test('waitlist: join when full, get offered a cancelled place, claim it by signing up; the rest keep their turn', async () => {
+  const { store, as, setNow } = demo();
+  await as(owner('snowy'));
+  const a = store.features.appointments!;
+  const ws = (await a.listEvents()).find((e) => e.kind === 'workshop')!;
+  const [jess, hannah, alice, chloe, poppy] = [await clientId(store, 'Jess'), await clientId(store, 'Hannah'), await clientId(store, 'Alice'), await clientId(store, 'Chloe'), await clientId(store, 'Poppy')];
+  // a place is left, so there's nothing to wait for
+  await as(asClient(hannah));
+  await rejects(a.joinWaitlist({ eventId: ws.id }), 'NOT_FULL');
+  await as(asClient(jess));
+  const jr = await a.register({ eventId: ws.id, method: 'card_online' });
+  // now it's full: Hannah and Alice queue up (Chloe has no waiver yet)
+  await as(asClient(chloe));
+  await rejects(a.joinWaitlist({ eventId: ws.id }), 'WAIVER_REQUIRED');
+  await as(asClient(hannah));
+  const h = await a.joinWaitlist({ eventId: ws.id });
+  assert.deepEqual([h.status, h.position], ['waiting', 1]);
+  await rejects(a.joinWaitlist({ eventId: ws.id }), 'ALREADY_BOOKED');
+  setNow(new Date(NOW.getTime() + 60_000));
+  await as(asClient(alice));
+  assert.equal((await a.joinWaitlist({ eventId: ws.id })).position, 2);
+  const seen = await a.getEvent(ws.id);
+  assert.deepEqual([seen.spotsLeft, seen.waitlisted, seen.myWaitlist!.position], [0, 2, 2]);
+  assert.equal((await a.listWaitlist({ clientId: alice })).length, 1, 'clients see their own place in line');
+  await rejects(a.listWaitlist({ eventId: ws.id }), 'NOT_ALLOWED');
+
+  // Jess cancels: Hannah (first in line) is offered the place for the studio's claim window (12h by default)
+  await as(asClient(jess));
+  await a.cancelRegistration(jr.registration.id);
+  await as(asClient(hannah));
+  const offered = (await a.getEvent(ws.id)).myWaitlist!;
+  assert.equal(offered.status, 'offered');
+  assert.equal(offered.offerExpiresAt, new Date(NOW.getTime() + 60_000 + 12 * 3_600_000).toISOString());
+  assert.equal((await a.getEvent(ws.id)).spotsLeft, 0, 'the place is held, not free');
+  // nobody else can take it, not even the next in line or a newcomer
+  await as(asClient(alice));
+  await rejects(a.register({ eventId: ws.id, method: 'card_online' }), 'EVENT_FULL');
+  assert.equal((await a.getEvent(ws.id)).myWaitlist!.status, 'waiting', 'Alice is still waiting');
+  await as(asClient(poppy));
+  await rejects(a.register({ eventId: ws.id, method: 'card_online' }), 'EVENT_FULL');
+  // Hannah claims by paying; her turn is done and Alice moves up
+  await as(asClient(hannah));
+  const claimed = await a.register({ eventId: ws.id, method: 'card_online' });
+  assert.equal(claimed.sale!.totalCents, 5500);
+  const after = await a.getEvent(ws.id);
+  assert.deepEqual([after.myWaitlist, after.mine?.id, after.waitlisted], [undefined, claimed.registration.id, 1]);
+  await as(owner('snowy'));
+  const line = await a.listWaitlist({ eventId: ws.id });
+  assert.deepEqual(line.map((x) => [x.clientName.split(' ')[0], x.position, x.status]), [['Alice', 1, 'waiting']]);
+});
+
+test('waitlist: an offer nobody claims lapses and goes to the next; giving a place back does the same; the line ends when the event starts', async () => {
+  const { store, as, setNow } = demo();
+  await as(owner('snowy'));
+  const a = store.features.appointments!;
+  const ws = (await a.listEvents()).find((e) => e.kind === 'workshop')!;
+  const [jess, hannah, alice, poppy] = [await clientId(store, 'Jess'), await clientId(store, 'Hannah'), await clientId(store, 'Alice'), await clientId(store, 'Poppy')];
+  await as(asClient(jess));
+  const jr = await a.register({ eventId: ws.id, method: 'card_online' });
+  for (const [i, c] of [hannah, alice, poppy].entries()) {
+    setNow(new Date(NOW.getTime() + (i + 1) * 60_000));
+    await as(asClient(c));
+    await a.joinWaitlist({ eventId: ws.id });
+  }
+  await as(asClient(jess));
+  await a.cancelRegistration(jr.registration.id);
+  const status = async (c: string) => { await as(asClient(c)); const w = (await a.getEvent(ws.id)).myWaitlist; return w ? w.status : 'gone'; };
+  assert.deepEqual([await status(hannah), await status(alice), await status(poppy)], ['offered', 'waiting', 'waiting']);
+
+  // Hannah sits on it for 13 hours: her offer lapses and Alice is offered the place instead
+  setNow(new Date(NOW.getTime() + 13 * 3_600_000 + 5 * 60_000));
+  assert.deepEqual([await status(hannah), await status(alice), await status(poppy)], ['gone', 'offered', 'waiting']);
+  await as(asClient(hannah));
+  await rejects(a.register({ eventId: ws.id, method: 'card_online' }), 'EVENT_FULL');
+  // Alice hands it back: Poppy is next
+  await as(asClient(alice));
+  const mine = (await a.getEvent(ws.id)).myWaitlist!;
+  await a.leaveWaitlist(mine.id);
+  assert.deepEqual([await status(alice), await status(poppy)], ['gone', 'offered']);
+  // only the owner's line is theirs to leave
+  await as(asClient(hannah));
+  await rejects(a.leaveWaitlist(mine.id), 'NOT_FOUND');
+  // the front desk can take someone off, and it goes on; when nobody's left the place is simply free
+  await as(owner('snowy'));
+  const poppyEntry = (await a.listWaitlist({ eventId: ws.id }))[0]!;
+  await a.leaveWaitlist(poppyEntry.id);
+  assert.deepEqual([(await a.getEvent(ws.id)).spotsLeft, (await a.getEvent(ws.id)).waitlisted], [1, 0]);
+
+  // an offer never outlives the event: with a long claim window it ends when the event starts
+  await a.updateSettings({ waitlistClaimHours: 72 });
+  await as(asClient(jess));
+  setNow(new Date(NOW.getTime() + 2 * 86_400_000));   // Friday afternoon: the workshop is under a day away
+  const again = await a.register({ eventId: ws.id, method: 'card_online' });
+  await as(asClient(alice));
+  await a.joinWaitlist({ eventId: ws.id });
+  await as(asClient(jess));
+  await a.cancelRegistration(again.registration.id);
+  await as(asClient(alice));
+  assert.equal((await a.getEvent(ws.id)).myWaitlist!.offerExpiresAt, START);
+  // and when it starts, the line is cleared
+  setNow(new Date(Date.parse(START) + 60_000));
+  await as(owner('snowy'));
+  assert.deepEqual(await a.listWaitlist({ eventId: ws.id }), []);
+  await rejects(a.updateSettings({ waitlistClaimHours: 0 }), 'INVALID');
 });
 
 test('events: validation, free events and the single-date rule', async () => {

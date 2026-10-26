@@ -22,6 +22,8 @@ export interface AppointmentSettings {
   minNoticeHours: number;
   /** Clients can book this many days ahead. */
   horizonDays: number;
+  /** Hours a client has to claim a workshop or event place once the waitlist offers it to them. */
+  waitlistClaimHours: number;
 }
 
 export interface AppointmentType {
@@ -216,7 +218,12 @@ export type StudioEventInput = Omit<StudioEvent, 'id' | 'createdAt' | 'cancelled
 
 export interface StudioEventSummary extends StudioEvent {
   registered: number;
+  /** Places nobody has or is being held for. A place offered from the waitlist isn't free until the offer lapses. */
   spotsLeft: number;
+  /** People in line (waiting, or holding an offer). */
+  waitlisted: number;
+  /** The signed-in client's place in line, if they're on it (clients only). */
+  myWaitlist?: WaitlistEntry;
   /** The signed-in client's registration, if any (clients only). */
   mine?: EventRegistration;
 }
@@ -239,6 +246,27 @@ export interface EventRegistration {
   refundDue?: boolean;
   /** First session start, for sorting and the cancel window. */
   startsAt: ISODateTime;
+}
+
+export type WaitlistStatus = 'waiting' | 'offered' | 'claimed' | 'expired' | 'left';
+
+/**
+ * A client in line for a full workshop or event. When a place opens the first person waiting is offered it by email and
+ * has the studio's claim window to take it (free: sign up as normal; paid: pay as normal). Past that the offer goes to the next.
+ */
+export interface WaitlistEntry {
+  id: ID;
+  eventId: ID;
+  eventTitle: string;
+  clientId: ID;
+  clientName: string;
+  status: WaitlistStatus;
+  /** 1 = first in line (counts everyone waiting or holding an offer). */
+  position: number;
+  joinedAt: ISODateTime;
+  offeredAt?: ISODateTime;
+  /** While 'offered': the place is theirs until then. */
+  offerExpiresAt?: ISODateTime;
 }
 
 export interface RegisterInput {
@@ -311,6 +339,14 @@ export interface AppointmentsStore {
   /** The client's own registrations (or a client's, for staff), or an event's attendee list (staff). */
   listRegistrations(q: { clientId: ID } | { eventId: ID }): Promise<EventRegistration[]>;
   setAttendance(registrationId: ID, sessionStartsAt: ISODateTime, present: boolean): Promise<EventRegistration>;
+
+  // --- waitlist (a full workshop / event)
+  /** Join the line for a full event (clients for themselves and their family, the front desk for anyone). */
+  joinWaitlist(input: { eventId: ID; clientId?: ID }): Promise<WaitlistEntry>;
+  /** Leave the line, or give an offered place back (it goes to the next person). Own entry, or the front desk. */
+  leaveWaitlist(id: ID): Promise<void>;
+  /** People in line (waiting or holding an offer), in order: an event's list (front desk and the host) or a client's own entries. */
+  listWaitlist(q: { eventId: ID } | { clientId: ID }): Promise<WaitlistEntry[]>;
 
   // --- refunds (money back for in-time cancellations)
   /** Staff: after refunding the sale (store.refundSale), clear the "refund due" flag. */

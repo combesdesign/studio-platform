@@ -34,7 +34,7 @@ export function EventsTab() {
               <h4>{e.title}</h4>
               <div className="muted">{eventWhen(e)}{e.location ? ` · ${e.location}` : ''}</div>
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                <span><strong>{e.registered}</strong> / {e.capacity} <span className="muted">signed up</span></span><span>{price(e.priceCents)}</span>
+                <span><strong>{e.registered}</strong> / {e.capacity} <span className="muted">signed up{e.waitlisted > 0 ? ` · ${e.waitlisted} on the waitlist` : ''}</span></span><span>{price(e.priceCents)}</span>
               </div>
               <Fill value={e.registered} max={e.capacity} />
             </button>
@@ -60,6 +60,7 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
   const book = roleCan(me.role, 'appointments.book');
   const ev = useData(() => ap.getEvent(id), [id]);
   const regs = useData(() => ap.listRegistrations({ eventId: id }), [id]);
+  const line = useData(() => ap.listWaitlist({ eventId: id }), [id]);
   const { busy, run } = useAction();
   const [add, setAdd] = useState(false);
   const [method, setMethod] = useState<Exclude<AppointmentPayMethod, 'pack' | 'card_online'>>('card_reader');
@@ -71,7 +72,7 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
   const list = regs.data ?? [];
   const going = list.filter((r) => r.status === 'registered');
   const others = list.filter((r) => r.status !== 'registered');
-  const reload = () => { ev.reload(); regs.reload(); };
+  const reload = () => { ev.reload(); regs.reload(); line.reload(); };
   const register = () => pick && run(async () => { await ap.register({ eventId: e.id, clientId: pick.id, method: e.priceCents === 0 ? 'comp' : method }); setAdd(false); setPick(null); reload(); }, 'Added');
   const toggle = (r: EventRegistration, at: string, present: boolean) => run(async () => { await ap.setAttendance(r.id, at, present); regs.reload(); });
   const cancelReg = (r: EventRegistration, waive: boolean) => run(async () => { const o = await ap.cancelRegistration(r.id, waive ? { waivePenalty: true } : undefined); toast(o.refundDue ? 'Cancelled, refund due' : o.late ? 'Cancelled late' : 'Cancelled'); reload(); });
@@ -84,6 +85,7 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
       <SheetHead title={e.title} sub={`${KIND_LABEL[e.kind]} · ${eventWhen(e)}${e.location ? ` · ${e.location}` : ''}`} onClose={onClose} />
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <span className="chip">{going.length} / {e.capacity} signed up</span><span className="chip">{price(e.priceCents)}</span>
+        {e.waitlisted > 0 && <span className="chip warn">{e.waitlisted} on the waitlist</span>}
         {e.hostStaffId && <span className="chip">Host: {staffById(e.hostStaffId)?.name ?? 'Instructor'}</span>}
         {e.cancelled ? <span className="chip danger">Cancelled{e.cancelReason ? `: ${e.cancelReason}` : ''}</span> : !e.published && <span className="chip warn">Draft, hidden from clients</span>}
       </div>
@@ -100,6 +102,18 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
                   onClick={() => toggle(r, s.startsAt, !present)}>{present && <Icon name="check" size={14} />}{e.sessions.length > 1 ? `S${i + 1}` : 'Here'}</button>;
               })}
               {book && !e.cancelled && <button className="btn ghost sm" disabled={busy} onClick={() => cancelReg(r, false)}>Cancel</button>}
+            </div>
+          ))}
+        </div>
+      )}
+      {(line.data ?? []).length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <h3 className="small-h" style={{ marginBottom: 6 }}>Wait<em>list</em></h3>
+          {(line.data ?? []).map((w) => (
+            <div key={w.id} className="ap-att"><span className="grow"><strong>{w.position}. {w.clientName}</strong>
+              <div className="muted small">{w.status === 'offered' ? `Offered a place, open until ${dayLabel(w.offerExpiresAt!)}, ${clock(w.offerExpiresAt!)}` : `Joined ${dayLabel(w.joinedAt)}`}</div></span>
+              {w.status === 'offered' && <span className="chip warn">Offered</span>}
+              {book && <button className="btn ghost sm" disabled={busy} onClick={() => run(async () => { await ap.leaveWaitlist(w.id); reload(); }, 'Removed from the waitlist')}>Remove</button>}
             </div>
           ))}
         </div>
