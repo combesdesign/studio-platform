@@ -152,8 +152,63 @@ ${gst ? `<p style="font-size:13px">Total includes ${esc(taxName)} of ${money(gst
       }[n.kind]!;
       return { subject: m.subject, html: layout(m.title, `<p>${p.to_name ? `Hi ${esc(p.to_name)},` : 'Hi,'}</p>${m.body}`, p), text: m.text };
     }
+    case 'appointment_confirmed':
+    case 'appointment_cancelled':
+    case 'appointment_reminder':
+    case 'event_registered':
+    case 'event_cancelled':
+    case 'event_reminder':
+      return renderAppointments(n.kind, p, hi, policy);
     default:
       return { subject: `A message from ${studioName(p)}`, html: layout('Hello', `<p>${hi}</p>`, p), text: hi };
+  }
+}
+
+/** Appointments, workshops, courses and events (appointments_outbox). Everything shown comes from the row and the studio. */
+function renderAppointments(kind: string, p: Payload, hi: string, policy: string): { subject: string; html: string; text: string } {
+  const isEvent = kind.startsWith('event_');
+  const title = String(p.title ?? (isEvent ? 'your event' : 'your session'));
+  const what = isEvent ? (p.event_kind === 'course' ? 'course' : p.event_kind === 'workshop' ? 'workshop' : 'event') : 'session';
+  const count = Number(p.sessions ?? 1);
+  const who = p.staff ? ` with ${esc(p.staff)}` : '';
+  const people = Number(p.people ?? 1) > 1 ? ` · ${esc(p.people)} people` : '';
+  const where = p.location ? `<br>${esc(p.location)}` : '';
+  const more = isEvent && count > 1 ? `<br>${count} sessions, starting ${esc(p.when)}` : '';
+  const box = `<div style="background:${theme(p).soft};border-radius:12px;padding:14px 16px;margin:12px 0"><strong>${esc(title)}</strong><br>${esc(p.when)}${who}${people}${where}${more}</div>`;
+  const textBox = `${title}\n${p.when}${p.staff ? ` with ${p.staff}` : ''}${p.location ? `\n${p.location}` : ''}${isEvent && count > 1 ? `\n${count} sessions, starting ${p.when}` : ''}`;
+  const note = p.note ? `<p style="font-size:13px">Your note: ${esc(p.note)}</p>` : '';
+  const txt = (body: string) => `${hi.replace(/<[^>]*>/g, '')}\n\n${body}\n\n${textBox}${policyText(p)}`;
+  switch (kind) {
+    case 'appointment_confirmed':
+    case 'event_registered': {
+      const paid = Number(p.amount_cents ?? 0) > 0 ? ` You paid ${money(Number(p.amount_cents), p)}.` : '';
+      return {
+        subject: `You're booked: ${title}, ${p.when}`,
+        html: layout(isEvent ? 'You’re in' : 'You’re booked in', `<p>${hi}</p><p>Your ${what} is confirmed.${esc(paid)}</p>${box}${note}${policy}`, p),
+        text: txt(`Your ${what} is confirmed.${paid}`),
+      };
+    }
+    case 'appointment_reminder':
+    case 'event_reminder':
+      return {
+        subject: `See you soon: ${title}, ${p.when}`,
+        html: layout('See you soon', `<p>${hi}</p><p>Just a reminder about your ${what}.</p>${box}${note}<p style="font-size:13px;color:#4b5563">Can’t make it? Please cancel in the app as early as you can.</p>${policy}`, p),
+        text: txt(`Just a reminder about your ${what}. Can't make it? Please cancel in the app as early as you can.`),
+      };
+    default: { // appointment_cancelled, event_cancelled
+      const byStudio = Boolean(p.cancelled_by_studio);
+      const outcome = byStudio
+        ? `We’re sorry, we’ve had to cancel this ${what}${p.reason ? ` (${esc(p.reason)})` : ''}.${p.refund_due ? ' We’ll refund what you paid.' : ''}`
+        : p.late ? `Your ${what} has been cancelled. It was inside the cancellation window, so the credit or payment isn’t returned.`
+        : p.credit_returned ? `Your ${what} has been cancelled and your credit is back on your pack.`
+        : p.refund_due ? `Your ${what} has been cancelled. We’ll refund what you paid.`
+        : `Your ${what} has been cancelled.`;
+      return {
+        subject: `Cancelled: ${title}, ${p.when}`,
+        html: layout('Cancelled', `<p>${hi}</p><p>${outcome}</p>${box}`, p),
+        text: txt(outcome.replace(/&[a-z#0-9]+;/g, '')),
+      };
+    }
   }
 }
 
@@ -275,6 +330,7 @@ async function drainOne(admin: Db, rows: OutboxRow[], finish: string, prep: (r: 
 /** Queue gift cards whose send date has come, then send both feature outboxes. Safe to call every couple of minutes. */
 export async function drainFeatureOutboxes(admin: Db, limit = 25): Promise<{ sent: number; failed: number }> {
   must(await admin.rpc('commerce_send_due'));
+  must(await admin.rpc('appointments_queue_reminders', { p_hours: 24 }));
   const base = (_r: OutboxRow, st: StudioInfo) => studioPayload(st);
 
   const cards = (must(await admin.rpc('commerce_claim_outbox', { p_limit: limit })) ?? []) as OutboxRow[];
@@ -295,7 +351,12 @@ export async function drainFeatureOutboxes(admin: Db, limit = 25): Promise<{ sen
   const c = await drainSupportAlerts(admin, limit);
   // Marketing: queue due scheduled campaigns and each studio's automations (once each, the sent log stops repeats), then send the queue.
   const d = await drainMarketing(admin, limit * 2);
-  return { sent: a.sent + b.sent + c.sent + d.sent, failed: a.failed + b.failed + c.failed + d.failed };
+  const apptRows = (must(await admin.rpc('appointments_claim_outbox', { p_limit: limit })) ?? []) as OutboxRow[];
+  const e = await drainOne(admin, apptRows, 'appointments_finish_outbox', (r, st) => ({
+    id: r.id, kind: r.kind, to_email: r.to_email, attempts: 0,
+    payload: { ...r.payload, ...base(r, st), cta_url: studioLink(st.slug, 'client'), cta_label: 'Open the app' },
+  }));
+  return { sent: a.sent + b.sent + c.sent + d.sent + e.sent, failed: a.failed + b.failed + c.failed + d.failed + e.failed };
 }
 
 /** Where the platform admin inbox lives (subdomain setup: the platform domain; single studio: APP_URL). */

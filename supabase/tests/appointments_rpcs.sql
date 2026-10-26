@@ -269,6 +269,34 @@ select test.ok((select refund_due and sale_id is not null and status = 'cancelle
                  where id = (:'done3'::jsonb ->> 'appointmentId')::uuid), 'but recorded with a refund due');
 select test.at('2026-10-19 08:00+11');
 
+-- ---------------------------------------------------------------- emails: queued by triggers, reminders once, drained by the service role
+select test.admin();
+select test.ok(exists (select 1 from public.appointments_outbox where kind = 'appointment_confirmed' and client_id = test.id('alice_client')
+                          and payload ->> 'title' = 'Private reformer' and payload ? 'when'), 'booking queues a confirmation email');
+select test.ok(exists (select 1 from public.appointments_outbox where kind = 'appointment_cancelled' and (payload ->> 'credit_returned')::boolean),
+               'an in-time pack cancellation says the credit is back');
+select test.ok(exists (select 1 from public.appointments_outbox where kind = 'appointment_cancelled' and (payload ->> 'late')::boolean),
+               'a late cancellation says so');
+select test.ok(exists (select 1 from public.appointments_outbox where kind = 'event_registered'), 'registering queues a confirmation');
+select test.ok(exists (select 1 from public.appointments_outbox where kind = 'event_cancelled' and (payload ->> 'cancelled_by_studio')::boolean
+                          and payload ->> 'reason' = 'Instructor unwell'), 'cancelling an event tells everyone why');
+select test.service();
+select test.ok((select count(*) from public.appointments_claim_outbox(100)) > 0, 'the sender can claim pending emails');
+select test.admin();
+select test.ok(exists (select 1 from public.appointments_outbox where sent_at is null and attempts = 1), 'claiming counts an attempt');
+select test.service();
+select public.appointments_finish_outbox(id) from public.appointments_outbox;
+select test.eq((select count(*)::int from public.appointments_outbox where sent_at is null), 0, 'and mark them sent');
+select test.at('2026-10-23 09:00+11');   -- the day before Gus's session on the 24th
+select public.appointments_queue_reminders(24) as rem \gset
+select test.at('2026-10-19 08:00+11');
+select test.admin();
+select test.ok(:'rem'::int > 0, 'reminders queue for sessions in the next 24 hours');
+select test.ok((select count(*) from public.appointments_outbox where kind in ('appointment_reminder','event_reminder')) = :'rem'::int, 'one reminder per upcoming session');
+select test.service();
+select test.eq(public.appointments_queue_reminders(24), 0, 'and never twice');
+select test.throws($$select public.appointments_claim_outbox(1)$$, '42501', 'nobody else can drain the outbox');
+
 -- ---------------------------------------------------------------- another studio can't see or use any of it
 select test.admin();
 insert into public.studios (slug, name, timezone, currency) values ('bayside', 'Bayside Test', 'Australia/Sydney', 'AUD') returning id as bay \gset
@@ -284,6 +312,7 @@ select test.eq(jsonb_array_length(public.appointments_list_types(true)), 0, 'stu
 select test.eq(jsonb_array_length(public.appointments_list()), 0, 'or appointments');
 select test.eq(jsonb_array_length(public.appointments_list_events(true)), 0, 'or events');
 select test.eq(test.count_rows('appointment_types'), 0, '(tables too)');
+select test.eq(test.count_rows('appointments_outbox'), 0, 'or its emails');
 select test.throws(format($$select public.appointments_list_slots(%L, '2026-10-23', '2026-10-23')$$, test.id('t_private')), 'NOT_FOUND', 'studio A''s type can''t be used from B');
 select test.throws(format($$select public.appointments_cancel_event(%L)$$, :'course'), 'NOT_FOUND', 'or its events cancelled');
 select test.throws(format($$select public.appointments_set_availability(%L, '[]')$$, test.id('libby_staff')), 'NOT_FOUND', 'or its staff hours changed');

@@ -35,6 +35,8 @@ export interface Slice {
   appointments: StoredAppointment[];
   events: StudioEvent[];
   registrations: StoredRegistration[];
+  /** Emails the live system would send (confirmations, cancellations); the demo just records them, newest last, capped. */
+  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'event_registered' | 'event_cancelled'; text: string }[];
 }
 
 const err = (code: string, message: string) => new StoreError(code, message);
@@ -81,6 +83,13 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     const registered = registeredCount(e.id);
     const mine = clientId ? S().registrations.find((r) => r.eventId === e.id && r.clientId === clientId && r.status === 'registered') : undefined;
     return { ...e, registered, spotsLeft: Math.max(0, e.capacity - registered), ...(mine ? { mine: decReg(mine) } : {}) };
+  };
+
+  // ------------------------------------------------------------ emails (recorded only: the live outbox sends them)
+  const queueEmail = (clientId: ID, kind: NonNullable<Slice['outbox']>[number]['kind'], text: string) => {
+    const box = (S().outbox ??= []);
+    box.push({ at: ctx.now().toISOString(), clientId, kind, text });
+    if (box.length > 100) box.splice(0, box.length - 100);
   };
 
   // ------------------------------------------------------------ money
@@ -260,6 +269,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         ...(input.note?.trim() ? { note: input.note.trim() } : {}), ...(staffId ? { bookedByStaffId: staffId } : {}),
       };
       S().appointments.push(appt);
+      queueEmail(clientId, 'appointment_confirmed', `${type.name} confirmed`);
       return { appointment: dec(appt), ...(sale ? { sale } : {}) };
     }),
 
@@ -288,6 +298,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
           }
         } else if (a.payment.amountCents > 0) { refundDue = true; a.refundDue = true; }
       }
+      queueEmail(a.clientId, 'appointment_cancelled', `${a.typeName} cancelled${late ? ' (late)' : ''}`);
       return { appointment: dec(a), creditsReturned, refundDue, late };
     }),
 
@@ -390,6 +401,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       for (const r of S().registrations.filter((x) => x.eventId === id && x.status === 'registered')) {
         r.status = 'cancelled'; r.cancelledAt = now;
         if (r.payment.amountCents > 0) r.refundDue = true;
+        queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled by the studio`);
       }
       return e;
     }),
@@ -416,6 +428,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         payment: { method, amountCents: sale?.totalCents ?? 0, ...(sale ? { saleId: sale.id } : {}) },
       };
       S().registrations.push(r);
+      queueEmail(clientId, 'event_registered', `${e.title} confirmed`);
       return { registration: decReg(r), ...(sale ? { sale } : {}) };
     }),
     cancelRegistration: (id, opts) => ctx.write(() => {
@@ -435,6 +448,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       r.status = late ? 'late_cancelled' : 'cancelled';
       const refundDue = !late && r.payment.amountCents > 0;
       if (refundDue) r.refundDue = true;
+      queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled${late ? ' (late)' : ''}`);
       return { registration: decReg(r), refundDue, late };
     }),
     listRegistrations: (q) => ctx.read(() => {
