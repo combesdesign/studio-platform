@@ -217,3 +217,25 @@ test('the Snowy demo seed has a parent with a baby dependant booked into Mums + 
   assert.equal(bookings[0]!.classType.name, 'Mums + Bubs');
   assert.equal(bookings[0]!.passId, (await store.listClientBookings(sophie.id, { when: 'upcoming' }))[0]!.passId, 'one pack, two credits');
 });
+
+test('workshops: a parent registers and cancels for a dependant, and nobody else can', async () => {
+  const store = createDemoStore({ now: () => new Date(), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  await store.demoSignInAs!(OWNER);
+  const clients = await store.listClients();
+  const sophie = clients.find((c) => c.firstName === 'Sophie' && c.lastName === 'Archer')!;
+  const hannah = clients.find((c) => c.firstName === 'Hannah')!;
+  const [poppy] = await store.listDependants!(sophie.id);
+  const a = store.features.appointments!;
+  const course = (await a.listEvents()).find((e) => e.kind === 'course')!;
+  await store.demoSignInAs!(asClient(sophie.id));
+  const r = await a.register({ eventId: course.id, clientId: poppy!.id, method: 'card_online' });
+  assert.equal(r.registration.clientId, poppy!.id);
+  assert.equal((await a.getEvent(course.id)).spotsLeft, course.spotsLeft - 1, 'a dependant takes one spot');
+  assert.deepEqual((await a.listRegistrations({ clientId: sophie.id })).map((x) => x.clientId), [poppy!.id], 'the parent sees their dependant’s sign-ups');
+  await store.demoSignInAs!(asClient(hannah.id));
+  await rejects(a.register({ eventId: course.id, clientId: poppy!.id, method: 'card_online' }), 'NOT_ALLOWED');
+  await rejects(a.cancelRegistration(r.registration.id), 'NOT_FOUND');
+  await store.demoSignInAs!(asClient(sophie.id));
+  await a.cancelRegistration(r.registration.id);
+  assert.equal((await a.getEvent(course.id)).spotsLeft, course.spotsLeft);
+});

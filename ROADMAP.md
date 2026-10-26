@@ -73,7 +73,7 @@ Every feature built from here lands in both.
 
 ### B5 More Momence parity (after B1–B4)
 - [x] On-demand video library and on-demand subscriptions (built: `src/features/ondemand`; Pete 26 Oct: an "Online classes" section for Mums + Bubs starters and busy clients who can't make it in)
-- [ ] Family and child accounts on one profile
+- [x] Family and child accounts on one profile
 - [ ] Multi-location and rooms
 - [x] Check-in kiosk mode (an iPad clients tap themselves)
   - [x] Exit lockout: 5 wrong PINs lock exit for 5 minutes

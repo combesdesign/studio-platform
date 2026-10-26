@@ -259,7 +259,7 @@ export function WhosComing({ options, selected, onChange, title = 'Who’s comin
           return (
             <button key={o.id} type="button" role={single ? 'radio' : 'checkbox'} aria-checked={on} disabled={o.disabled} className={'picker-opt' + (on ? ' on' : '')} onClick={() => toggle(o.id)}>
               <span className={single ? 'radio' : 'tickbox'} aria-hidden="true">{on && !single && <Icon name="check" size={15} />}</span>
-              <Avatar name={o.name} src={o.photoUrl} size={36} />
+              <Avatar name={o.name.replace(/\s*\(you\)$/, '')} src={o.photoUrl} size={36} />
               <span className="picker-main">
                 <span className="picker-name">{o.name}</span>
                 {o.sub && <span className="muted">{o.sub}</span>}
