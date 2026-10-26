@@ -402,6 +402,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         ) : (
           <p className="success-note">If a spot opens up we’ll book you in automatically and use a credit then – you’ll get a notification. Auto-booking stops {pluralise(app.settings.waitlistCutoffHours, 'hour')} before class.</p>
         )}
+        {mode === 'booked' && <Slot name="client.booked" props={{ session: s }} />}
         <div className="stack">
           {mode === 'booked' && ics}
           <button className="btn block" onClick={onClose}>Done</button>

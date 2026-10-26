@@ -69,3 +69,52 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.includes('/studio/') || /\/assets\/studio\./.test(url.pathname)) return;
   event.respondWith(isStatic(url) ? cacheFirst(req) : networkFirst(req));
 });
+
+/* ---------------------------------------------------------------- push notifications
+   The server sends either an encrypted JSON payload { title, body, icon?, url?, tag? } or an empty push.
+   An empty push (or one we can't read) shows a generic "You have a new message". Nothing here touches the caches above. */
+const FALLBACK_ICON = 'icons/icon-192.png'; // the manifest's icon
+const FALLBACK_URL = '#/messages';
+
+/** A URL from a payload, kept on this origin: a full URL on this origin, or a hash route like '#/messages'. */
+function targetUrl(raw) {
+  const base = self.registration.scope;
+  try {
+    const u = new URL(typeof raw === 'string' && raw ? raw : FALLBACK_URL, base);
+    return u.origin === self.location.origin ? u.href : new URL(FALLBACK_URL, base).href;
+  } catch (e) { return new URL(FALLBACK_URL, base).href; }
+}
+
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = {}; }
+  if (!d || typeof d !== 'object') d = {};
+  const title = typeof d.title === 'string' && d.title ? d.title : 'You have a new message';
+  const icon = typeof d.icon === 'string' && d.icon ? d.icon : FALLBACK_ICON;
+  event.waitUntil(self.registration.showNotification(title, {
+    body: typeof d.body === 'string' ? d.body : (d.title ? '' : 'Tap to read it.'),
+    icon,
+    badge: icon,
+    tag: typeof d.tag === 'string' && d.tag ? d.tag : 'spc-message', // same tag: a newer message replaces the older one
+    data: { url: targetUrl(d.url) },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = targetUrl(event.notification.data && event.notification.data.url);
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const path = new URL(url).pathname;
+    const inApp = (w) => !/\/(studio|admin)\//.test(new URL(w.url).pathname + '/');
+    const open = wins.find((w) => new URL(w.url).pathname === path) || wins.find(inApp);
+    if (open) {
+      // Same page, new hash: this just changes the route, no reload.
+      let w = open;
+      try { w = (await open.navigate(url)) || open; } catch (e) { /* not navigable: just bring it to the front */ }
+      try { await w.focus(); } catch (e) { /* ignore */ }
+      return;
+    }
+    await self.clients.openWindow(url);
+  })());
+});

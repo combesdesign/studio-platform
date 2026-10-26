@@ -5,8 +5,17 @@
  *               nothing is imported and the web build stays free of native code.
  * Both just register a device token with the store (store.features.marketing.registerPush). Sending is server-side and needs
  * keys (VAPID, FCM, APNs): until those are set, a registration is saved and getPushStatus says needsKeys. See NOTES.md › marketing.
+ *
+ * Capacitor (native apps, later): the native shell would call @capacitor/push-notifications and register the APNs / FCM token
+ * through the same registerPush call, with platform 'ios' | 'android' (that is what capacitorProvider below does). The server has
+ * no APNs / FCM sender yet, so only 'web' devices are sent to. Until that sender exists the opt-in is web only (canOptIn),
+ * so the native shell doesn't show a switch that can't deliver; flip that one line when APNs / FCM sending is built.
  */
 import type { PushPlatform, PushRegistration } from './types';
+
+declare const __VAPID_PUBLIC_KEY__: string;
+/** The web push public key, set at build time (VAPID_PUBLIC_KEY in build.mjs). '' means web push isn't switched on. */
+export const VAPID_PUBLIC_KEY: string = typeof __VAPID_PUBLIC_KEY__ === 'string' ? __VAPID_PUBLIC_KEY__ : '';
 
 export type PushPermission = 'unsupported' | 'default' | 'granted' | 'denied';
 
@@ -107,3 +116,8 @@ export function pushProvider(): PushProvider { return capacitorProvider.supporte
 const KEY = 'mk-push-token';
 export const savedToken = (): string | null => { try { return localStorage.getItem(KEY); } catch { return null; } };
 export const saveToken = (t: string | null): void => { try { if (t) localStorage.setItem(KEY, t); else localStorage.removeItem(KEY); } catch { /* private mode */ } };
+
+/** Can this device be offered the notification switch? Web push only for now: the browser must support it and there must be a VAPID public key. */
+export function canOptIn(serverKey?: string): boolean {
+  return pushProvider() === webProvider && webProvider.supported() && !!(VAPID_PUBLIC_KEY || serverKey);
+}

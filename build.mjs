@@ -5,6 +5,7 @@
 //   SUPABASE_URL, SUPABASE_ANON_KEY   live backend (omit for the demo build)
 //   STUDIO_SLUG                       single-studio deployment, e.g. STUDIO_SLUG=snowy (the Snowy app). Omit for the platform.
 //   PLATFORM_DOMAIN                   the platform's domain, so <slug>.<domain> opens that studio (e.g. studioplatform.app)
+//   VAPID_PUBLIC_KEY                  web push public key (npx web-push generate-vapid-keys). Omit and the notification switch stays hidden.
 // Netlify: build command "npm run build", publish "dist".
 import { build, context } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
@@ -73,6 +74,7 @@ const opts = {
     __SUPABASE_ANON_KEY__: JSON.stringify(process.env.SUPABASE_ANON_KEY || ''),
     __STUDIO_SLUG__: JSON.stringify(STUDIO_SLUG),
     __PLATFORM_DOMAIN__: JSON.stringify(PLATFORM_DOMAIN),
+    __VAPID_PUBLIC_KEY__: JSON.stringify((process.env.VAPID_PUBLIC_KEY || '').trim()),
     'process.env.NODE_ENV': JSON.stringify(watch ? 'development' : 'production'),
   },
   plugins: [resolveFallback], logLevel: 'info', absWorkingDir: root,

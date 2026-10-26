@@ -4,17 +4,15 @@ import { errorMessage, useData, useToast } from '../../../shared/react';
 import { BackPill, CardSkeletons, ErrorBlock, Icon, ScreenHead, Toggle } from '../../../client/ui';
 import { backOut } from '../../../client/lib';
 import { dayTime, marketing, needMarketing } from '../api';
-import { pushProvider, saveToken, savedToken } from '../push';
+import { usePushOptIn } from './notify';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
 export function MessagesScreen({ nav, path }: { nav: Nav; path: string }) {
   const toast = useToast();
   const thread = useData(() => needMarketing().getMyThread(), []);
-  const push = useData(() => needMarketing().getPushStatus(), []);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [pushBusy, setPushBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const reload = thread.reload;
   useEffect(() => marketing()?.subscribeInbox?.(reload), [reload]);
@@ -33,32 +31,17 @@ export function MessagesScreen({ nav, path }: { nav: Nav; path: string }) {
     catch (x) { toast(errorMessage(x)); } finally { setBusy(false); }
   };
 
-  const p = pushProvider();
-  const on = !!push.data?.registered;
-  const setPush = async (v: boolean) => {
-    setPushBusy(true);
-    try {
-      if (v) {
-        const reg = await p.subscribe(push.data?.vapidPublicKey ? { vapidPublicKey: push.data.vapidPublicKey } : {});
-        await needMarketing().registerPush(reg); saveToken(reg.token); toast('Notifications are on');
-      } else {
-        const t = (await p.unsubscribe()) ?? savedToken();
-        if (t) await needMarketing().unregisterPush(t);
-        saveToken(null); toast('Notifications are off');
-      }
-      push.reload();
-    } catch (x) { toast(errorMessage(x)); } finally { setPushBusy(false); }
-  };
+  const opt = usePushOptIn();
 
   return (
     <div className="screen mk-chat">
       <div className="screen-back"><BackPill label="Profile" onClick={() => backOut(nav, path, '/profile')} /></div>
       <ScreenHead title={<>Messages</>} sub="Questions, injuries, anything. We’ll reply here." />
-      {p.supported() && (
+      {opt.available && (
         <div className="mk-notify">
           <span className="row-ic"><Icon name="bell" size={20} /></span>
           <span className="mk-notify-t"><strong>Tell me when you reply</strong><span>A notification on this device</span></span>
-          <Toggle checked={on} disabled={pushBusy || !push.data} onChange={setPush} label="Notifications for replies" />
+          <Toggle checked={opt.on} disabled={opt.busy} onChange={(v) => void opt.set(v)} label="Notifications for replies" />
         </div>
       )}
       {thread.error && !thread.data ? <ErrorBlock error={thread.error} onRetry={thread.reload} /> : !thread.data ? <CardSkeletons n={2} h={70} /> : (

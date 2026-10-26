@@ -7,6 +7,7 @@ import type { Db } from './db.ts';
 import { must } from './db.ts';
 import { sendViaResend, studioLink } from './email.ts';
 import { env } from './http.ts';
+import { sendWebPush, vapidFromEnv } from './webpush.ts';
 import { automationBlocks, buildSms, mergeTags, renderEmail, type EmailBrand, type RenderBlock } from './marketing-render.ts';
 
 export { renderEmail, buildSms, mergeTags };
@@ -16,7 +17,9 @@ export type { RenderBlock };
 export type Any = Record<string, any>;
 export interface Job {
   id: string; channel: 'email' | 'sms' | 'push'; source: string; to: string; subject: string | null; payload: Any; kind: 'marketing' | 'service';
-  firstName: string; lastName: string;
+  firstName: string; lastName: string; clientId?: string;
+  /** push only: the devices to send to (marketing_job_json) */
+  devices?: { id: string; platform: 'web' | 'ios' | 'android'; token: string; keys: { p256dh?: string; auth?: string } | null }[];
   campaign: { name: string; subject: string; preheader: string; blocks: RenderBlock[]; body: string } | null;
   automation: { key: string; subject: string; heading: string; body: string; buttonLabel: string } | null;
   studio: { name: string; slug: string; email: string; address: string; branding: Any; customDomains: string[] | null };
@@ -90,6 +93,44 @@ export function varsFor(job: Job): Record<string, string> {
   return { ...(job.payload ?? {}), first_name: job.firstName, last_name: job.lastName, studio_name: job.studio.name, app_url: appLink(job.studio) } as Record<string, string>;
 }
 
+// ---------------------------------------------------------------- push
+
+/** Web push is on when VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are all set. Until then push rows simply wait in the queue. */
+export const vapid = () => vapidFromEnv((k) => Deno.env.get(k));
+
+/** What the notification says. Client replies open #/messages in the client app; staff alerts open that client's thread in the studio app. */
+export function pushPayload(job: Job): { title: string; body: string; url: string; tag: string } {
+  const toStaff = job.payload?.audience === 'staff';
+  const preview = String(job.payload?.preview ?? '').slice(0, 120);
+  if (toStaff) {
+    const who = `${job.firstName} ${job.lastName}`.trim() || 'A client';
+    const base = studioLink(job.studio.slug, 'studio') ?? Deno.env.get('APP_URL') ?? '';
+    return { title: `${who} sent a message`, body: preview, url: `${base.replace(/#.*$/, '')}#/marketing/inbox/${job.clientId ?? ''}`, tag: `thread-${job.payload?.threadId ?? job.clientId ?? 'x'}` };
+  }
+  return { title: job.studio.name, body: preview || 'You have a new message', url: `${appLink(job.studio).replace(/#.*$/, '')}#/messages`, tag: `thread-${job.payload?.threadId ?? 'x'}` };
+}
+
+/** Send one queued push to each of the person's web devices; drop devices the push service says are gone (404 / 410). */
+async function deliverPush(admin: Db, job: Job): Promise<{ providerId?: string; links?: (string | null)[] }> {
+  const keys = vapid();
+  if (!keys) throw new Error('Web push is not configured');
+  const devices = (job.devices ?? []).filter((d) => d.platform === 'web');
+  if (!devices.length) return { providerId: job.devices?.length ? 'no-web-devices' : 'no-devices' }; // native sending (APNs / FCM) isn't built
+  const payload = pushPayload(job);
+  let ok = 0, gone = 0;
+  const errors: string[] = [];
+  for (const d of devices) {
+    const r = await sendWebPush({ endpoint: d.token, keys: d.keys }, payload, keys, { topic: payload.tag });
+    if (r.ok) ok++;
+    else if (r.expired) {
+      gone++;
+      must(await admin.from('marketing_push_devices').delete().eq('id', d.id));
+    } else errors.push(r.error ?? 'failed');
+  }
+  if (!ok && errors.length) throw new Error(errors[0]); // every live device failed: retry later (up to 5 attempts)
+  return { providerId: ok ? `webpush:${ok}` : gone ? 'expired' : 'no-devices' };
+}
+
 async function deliver(job: Job): Promise<{ providerId?: string; links?: (string | null)[] }> {
   if (!job.to) throw new Error(job.channel === 'sms' ? 'No mobile number' : 'No email address');
   const vars = varsFor(job);
@@ -108,11 +149,11 @@ async function deliver(job: Job): Promise<{ providerId?: string; links?: (string
 export async function drainMarketing(admin: Db, limit = 50): Promise<{ sent: number; failed: number }> {
   // Due scheduled campaigns and automations are queued first (idempotent: the sent log's unique key stops repeats).
   must(await admin.rpc('marketing_tick'));
-  const jobs = (must(await admin.rpc('marketing_claim', { p_channels: ['email', 'sms'], p_limit: limit })) ?? []) as Job[];
+  const jobs = (must(await admin.rpc('marketing_claim', { p_channels: vapid() ? ['email', 'sms', 'push'] : ['email', 'sms'], p_limit: limit })) ?? []) as Job[];
   let sent = 0, failed = 0;
   for (const job of jobs) {
     try {
-      const r = await deliver(job);
+      const r = job.channel === 'push' ? await deliverPush(admin, job) : await deliver(job);
       must(await admin.rpc('marketing_finish', { p_id: job.id, p_error: null, p_provider_id: r.providerId ?? null, p_links: r.links ? { urls: r.links } : null }));
       sent++;
     } catch (e) {

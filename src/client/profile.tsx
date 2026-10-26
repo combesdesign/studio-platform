@@ -5,6 +5,7 @@ import { store, useData, useToast, errorMessage, Sheet, useBackHandler } from '.
 import { dateFormat, money, studioDate } from '../shared/format';
 import { getBranding } from '../shared/branding';
 import { clientProfileEntries } from '../shared/registry';
+import { Slot } from '../shared/slots';
 import { isSingleStudio, switchStudio } from '../shared/boot';
 import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useApp } from './ui';
 import { Receipt, ReceiptSkeleton } from './passes';
@@ -100,6 +101,7 @@ export function Profile({ nav }: { nav: Nav }) {
             <span className="list-row-main"><span className="list-row-title">News + offers</span><span className="list-row-sub">New classes, events and the odd offer by email</span></span>
             <Toggle checked={!!c.marketingOptIn} disabled={savingOpt} onChange={setOptIn} label="News and offers emails" />
           </div>
+          <Slot name="client.account" props={{}} />
           {clientProfileEntries().map((e) => (
             <button key={e.id} className="list-row" onClick={() => goFlow(nav, e.path, { label: 'Profile', where: '/profile' })}>
               <span className="row-ic">{typeof e.icon === 'string' ? <Icon name={e.icon} size={20} /> : e.icon}</span>

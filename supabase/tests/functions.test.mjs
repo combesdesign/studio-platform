@@ -10,7 +10,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createHmac } from 'node:crypto';
+import { createHmac, createVerify, createECDH, createDecipheriv, generateKeyPairSync, hkdfSync, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
@@ -42,10 +42,11 @@ const stripeObjects = {};
 globalThis.fetch = async (url, init = {}) => {
   const u = new URL(String(url));
   const body = typeof init.body === 'string' ? init.body : '';
-  calls.push({ host: u.host, path: u.pathname, method: init.method ?? 'GET', body, headers: init.headers ?? {} });
+  calls.push({ host: u.host, path: u.pathname, method: init.method ?? 'GET', body, rawBody: init.body, headers: init.headers ?? {} });
   const reply = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
   if (u.host === 'api.resend.com') return reply({ id: 'email_1' });
   if (u.host === 'sms.example') return reply({ ok: true });
+  if (u.host === 'push.example') return new Response(null, { status: /^\/gone\//.test(u.pathname) ? 410 : /^\/broken\//.test(u.pathname) ? 500 : 201 }); // a fake push service
   if (u.host === 'api.anthropic.com') return anthropic(JSON.parse(body));
   const p = u.pathname.replace('/v1/', '');
   if (p in stripeObjects) return reply(typeof stripeObjects[p] === 'function' ? stripeObjects[p](body) : stripeObjects[p]);
@@ -661,6 +662,109 @@ await t('marketing: the existing drains (send-reminders, send-email flush) send 
     sql(`delete from public.marketing_messages where studio_id = '${SNOWY_ID}'`);
     sql(`delete from public.marketing_campaigns where studio_id = '${SNOWY_ID}'`);
     sql(`update public.clients set marketing_opt_in = false where id in ('${alice}', '${bob}')`);
+  }
+});
+
+await t('web push: the drain sends encrypted, VAPID-signed pushes, drops dead subscriptions (410), and waits in the queue until keys are set', async () => {
+  const alice = id('alice_client'), aliceUser = id('alice');
+  const b64u = (b) => Buffer.from(b).toString('base64url');
+  // the server's VAPID keys
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const jwk = privateKey.export({ format: 'jwk' });
+  const vapidPub = b64u(Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]));
+  // the browser's subscription keys
+  const ua = createECDH('prime256v1'); ua.generateKeys();
+  const authSecret = randomBytes(16);
+  const keys = JSON.stringify({ p256dh: b64u(ua.getPublicKey()), auth: b64u(authSecret) });
+  const device = (n, endpoint, k) => sql(`insert into public.marketing_push_devices (id, studio_id, user_id, client_id, platform, token, keys)
+    values ('00000000-0000-4000-8000-0000000001a${n}', '${SNOWY_ID}', '${aliceUser}', '${alice}', 'web', '${endpoint}', ${k ? `'${k}'::jsonb` : 'null'})`);
+  const pushRow = (n, preview) => sql(`insert into public.marketing_messages (id, studio_id, client_id, channel, source, ref_name, payload, dedupe_key)
+    values ('00000000-0000-4000-8000-0000000001b${n}', '${SNOWY_ID}', '${alice}', 'push', 'inbox', 'Message',
+            '{"audience":"client","threadId":"t1","messageId":"m${n}","preview":"${preview}"}'::jsonb, 'inbox:m${n}')`);
+  const status = (n) => sql(`select status || ':' || coalesce(provider_id, '') from public.marketing_messages where id = '00000000-0000-4000-8000-0000000001b${n}'`);
+  const drain = async () => (await post(await load('send-reminders'), {}, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  const pushes = (from) => calls.slice(from).filter((c) => c.host === 'push.example');
+  // RFC 8291 decrypt, the way a browser would
+  const decrypt = (body) => {
+    const salt = body.subarray(0, 16), rs = body.readUInt32BE(16), idlen = body[20], asPub = body.subarray(21, 21 + idlen), ct = body.subarray(21 + idlen);
+    assert.equal(rs, 4096);
+    const secret = ua.computeSecret(asPub);
+    const ikm = Buffer.from(hkdfSync('sha256', secret, authSecret, Buffer.concat([Buffer.from('WebPush: info\0'), ua.getPublicKey(), asPub]), 32));
+    const cek = Buffer.from(hkdfSync('sha256', ikm, salt, 'Content-Encoding: aes128gcm\0', 16));
+    const nonce = Buffer.from(hkdfSync('sha256', ikm, salt, 'Content-Encoding: nonce\0', 12));
+    const d = createDecipheriv('aes-128-gcm', cek, nonce); d.setAuthTag(ct.subarray(ct.length - 16));
+    const plain = Buffer.concat([d.update(ct.subarray(0, ct.length - 16)), d.final()]);
+    assert.equal(plain[plain.length - 1], 2, 'last-record delimiter');
+    return JSON.parse(plain.subarray(0, plain.length - 1).toString());
+  };
+  try {
+    device(1, 'https://push.example/ok/aaa', keys);
+    device(2, 'https://push.example/gone/bbb', keys);
+    device(3, 'https://push.example/ok/nokeys', null);
+    pushRow(1, 'See you Thursday!');
+
+    // 1. no VAPID settings: the push waits, nothing is sent, nothing is lost
+    let before = calls.length;
+    let j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    assert.equal(pushes(before).length, 0);
+    assert.equal(status(1), 'queued:');
+
+    // 2. keys set: sent to every web device
+    Object.assign(ENV, { VAPID_PUBLIC_KEY: vapidPub, VAPID_PRIVATE_KEY: jwk.d, VAPID_SUBJECT: 'mailto:hello@studios.test' });
+    before = calls.length;
+    j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    const sent = pushes(before);
+    assert.equal(sent.length, 3, 'one request per device');
+    const ok = sent.find((c) => c.path === '/ok/aaa');
+    const h = Object.fromEntries(Object.entries(ok.headers).map(([k, v]) => [k.toLowerCase(), v]));
+    assert.equal(ok.method, 'POST');
+    assert.equal(h['content-encoding'], 'aes128gcm');
+    assert.equal(h['content-type'], 'application/octet-stream');
+    assert.ok(Number(h.ttl) > 0 && h.urgency === 'normal', 'TTL + Urgency headers');
+    const m = /^vapid t=([\w-]+\.[\w-]+\.[\w-]+), k=([\w-]+)$/.exec(h.authorization);
+    assert.ok(m, 'vapid Authorization header: ' + h.authorization);
+    assert.equal(m[2], vapidPub);
+    const [hd, cl, sg] = m[1].split('.');
+    assert.deepEqual(JSON.parse(Buffer.from(hd, 'base64url')), { typ: 'JWT', alg: 'ES256' });
+    const claims = JSON.parse(Buffer.from(cl, 'base64url'));
+    assert.equal(claims.aud, 'https://push.example');
+    assert.equal(claims.sub, 'mailto:hello@studios.test');
+    assert.ok(claims.exp > Date.now() / 1000 && claims.exp <= Date.now() / 1000 + 24 * 3600);
+    assert.ok(createVerify('SHA256').update(`${hd}.${cl}`).verify({ key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(sg, 'base64url')), 'JWT signature checks out against the public key');
+    const note = decrypt(Buffer.from(ok.rawBody));
+    assert.equal(note.title, 'Snowy Pilates Club');
+    assert.equal(note.body, 'See you Thursday!');
+    assert.ok(note.url.endsWith('#/messages'), note.url);
+    const bare = sent.find((c) => c.path === '/ok/nokeys');
+    assert.ok(!bare.rawBody || bare.rawBody.length === 0, 'no keys: an empty push');
+    assert.ok(!Object.keys(bare.headers).some((k) => k.toLowerCase() === 'content-encoding'));
+    // 410 removes that subscription only
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where token like '%/gone/%'`), '0');
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where client_id = '${alice}'`), '2');
+    assert.equal(status(1), 'sent:webpush:2');
+
+    // 3. a push service that is only down: retried, subscription kept
+    device(4, 'https://push.example/broken/ccc', keys);
+    sql(`delete from public.marketing_push_devices where token like '%/ok/%'`);
+    pushRow(2, 'Second one');
+    j = await drain();
+    assert.equal(j.failed, 1);
+    assert.equal(sql(`select status from public.marketing_messages where id = '00000000-0000-4000-8000-0000000001b2'`), 'queued');
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where token like '%/broken/%'`), '1');
+    // 4. only dead subscriptions left: done, nothing to retry
+    sql(`delete from public.marketing_push_devices`);
+    device(5, 'https://push.example/gone/ddd', keys);
+    pushRow(3, 'Third');
+    sql(`update public.marketing_messages set status = 'sent' where id = '00000000-0000-4000-8000-0000000001b2'`);
+    await drain();
+    assert.equal(status(3), 'sent:expired');
+    assert.equal(sql(`select count(*) from public.marketing_push_devices`), '0');
+  } finally {
+    delete ENV.VAPID_PUBLIC_KEY; delete ENV.VAPID_PRIVATE_KEY; delete ENV.VAPID_SUBJECT;
+    sql(`delete from public.marketing_push_devices`);
+    sql(`delete from public.marketing_messages where studio_id = '${SNOWY_ID}'`);
   }
 });
 

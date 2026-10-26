@@ -143,6 +143,10 @@ export interface SlotProps {
   'client.timetable': Record<string, never>;
   /** Client app: Passes screen, under the shop (gift cards, referrals). */
   'client.shop': Record<string, never>;
+  /** Client app: Profile, in the settings list next to News + offers (e.g. the notifications switch). */
+  'client.account': Record<string, never>;
+  /** Client app: the "you're booked in" screen, under the note (a gentle one-time prompt). */
+  'client.booked': { session: SessionWithCounts };
 }
 export type SlotName = keyof SlotProps;
 export interface SlotEntry<N extends SlotName> {

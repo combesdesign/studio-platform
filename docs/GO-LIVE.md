@@ -211,6 +211,28 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
    - weekly: tidy up old emails
 4. Check it worked: `select jobname, schedule from cron.job;` should list 5 jobs.
 
+## 9b. Push notifications (optional, can be switched on any time)
+
+The app and the server are ready for web push (a notification on a client's phone or laptop when the studio replies). It stays off until you add a set of keys. Nothing breaks without them: the notification switch in Profile stays hidden and queued pushes just wait (they're tidied up after 30 days).
+
+1. **Make the keys.** In Terminal on your Mac:
+   ```
+   npx web-push generate-vapid-keys
+   ```
+   It prints a **Public Key** and a **Private Key**. Keep the private one secret, like a password. Make them once and keep them: if you change them later, everyone has to switch notifications on again.
+2. **Give the server the keys** (same place as step 8):
+   ```
+   supabase secrets set \
+     VAPID_PUBLIC_KEY=THE-PUBLIC-KEY \
+     VAPID_PRIVATE_KEY=THE-PRIVATE-KEY \
+     VAPID_SUBJECT=mailto:admin@snowypilatesclub.com
+   ```
+   `VAPID_SUBJECT` is a contact address for the push services (a `mailto:` or `https://` link). No redeploy needed for the functions that already exist.
+3. **Give the app the public key only.** In Netlify, **Environment variables**, add `VAPID_PUBLIC_KEY` = the same public key (never the private one), then redeploy. The key is baked in at build time, so it has to be there before the build.
+4. Check it: open the client app on a phone, **Profile**, switch on **Notifications**, then reply from the studio inbox. On iPhone, the app has to be added to the home screen first (Safari, Share, Add to Home Screen) or the switch stays hidden.
+
+How it's sent: the full encrypted way (the message is encrypted to each device, so the push service can't read it), using the browser's built-in crypto and no extra packages. A device that registered without encryption keys gets a plain "You have a new message" that opens Messages. Devices that have gone (uninstalled, permission removed) are cleaned up automatically. Phone-app notifications (Apple and Google) aren't built yet.
+
 ## 10. Point the app at the real backend (Netlify)
 
 The app is a separate Netlify site from the marketing website.
@@ -220,6 +242,7 @@ The app is a separate Netlify site from the marketing website.
 3. **Site configuration → Environment variables**: add
    - `SUPABASE_URL` = your Project URL
    - `SUPABASE_ANON_KEY` = the **anon / public** key (never the service_role one)
+   - `VAPID_PUBLIC_KEY` = the public push key from step 9b (leave it out until you switch push on)
    - `STUDIO_SLUG` = `snowy`. This makes it Snowy's own app: Snowy's name, icon colours and look from the very first second, and no studio picker. (Leave out `PLATFORM_DOMAIN`. That's only for the multi-studio setup in `docs/PLATFORM.md`.)
 4. Deploy. With those two set, the app switches from demo to live by itself. You can still see the demo any time by adding `?demo=1` to the address.
 5. **Domain management → Add a domain**: `app.snowypilatesclub.com`. Netlify gives you a DNS record to add, and HTTPS is automatic.
