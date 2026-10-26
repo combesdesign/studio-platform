@@ -95,6 +95,12 @@ Libby's pain points: Momence only offers a fixed list of problems (hers often is
 - [x] Studio owners can safely "undo" common mistakes (cancelled class, wrong sale) without needing support (Stripe refunds can't be undone, see NOTES.md `## undo`)
 - [ ] Onboarding call and data import done for them, not left as a DIY job
 
+## Selling it to other studios (Pete, 27 Oct)
+- [ ] Pick a platform name (check domain + AU trademark before committing)
+- [ ] Plans and pricing: simple tiers, bulk email to ALL clients included in every plan (Momence restricts this), no platform fee on top of Stripe, few add-ons
+- [ ] Plan gating in the platform (which features each plan unlocks) + platform billing
+- [ ] "Switching is easy" PDF guide for prospects: steps from Momence/Mindbody/etc, what we move for them, cost comparison
+
 ## Phase C: launch-readiness (Snowy and platform)
 - [ ] Capacitor wrap for the App Store and Google Play (per studio for white-label apps, or one shared app with studio pick)
 - [ ] Real accounts: Supabase, Stripe and Resend, plus a Stripe test-mode run-through
