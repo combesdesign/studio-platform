@@ -126,6 +126,16 @@ await t('return URLs: only our app (or the native app schemes)', () => {
   assert.equal(H.safeReturnUrl('https://snowy.netlify.app/x'), 'https://snowy.netlify.app/x');
   assert.equal(H.safeReturnUrl('https://evil.example/phish'), 'https://app.example');
   assert.equal(H.safeReturnUrl('capacitor://localhost/#/passes'), 'capacitor://localhost/#/passes');
+  // the platform: any https subdomain of PLATFORM_DOMAIN, nothing that merely ends the same way
+  assert.equal(H.safeReturnUrl('https://harbour.studioplatform.app/studio/'), 'https://app.example', 'not on the platform unless PLATFORM_DOMAIN says so');
+  ENV.PLATFORM_DOMAIN = 'studioplatform.app';
+  try {
+    assert.equal(H.safeReturnUrl('https://harbour.studioplatform.app/studio/#/settings/payments'), 'https://harbour.studioplatform.app/studio/#/settings/payments');
+    assert.equal(H.safeReturnUrl('https://studioplatform.app/x'), 'https://studioplatform.app/x');
+    assert.equal(H.safeReturnUrl('http://harbour.studioplatform.app/x'), 'https://app.example');
+    assert.equal(H.safeReturnUrl('https://evilstudioplatform.app/x'), 'https://app.example');
+    assert.equal(H.safeReturnUrl('https://studioplatform.app.evil.example/x'), 'https://app.example');
+  } finally { delete ENV.PLATFORM_DOMAIN; }
 });
 
 // ---------------------------------------------------------------- functions

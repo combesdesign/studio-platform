@@ -56,7 +56,63 @@ You can mix these. Snowy can stay on its own build (A) while new studios use B.
 4. The owner signs in to the studio app and gets the **setup wizard**: studio details, branding (logo, colours, fonts), class types, prices (from templates: memberships, class packs, an intro offer), policies (cancellation window, waitlist cutoff, waiver), inviting staff, then **Go live**. You can also do the branding for them in the admin's **Branding** tab, with a live preview of their client app.
 5. Once they're live they show up in "Find your studio" and their links work for clients.
 
-**Payments:** each studio needs its own Stripe account for card payments, so the money goes to them. Today the app's Stripe setup is single-account (Snowy's). Connecting each studio's own Stripe (Stripe Connect) is a later step on the roadmap. Until then, new studios can use the app for bookings and take payments at the desk.
+**Payments:** each studio is paid into its **own** Stripe account (Stripe Connect), set up by the owner in the studio app. See "Card payments: Stripe Connect" below. Until a studio has connected, its clients see "Online payments aren't set up yet, pay at the studio", and the studio can still take payments at the desk.
+
+## Card payments: Stripe Connect
+
+Two modes, picked by the edge function settings (not the app build):
+
+| Mode | When | What happens |
+|---|---|---|
+| **Single account** (the default) | No `STRIPE_CONNECT` setting, or the functions have `STUDIO_SLUG` set | One Stripe account on your own keys, exactly as Snowy runs today. Nothing in this section applies. |
+| **Connect** | `STRIPE_CONNECT=1` on the multi-studio platform | Every studio is paid into its own Stripe account. |
+
+**How it works.** Each studio connects a **Standard** account: the studio owns the Stripe account, keeps its own Stripe dashboard, and handles its own disputes and payouts (the simplest liability model for you). Clients pay with **direct charges**: every Stripe call for a studio (customer, checkout, billing portal, refund, membership pause/cancel) carries that studio's `Stripe-Account` header, so the money lands in the studio's account, not yours. Gift cards, appointments, workshops, memberships and packs all work the same way.
+
+The link and its status live in `studio_stripe` (one row per studio: `stripe_account_id`, `charges_enabled`, `payouts_enabled`, `details_submitted`). It's separate from the `studios` table on purpose: the studio list is public, and only the studio's **owner** can read their own Stripe row. Nobody writes it from an app; the edge functions do.
+
+**What the owner sees.** Studio app → **Settings → Payments** (owners only; the tab isn't there on a single-studio build like Snowy) shows **Connect Stripe**, **Finish setup** or **Connected ✓**. The setup wizard has a **Payments** step before Go live that does the same thing (it can be skipped). The button opens Stripe's own onboarding page and brings them back. Coming back refreshes the status from Stripe.
+
+**What a client sees if the studio hasn't connected:** "Online payments aren't set up yet, pay at the studio." Nothing is charged.
+
+### Setting it up (once, on your platform Stripe account)
+
+1. In the Stripe dashboard, open **Connect** and turn it on for your platform account (**Settings → Connect settings**). Choose the platform profile questions as they come up; you're a platform that onboards businesses, and they use **Standard** accounts (they log in to Stripe themselves).
+2. **Settings → Connect → Branding**: upload your platform icon and logo and set the colour. Studios see this on the Stripe onboarding page, so use the platform's name rather than Snowy's.
+3. **Settings → Connect → Onboarding options**: leave "Standard" on; the app creates the accounts for you, so there's no sign-up link to share.
+4. **Developers → Webhooks → Add endpoint**, and under "Listen to" choose **Events on Connected accounts** (not "Your account"):
+   - URL: `https://YOUR-PROJECT-REF.supabase.co/functions/v1/stripe-webhook`
+   - Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`, `charge.refunded`, and **`account.updated`** (this keeps each studio's status right)
+   - Save it and **Reveal signing secret**. That's `STRIPE_CONNECT_WEBHOOK_SECRET`. It's a different secret from the ordinary endpoint's.
+   - If you use the appointments feature, add a second Connect endpoint for `.../functions/v1/appointments-stripe-webhook` with `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.expired` and `checkout.session.async_payment_failed`. It uses the same `STRIPE_CONNECT_WEBHOOK_SECRET`.
+5. Set the secrets on the edge functions, then redeploy:
+   ```
+   supabase secrets set STRIPE_CONNECT=1 \
+     STRIPE_SECRET_KEY=sk_live_... \
+     STRIPE_CONNECT_WEBHOOK_SECRET=whsec_... \
+     PLATFORM_DOMAIN=studioplatform.app \
+     APP_URL=https://studioplatform.app
+   ```
+   The app only sends people back to addresses it trusts after Stripe: `PLATFORM_DOMAIN` covers every studio's subdomain (`harbour.studioplatform.app`), `APP_URL` is the fallback. A studio on its own custom domain also needs that address added to `APP_URLS` (a comma-separated list). `STRIPE_SECRET_KEY` is **your platform's** key, not a studio's.
+6. Deploy the two new functions: `supabase functions deploy connect-onboard` and `supabase functions deploy connect-status`. Run `supabase db push` for migration `0011_stripe_connect.sql`. `stripe-webhook` and `appointments-stripe-webhook` stay `--no-verify-jwt`.
+7. Each studio's **customer portal** (Stripe → Settings → Billing → Customer portal) is switched on in the studio's own Stripe account, by the studio. Ask them to do it once, same as Snowy's setup in GO-LIVE.
+
+### Settings (edge function secrets)
+
+| Name | What it does |
+|---|---|
+| `STRIPE_CONNECT` | `1` turns Connect mode on. Leave it out for single-account. |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | Signing secret of the "Events on Connected accounts" endpoint. |
+| `STRIPE_WEBHOOK_SECRET` | Optional in Connect mode (your own account's events aren't used for anything), required in single-account mode. |
+| `PLATFORM_FEE_BPS` | Optional platform fee in basis points (100 = 1%), taken from each card payment and subscription via Stripe's application fee. Default 0. The pitch is no platform fee; the option is just there. |
+| `STUDIO_SLUG` | If set, the functions stay in single-account mode whatever `STRIPE_CONNECT` says. |
+
+### Notes
+
+- A studio's Stripe account is created the first time its owner clicks **Connect Stripe**, then reused (**Finish setup** carries on where they stopped). Their email and business name are pre-filled from the studio's details.
+- Webhook events carry the connected account, which maps to the studio. Every handler then only touches that studio's rows, so one studio can never sell into, or refund, another's.
+- Switching a studio to a different Stripe account later isn't supported by the app (saved customers and prices belong to the old account). Ask a developer.
+- Existing clients, passes and sales are untouched. Only new payments use the connected account.
 
 ## Suspending a studio
 
@@ -91,4 +147,5 @@ Nothing about the database changes for this. It's the same platform with a diffe
 | Single-studio build | `STUDIO_SLUG=snowy node build.mjs` |
 | Multi-studio build with subdomains | `PLATFORM_DOMAIN=studioplatform.app node build.mjs` |
 | Studios table | Supabase → Table Editor → `studios` |
+| A studio's Stripe connection | Supabase → Table Editor → `studio_stripe` (owner sees theirs in Settings → Payments) |
 | Make someone a platform admin | `insert into platform_admins (user_id) select id from auth.users where email = '…';` |

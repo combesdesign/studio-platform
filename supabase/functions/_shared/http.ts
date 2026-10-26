@@ -63,7 +63,10 @@ export function safeReturnUrl(candidate: unknown): string {
   }
   try {
     const u = new URL(candidate);
-    const ok = allowed.some((a) => {
+    // The multi-studio platform: every studio's subdomain of PLATFORM_DOMAIN is ours too (https only).
+    const platform = (Deno.env.get('PLATFORM_DOMAIN') ?? '').trim().toLowerCase();
+    const onPlatform = !!platform && u.protocol === 'https:' && (u.hostname === platform || u.hostname.endsWith(`.${platform}`));
+    const ok = onPlatform || allowed.some((a) => {
       try { return new URL(a).origin === u.origin; } catch { return a === candidate; }
     }) || u.protocol === 'capacitor:' || u.protocol === 'snowypilates:';
     if (ok) return candidate;

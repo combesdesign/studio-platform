@@ -141,6 +141,12 @@ If someone made a client account with their staff email before you added them to
 
 Fees are roughly **1.7% + 30c** per domestic card payment (international cards cost more). **Check current pricing.**
 
+### Snowy stays on its own Stripe account (single-account mode)
+
+Everything in this part is Snowy's **own** Stripe account and keys, and that doesn't change when you add other studios to the platform. Don't set `STRIPE_CONNECT` for Snowy's functions. The Settings → Payments tab (the "Connect Stripe" button for new studios) isn't in the single-studio Snowy build, and card payments, memberships, refunds and the billing portal all use `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` as above.
+
+If Snowy ever shares one Supabase project with the multi-studio platform, the platform's Connect mode would apply to Snowy too (Snowy would need to connect its own Stripe like any studio). To avoid that, keep Snowy in its own Supabase project (as this guide sets up), or set `STUDIO_SLUG=snowy` as a function secret so those functions stay on Snowy's keys. Platform steps for other studios are in `docs/PLATFORM.md` → Card payments: Stripe Connect.
+
 ## 7. Resend (emails)
 
 1. Sign up at [resend.com](https://resend.com).
