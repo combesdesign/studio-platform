@@ -347,10 +347,7 @@ export class Engine {
     if (!(input.capacity >= 0)) throw err('INVALID', 'Capacity must be zero or more.');
     this.classType(input.classTypeId);
     const existing = input.id ? this.sessionsById.get(input.id) : undefined;
-    if (input.roomId && (input.status ?? existing?.status ?? 'scheduled') !== 'cancelled') {
-      const clash = this.roomClash({ roomId: input.roomId, startsAt: input.startsAt, endsAt: input.endsAt, id: input.id });
-      if (clash) throw err('ROOM_BUSY', clashMessage(this.s.rooms?.find((r) => r.id === input.roomId)?.name ?? 'That room', clash, clockTime(clash.startsAt)));
-    }
+    if (input.roomId && (input.status ?? existing?.status ?? 'scheduled') !== 'cancelled') this.assertRoomFree({ roomId: input.roomId, startsAt: input.startsAt, endsAt: input.endsAt, id: input.id });
     if (existing) {
       if (!input.roomId) { delete existing.roomId; }
       if (!input.locationId) { delete existing.locationId; }
@@ -367,6 +364,12 @@ export class Engine {
     const s: ClassSession = { ...input, id: input.id ?? this.newId('se'), status: input.status ?? 'scheduled' };
     this.addSession(s);
     return this.withCounts(s);
+  }
+
+  /** Throws ROOM_BUSY (with a message that names the room, the time and the class) when something else holds the room then. */
+  assertRoomFree(want: { roomId: ID; startsAt: string; endsAt: string; id?: ID | undefined }): void {
+    const clash = this.roomClash(want);
+    if (clash) throw err('ROOM_BUSY', clashMessage(this.s.rooms?.find((r) => r.id === want.roomId)?.name ?? 'That room', clash, clockTime(clash.startsAt)));
   }
 
   /** A room has to exist and belong to the class's location (which it fills in when left out). */
@@ -631,6 +634,7 @@ export class Engine {
     const now = this.now();
     if (s.status !== 'cancelled') throw err('INVALID', 'This class is not cancelled.');
     if (hasEnded(s, now)) throw err('TOO_LATE', 'That class has finished.');
+    if (s.roomId) this.assertRoomFree({ roomId: s.roomId, startsAt: s.startsAt, endsAt: s.endsAt, id: s.id });   // someone may have taken the room since
     const removed = this.sessionBookings(id).filter((b) => b.status === 'removed' && b.priorStatus);
     const stamp = this.s.sessionCancelledAt?.[id] ?? removed.reduce((m, b) => (b.cancelledAt && b.cancelledAt > m ? b.cancelledAt : m), '');
     const batch = removed.filter((b) => (b.cancelledAt ?? '') >= stamp).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));

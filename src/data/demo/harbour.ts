@@ -3,7 +3,7 @@
  * classes, ~16 clients and three weeks of history, replayed through the real Engine so credits add up.
  * Personas (same order as Snowy's): brand new, member (1 of 2 left this week), pack (1 left), intro.
  */
-import type { ClassType, Client, ID, Product, ScheduleTemplate, Staff, StudioSettings } from '../../shared/types';
+import type { ClassType, Client, ID, Location, Product, Room, ScheduleTemplate, Staff, StudioSettings } from '../../shared/types';
 import { addDays, studioToUTC, weekStart } from '../../shared/format';
 import { DAY_MS, HOUR_MS, MINUTE_MS, studioDay } from '../../domain';
 import { Engine, STATE_VERSION, type DemoState } from './engine';
@@ -65,17 +65,32 @@ const PRODUCTS: Product[] = [
   { id: 'hb_pr_socks', kind: 'retail', name: 'Grip socks', description: 'Harbour green grip socks. Required on the reformers.', priceCents: 2200, stock: 30, active: true, sortOrder: 30 },
 ];
 
+/** Harbour runs from two places: Bondi (the main location, where classes with no location belong) and Surry Hills. */
+const LOCATIONS: Location[] = [
+  { id: 'hb_loc_bondi', name: 'Bondi', address: '2/118 Campbell Parade, Bondi Beach NSW 2026', active: true, isDefault: true, sortOrder: 0 },
+  { id: 'hb_loc_sh', name: 'Surry Hills', address: '45 Crown Street, Surry Hills NSW 2010', active: true, sortOrder: 1 },
+];
+const ROOMS: Room[] = [
+  { id: 'hb_room_bondi_a', locationId: 'hb_loc_bondi', name: 'Studio A', capacity: 8, active: true },
+  { id: 'hb_room_bondi_b', locationId: 'hb_loc_bondi', name: 'Studio B', capacity: 8, active: true },
+  { id: 'hb_room_sh_loft', locationId: 'hb_loc_sh', name: 'The Loft', capacity: 8, active: true },
+  { id: 'hb_room_sh_back', locationId: 'hb_loc_sh', name: 'Back room', capacity: 6, active: true },
+];
+const BONDI_A = { locationId: 'hb_loc_bondi', roomId: 'hb_room_bondi_a' }, BONDI_B = { locationId: 'hb_loc_bondi', roomId: 'hb_room_bondi_b' };
+const LOFT = { locationId: 'hb_loc_sh', roomId: 'hb_room_sh_loft' };
+
 function templates(startsOn: string): ScheduleTemplate[] {
   const out: ScheduleTemplate[] = [];
-  const add = (wd: number, t: string, ct: string, by: string) => out.push({ id: `hb_tp_${wd}_${t.replace(':', '')}`, classTypeId: ct, weekday: wd, startTime: t, instructorId: by, startsOn, active: true });
+  const add = (wd: number, t: string, ct: string, by: string, at: { locationId: string; roomId: string }) =>
+    out.push({ id: `hb_tp_${wd}_${t.replace(':', '')}`, classTypeId: ct, weekday: wd, startTime: t, instructorId: by, startsOn, active: true, ...at });
   for (let wd = 1; wd <= 5; wd++) {
-    add(wd, '06:15', wd % 2 ? 'hb_ct_flow' : 'hb_ct_jump', 'hb_st_noah');
-    add(wd, '12:15', 'hb_ct_found', 'hb_st_isla');
-    add(wd, '17:45', wd % 2 ? 'hb_ct_found' : 'hb_ct_flow', wd % 2 ? 'hb_st_isla' : 'hb_st_ava');
+    add(wd, '06:15', wd % 2 ? 'hb_ct_flow' : 'hb_ct_jump', 'hb_st_noah', wd % 2 ? BONDI_A : BONDI_B);
+    add(wd, '12:15', 'hb_ct_found', 'hb_st_isla', LOFT);
+    add(wd, '17:45', wd % 2 ? 'hb_ct_found' : 'hb_ct_flow', wd % 2 ? 'hb_st_isla' : 'hb_st_ava', wd % 2 ? BONDI_A : LOFT);
   }
-  add(6, '08:00', 'hb_ct_flow', 'hb_st_ava');
-  add(6, '09:15', 'hb_ct_jump', 'hb_st_noah');
-  add(0, '09:00', 'hb_ct_found', 'hb_st_isla');
+  add(6, '08:00', 'hb_ct_flow', 'hb_st_ava', BONDI_A);
+  add(6, '09:15', 'hb_ct_jump', 'hb_st_noah', BONDI_B);
+  add(0, '09:00', 'hb_ct_found', 'hb_st_isla', LOFT);
   return out;
 }
 
@@ -99,7 +114,7 @@ export function seedHarbour(now: Date): DemoState {
   const historyFrom = addDays(thisMon, -21);
   const state: DemoState = {
     version: STATE_VERSION, seededAt: now.toISOString(), historyFrom, settings: settings(),
-    staff: STAFF.map((s) => ({ ...s })), classTypes: CLASS_TYPES.map((c) => ({ ...c })), templates: templates('2025-01-01'),
+    staff: STAFF.map((s) => ({ ...s })), classTypes: CLASS_TYPES.map((c) => ({ ...c })), templates: templates('2025-01-01'), locations: LOCATIONS.map((l) => ({ ...l })), rooms: ROOMS.map((r) => ({ ...r })),
     sessions: [], bookings: [], clients: [], products: PRODUCTS.map((p) => ({ ...p })), passes: [], sales: [], passSale: {}, outbox: [],
     personas: [HARBOUR_PERSONAS.newClient, HARBOUR_PERSONAS.member, HARBOUR_PERSONAS.pack, HARBOUR_PERSONAS.intro],
     personaHints: {
