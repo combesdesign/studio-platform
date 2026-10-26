@@ -84,7 +84,7 @@ export function PartnersTab() {
 
       <section className="card pad ig-card">
         <h3>Spots <em>held</em> for partners</h3>
-        <p className="muted">How many spots in each class a partner can book. Partner bookings can't go past these, and they show a badge on the roster. Direct bookings still use the class's normal spot count, so hold fewer spots than the class has.</p>
+        <p className="muted">How many spots in each class a partner can book. Partner bookings can't go past these, and they show a badge on the roster. Held spots that aren't booked yet are kept back from direct clients, who see the class's spots minus those. The roster shows the real numbers.</p>
         <div className="ig-grid" role="table" aria-label="Spots held for partners">
           <div className="ig-gh" role="row"><span role="columnheader">Class type</span>{PARTNERS.map((p) => <span key={p} role="columnheader">{PARTNER_LABEL[p]}</span>)}</div>
           {classTypes.map((c) => (

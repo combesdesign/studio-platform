@@ -3,3 +3,4 @@ export * from './schedule';
 export * from './report';
 export * from './permissions';
 export * from './time';
+export * from './capacity';

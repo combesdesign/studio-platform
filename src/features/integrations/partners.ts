@@ -29,3 +29,6 @@ export const heldFor = (reserved: ReservedSpots[], classTypeId: string, partner:
 export function heldSummary(partner: string, held: number, used: number): string {
   return `${partner}: ${used} of ${held} held ${held === 1 ? 'spot' : 'spots'} booked`;
 }
+
+/** Spots still held for a partner (held minus its bookings already in the class): what direct clients can't take. */
+export const unfilledHeld = (held: number, used: number): number => Math.max(0, held - used);

@@ -11,6 +11,8 @@ import type {
   ScheduleTemplate, SessionWithCounts, Staff, StudioSettings,
 } from '../../shared/types';
 import { addDays } from '../../shared/format';
+import { directFull, directSpotsLeft } from '../../domain/capacity';
+import { demoFeatures } from './features';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
@@ -157,9 +159,17 @@ export class Engine {
     return { booked, waitlist };
   }
 
-  withCounts(session: ClassSession, countsCache?: Map<ID, { booked: number; waitlist: number }>): SessionWithCounts {
+  /** Spots features keep back from direct clients in this class (unfilled spots held for a partner). Staff ignore it. */
+  heldBack(session: ClassSession): number {
+    let n = 0;
+    for (const f of demoFeatures()) n += Math.max(0, f.heldBack?.(this.s, session) ?? 0);
+    return n;
+  }
+
+  /** `direct` = what a client sees (held-back spots set aside); staff get the real number. */
+  withCounts(session: ClassSession, countsCache?: Map<ID, { booked: number; waitlist: number }>, direct = false): SessionWithCounts {
     const c = countsCache?.get(session.id) ?? this.counts(session.id);
-    return { ...session, bookedCount: c.booked, waitlistCount: c.waitlist, spotsLeft: Math.max(0, session.capacity - c.booked) };
+    return { ...session, bookedCount: c.booked, waitlistCount: c.waitlist, spotsLeft: direct ? directSpotsLeft(session.capacity, c.booked, this.heldBack(session)) : Math.max(0, session.capacity - c.booked) };
   }
 
   allCounts(): Map<ID, { booked: number; waitlist: number }> {
@@ -351,7 +361,7 @@ export class Engine {
       source: staff ? 'staff' : 'client', ...(o.by.kind === 'staff' ? { bookedByStaffId: o.by.staffId } : {}),
     };
     const { booked } = this.counts(sessionId);
-    if (booked >= session.capacity && !(staff && o.allowOverCapacity)) {
+    if (directFull(session.capacity, booked, staff ? 0 : this.heldBack(session)) && !(staff && o.allowOverCapacity)) {
       const maxPos = this.sessionBookings(sessionId).filter((b) => b.status === 'waitlisted').reduce((m, b) => Math.max(m, b.waitlistPosition ?? 0), 0);
       const booking: Booking = { ...base, status: 'waitlisted', waitlistPosition: maxPos + 1 };
       this.addBooking(booking);
@@ -420,7 +430,7 @@ export class Engine {
     const now = this.now();
     const out: Booking[] = [];
     if (s.status === 'cancelled' || !canAutoPromote(s.startsAt, now, this.s.settings.waitlistCutoffHours)) return out;
-    while (this.counts(sessionId).booked < s.capacity) {
+    while (!directFull(s.capacity, this.counts(sessionId).booked, this.heldBack(s))) {
       const pick = pickWaitlistPromotion(this.sessionBookings(sessionId), (cid) => !!this.bestPass(cid, s));
       if (!pick) break;
       const pass = this.bestPass(pick.clientId, s);

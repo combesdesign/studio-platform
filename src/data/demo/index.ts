@@ -554,15 +554,16 @@ export class DemoStore implements DataStore {
     return this.inFormat(() => {
       if (this.engine.generate(studioDay(range.from), studioDay(range.to)) > 0) this.save();
       const counts = this.engine.allCounts();
+      const direct = !this.viewerStaff();   // clients see capacity minus held-back spots; staff see the real number
       return clone(this.state.sessions
         .filter((s) => Date.parse(s.startsAt) < to && Date.parse(s.endsAt) > from && (range.includeCancelled !== false || s.status !== 'cancelled'))
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-        .map((s) => this.engine.withCounts(s, counts)));
+        .map((s) => this.engine.withCounts(s, counts, direct)));
     });
   }
 
   async getSession(id: ID): Promise<SessionWithCounts> {
-    return this.read(() => this.engine.withCounts(this.engine.session(id)));
+    return this.read(() => this.engine.withCounts(this.engine.session(id), undefined, !this.viewerStaff()));
   }
 
   async upsertSession(s: Omit<ClassSession, 'id' | 'status'> & { id?: ID; status?: ClassSession['status'] }): Promise<SessionWithCounts> {
@@ -678,7 +679,7 @@ export class DemoStore implements DataStore {
         if (when === 'upcoming' && st < t) continue;
         if (when === 'past' && st >= t) continue;
         const instructor = this.state.staff.find((x) => x.id === s.instructorId);
-        out.push({ ...b, session: this.engine.withCounts(s, counts), classType: this.engine.classType(s.classTypeId), ...(instructor ? { instructor: this.redactStaff(instructor, viewer) } : {}) });
+        out.push({ ...b, session: this.engine.withCounts(s, counts, !viewer), classType: this.engine.classType(s.classTypeId), ...(instructor ? { instructor: this.redactStaff(instructor, viewer) } : {}) });
       }
       out.sort((a, b) => a.session.startsAt.localeCompare(b.session.startsAt));
       if (when === 'past') out.reverse();
