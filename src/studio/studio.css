@@ -996,3 +996,29 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .loc-room.off { opacity: .6; }
 .loc-room-name { flex: 1; font-size: 15px; }
 .loc-room-meta { color: var(--muted); font-size: 14px; }
+
+/* ---------------------------------------------------------------- spot layout and roster map (src/studio/spots.tsx) */
+.sl-editor { display: grid; gap: 14px; }
+.sl-steps { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.sl-step { display: inline-flex; align-items: center; gap: 10px; }
+.sl-step-l { min-width: 76px; color: var(--muted); font-size: 14.5px; }
+.sl-step strong { min-width: 22px; text-align: center; font-size: 17px; }
+.sl-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.sl-tool { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink); font: inherit; font-size: 14.5px; cursor: pointer; }
+.sl-tool.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.sl-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sl-bad { color: var(--danger); }
+.sl-field { gap: 10px; }
+.sl-empty { display: grid; gap: 12px; justify-items: start; padding: 16px; border-radius: var(--r); background: var(--soft-light); border: 1px dashed var(--line); }
+.sl-empty p { margin: 0; }
+.sl-remove { justify-self: start; }
+.sl-card { display: grid; gap: 14px; margin-top: 22px; padding: 18px 20px; }
+.sl-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.sl-card-t { margin: 0 0 4px; font-family: var(--display); font-size: 22px; font-weight: 400; }
+.sl-card p { margin: 0; }
+.sl-staff { margin-top: 4px; }
+.rs-map { display: grid; gap: 12px; padding: 16px 18px; margin: 0 0 18px; }
+.rs-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.rs-map-head h3 { margin: 0; font-family: var(--display); font-size: 22px; font-weight: 400; }
+.rs-map-note { display: flex; align-items: center; gap: 8px; margin: 0; }
+.chip.flag.spot-chip { background: var(--primary); color: #fff; font-weight: 500; }

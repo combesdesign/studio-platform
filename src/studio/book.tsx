@@ -4,6 +4,7 @@ import { Sheet, store, useAction, useBackHandler, useData, useToast } from '../s
 import { addDays, money, startOfStudioDay, studioDate, time } from '../shared/format';
 import type { Client, PaymentMethod, Product, SessionWithCounts } from '../shared/types';
 import { Avatar, Fill, Icon, SheetHead, cx, dayShort, fullName, useStudio } from './ui';
+import { StaffSpotField } from './spots';
 
 // ------------------------------------------------------------------ client search
 export function ClientSearch({ onPick, autoFocus, exclude, placeholder = 'Search name, email or phone' }: { onPick: (c: Client) => void; autoFocus?: boolean; exclude?: string[]; placeholder?: string }) {
@@ -107,6 +108,7 @@ export function BookOptions({ client, session, onDone, onBack }: { client: Clien
   const [mode, setMode] = useState<Mode>('credit');
   const [passId, setPassId] = useState<string | undefined>();
   const [squeeze, setSqueeze] = useState(false);
+  const [spot, setSpot] = useState<string | undefined>();
   const [productId, setProductId] = useState<string | undefined>();
   const [method, setMethod] = useState<PaymentMethod>('card_reader');
   const { busy, run } = useAction();
@@ -129,7 +131,7 @@ export function BookOptions({ client, session, onDone, onBack }: { client: Clien
         const out = await store.checkoutCart({ clientId: client.id, items: [{ productId, qty: 1 }], method, staffId: me.staffId });
         useId = out.passes[0]?.id;
       }
-      return store.bookClass(client.id, session.id, { asStaff: true, passId: useId, skipCredit: mode === 'comp', allowOverCapacity: squeeze });
+      return store.bookClass(client.id, session.id, { asStaff: true, passId: useId, skipCredit: mode === 'comp', allowOverCapacity: squeeze, ...(spot ? { spot } : {}) });
     });
     if (r) {
       toast(r.outcome === 'waitlisted' ? `${client.firstName} is on the waitlist` : `${client.firstName} is booked in`);
@@ -187,6 +189,8 @@ export function BookOptions({ client, session, onDone, onBack }: { client: Clien
         </label>
       </div>
 
+      {!full && <StaffSpotField sessionId={session.id} value={spot} onChange={setSpot} />}
+
       {full && (
         <label className="check squeeze">
           <input type="checkbox" checked={squeeze} onChange={(e) => setSqueeze(e.target.checked)} />
@@ -224,10 +228,11 @@ export function WalkInSheet({ open, onClose, session }: { open: boolean; onClose
   const [v, setV] = useState<NewClient>(emptyClient);
   const [method, setMethod] = useState<PaymentMethod>('card_reader');
   const [waiver, setWaiver] = useState(false);
+  const [spot, setSpot] = useState<string | undefined>();
   const [productId, setProductId] = useState<string>('');
   const products = useData(() => store.listProducts({ kinds: ['dropin', 'intro'] }), []);
   const { busy, run } = useAction();
-  useEffect(() => { if (open) { setV(emptyClient); setWaiver(false); setMethod('card_reader'); } }, [open]);
+  useEffect(() => { if (open) { setV(emptyClient); setWaiver(false); setSpot(undefined); setMethod('card_reader'); } }, [open]);
   useEffect(() => { const d = products.data?.find((p) => p.kind === 'dropin') ?? products.data?.[0]; if (d && !productId) setProductId(d.id); }, [products.data]);
   const prod = products.data?.find((p) => p.id === productId);
 
@@ -241,7 +246,7 @@ export function WalkInSheet({ open, onClose, session }: { open: boolean; onClose
         const out = await store.checkoutCart({ clientId: c.id, items: [{ productId: prod.id, qty: 1 }], method, staffId: me.staffId, note: 'Walk-in' });
         passId = out.passes[0]?.id;
       }
-      await store.bookClass(c.id, session.id, { asStaff: true, passId, skipCredit: !prod, allowOverCapacity: true });
+      await store.bookClass(c.id, session.id, { asStaff: true, passId, skipCredit: !prod, allowOverCapacity: true, ...(spot ? { spot } : {}) });
       return c;
     });
     if (ok) { toast(`${ok.firstName} is in. Welcome!`); onClose(); }
@@ -261,6 +266,7 @@ export function WalkInSheet({ open, onClose, session }: { open: boolean; onClose
           </div>
           <MethodPicker value={method} onChange={setMethod} />
           <label className="check"><input type="checkbox" checked={waiver} onChange={(e) => setWaiver(e.target.checked)} /><span>They've read and signed the waiver and health form (paper or in person)</span></label>
+          <StaffSpotField sessionId={session.id} value={spot} onChange={setSpot} />
         </div>
         <div className="sh-foot">
           <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>

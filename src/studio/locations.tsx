@@ -7,6 +7,9 @@ import { readLocationPref, validLocationPref, writeLocationPref } from '../share
 import { effectiveLocationId, hasManyLocations, hasManyRooms, roomsAt } from '../domain';
 import type { ID, Location, Room } from '../shared/types';
 import { Icon, Loading, Seg, SheetHead, cx, useStudio } from './ui';
+import { SpotLayoutField, layoutSummary } from './spots';
+import { cleanLayout, validateLayout } from '../domain/spots';
+import type { SpotLayout } from '../shared/types';
 
 /** The studio's locations and rooms, kept up to date. `many` = more than one active location: only then does any location UI show. */
 export function useLocations() {
@@ -115,7 +118,7 @@ export function LocationsTab() {
                   <li key={r.id}>
                     <button className={cx('loc-room', !r.active && 'off')} onClick={() => setEditRoom(r)} aria-label={`Edit ${r.name}`}>
                       <span className="loc-room-name">{r.name}</span>
-                      <span className="loc-room-meta">{r.capacity ? `${r.capacity} spots` : 'No default size'}{!r.active ? ' · switched off' : ''}</span>
+                      <span className="loc-room-meta">{r.capacity ? `${r.capacity} spots` : 'No default size'}{r.spotLayout ? ` · ${layoutSummary(r)}` : ''}{!r.active ? ' · switched off' : ''}</span>
                       <Icon name="edit" size={16} />
                     </button>
                   </li>
@@ -161,12 +164,16 @@ function LocationSheet({ l, onClose }: { l: Partial<Location> | null; onClose: (
 
 function RoomSheet({ r, locations, onClose }: { r: Partial<Room> | null; locations: readonly Location[]; onClose: () => void }) {
   const [v, setV] = useState<Partial<Room>>({});
+  const [layout, setLayout] = useState<SpotLayout | null>(null);
+  const [layoutDirty, setLayoutDirty] = useState(false);
   const { busy, run } = useAction();
-  useEffect(() => { if (r) setV(r); }, [r]);
+  useEffect(() => { if (r) { setV(r); setLayout(r.spotLayout ?? null); setLayoutDirty(false); } }, [r]);
+  const bad = layout ? validateLayout(layout) : null;
   const save = async () => {
     const out = await run(() => store.upsertRoom({
       ...(v.id ? { id: v.id } : {}), locationId: v.locationId ?? locations[0]!.id, name: (v.name ?? '').trim(), active: v.active !== false,
       ...(v.capacity ? { capacity: Number(v.capacity) } : {}),
+      ...(layoutDirty ? { spotLayout: layout ? cleanLayout(layout) : null } : {}),   // untouched = left as it is
     }), 'Room saved');
     if (out) onClose();
   };
@@ -182,8 +189,9 @@ function RoomSheet({ r, locations, onClose }: { r: Partial<Room> | null; locatio
         </label>
         <label className="field"><span>Spots (prefills new classes)</span><input className="input" type="number" min={1} value={v.capacity ?? ''} onChange={(e) => setV({ ...v, capacity: e.target.value ? Number(e.target.value) : undefined })} /></label>
         <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>Active</span></label>
+        <SpotLayoutField layout={layout} onChange={(l) => { setLayout(l); setLayoutDirty(true); }} />
       </div>
-      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim()}>Save</button></div>
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim() || !!bad}>Save</button></div>
     </Sheet>
   );
 }

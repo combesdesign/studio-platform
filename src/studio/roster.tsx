@@ -9,6 +9,7 @@ import { Accent, Avatar, Confirm, Empty, Fill, Icon, Loading, PageHead, Sep, She
 import { AddClientSheet, SessionPicker, WaiverSheet, WalkInSheet } from './book';
 import { useNow } from './today';
 import { RestoreClassSheet, useUndoSnack } from './undo';
+import { MoveSpotView, RosterSpotMap, SpotChip, namesBySpot, useSessionSpots } from './spots';
 
 type Flag = RosterEntry['flags'][number];
 const FLAG: Record<Flag, { label: string; tone: string; icon: string }> = {
@@ -56,6 +57,7 @@ export function Roster({ id }: { id: string }) {
   const { busy, run } = useAction();
 
   const s = sess.data;
+  const spots = useSessionSpots(id, roster.data);   // undefined unless this class uses spots
   const entries = (roster.data ?? []).map((e) => (pending[e.id] ? { ...e, status: pending[e.id]! } : e));
   const attending = useMemo(() => entries.filter((e) => ATTENDING.has(e.status)).sort((a, b) => fullName(a.client).localeCompare(fullName(b.client))), [entries]);
   const waitlist = entries.filter((e) => e.status === 'waitlisted').sort((a, b) => (a.waitlistPosition ?? 0) - (b.waitlistPosition ?? 0));
@@ -133,6 +135,7 @@ export function Roster({ id }: { id: string }) {
         )}
       />
       <Slot name="roster.header" props={{ session: s }} can={can} />
+      {spots?.layout && !cancelled && <RosterSpotMap layout={spots.layout} names={namesBySpot(attending)} noSpot={attending.filter((e) => !e.spot).map((e) => e.client.firstName)} />}
 
       {!cancelled && (
         <div className="rs-summary card">
@@ -219,7 +222,7 @@ export function Roster({ id }: { id: string }) {
         </div>
       </Sheet>
 
-      {detail && <EntrySheet e={detail} s={s} onClose={() => setDetail(null)} onWaiver={() => { setWaiverFor(detail); setDetail(null); }} onToggle={() => { toggle(detail); setDetail(null); }} />}
+      {detail && <EntrySheet e={detail} s={s} spotNames={spots ? namesBySpot(attending) : undefined} onClose={() => setDetail(null)} onWaiver={() => { setWaiverFor(detail); setDetail(null); }} onToggle={() => { toggle(detail); setDetail(null); }} />}
       <Sheet open={!!injury} onClose={() => setInjury(null)} label="Injury notes">
         {injury && <>
           <SheetHead title={<>{injury.client.firstName}'s <em>notes</em></>} onClose={() => setInjury(null)} />
@@ -243,6 +246,7 @@ function RosterRow({ e, s, onToggle, onOpen, onInjury, onWaiver, disabled }: { e
         <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{e.client.guardianName && <em className="via-tag">via {e.client.guardianName}</em>}{passLabel(e)}</span></span>
       </button>
       <div className="rr-flags">
+        <SpotChip spot={e.spot} onClick={onOpen} />
         {flags.map((f) => {
           const F = FLAG[f];
           const click = f === 'injury' ? onInjury : f === 'no_waiver' ? onWaiver : onOpen;
@@ -259,11 +263,11 @@ function RosterRow({ e, s, onToggle, onOpen, onInjury, onWaiver, disabled }: { e
 }
 
 // ------------------------------------------------------------------ one booking: actions
-function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: SessionWithCounts; onClose: () => void; onWaiver: () => void; onToggle: () => void }) {
+function EntrySheet({ e, s, spotNames, onClose, onWaiver, onToggle }: { e: RosterEntry; s: SessionWithCounts; spotNames?: Record<string, string> | undefined; onClose: () => void; onWaiver: () => void; onToggle: () => void }) {
   const { settings, can } = useStudio();
   const toast = useToast();
   const undoSnack = useUndoSnack();
-  const [view, setView] = useState<'main' | 'cancel' | 'move' | 'promote'>('main');
+  const [view, setView] = useState<'main' | 'cancel' | 'move' | 'promote' | 'spot'>('main');
   const [waive, setWaive] = useState(false);
   const [comp, setComp] = useState(false);
   const { busy, run } = useAction();
@@ -311,7 +315,7 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
 
   return (
     <Sheet open onClose={onClose} label={fullName(e.client)}>
-      <SheetHead title={view === 'main' ? fullName(e.client) : view === 'cancel' ? <>Cancel <em>booking</em></> : view === 'move' ? <>Move <em>{name}</em></> : <>Book <em>{name}</em> in</>}
+      <SheetHead title={view === 'main' ? fullName(e.client) : view === 'cancel' ? <>Cancel <em>booking</em></> : view === 'move' ? <>Move <em>{name}</em></> : view === 'spot' ? <>Spot for <em>{name}</em></> : <>Book <em>{name}</em> in</>}
         sub={view === 'main' ? (wl ? `Waitlist position ${e.waitlistPosition ?? ''}` : sub(e)) : fullName(e.client)}
         back={view === 'main' ? undefined : { label: name, onClick: () => setView('main') }} onClose={onClose} />
       {view === 'main' && (
@@ -336,6 +340,7 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
             {!wl && <button onClick={onToggle}><Icon name={e.status === 'checked_in' ? 'undo' : 'check'} /><span><strong>{e.status === 'checked_in' ? 'Undo check-in' : 'Check in'}</strong></span></button>}
             {e.status === 'booked' && <button onClick={noShow} disabled={busy}><Icon name="ban" /><span><strong>Mark no-show</strong><span>Credit is used{settings.noShowFeeCents ? ', fee applies' : ''}</span></span></button>}
             {!wl && e.status !== 'checked_in' && <button onClick={() => setView('cancel')}><Icon name="x" /><span><strong>Cancel booking</strong><span>{late ? 'Inside the cancel window (late cancel)' : 'Credit goes back to their pass'}</span></span></button>}
+            {spotNames && !wl && (e.status === 'booked' || e.status === 'checked_in') && new Date(s.endsAt).getTime() > Date.now() && <button onClick={() => setView('spot')}><Icon name="move" /><span><strong>{e.spot ? 'Move spot' : 'Give a spot'}</strong><span>{e.spot ? `Now in ${e.spot}` : 'No spot yet'}</span></span></button>}
             {e.status === 'booked' && <button onClick={() => setView('move')}><Icon name="move" /><span><strong>Move to another class</strong><span>The credit moves with them</span></span></button>}
             {wl && <button onClick={() => setView('promote')}><Icon name="plus" /><span><strong>Book in now</strong><span>Squeeze them in ahead of the waitlist</span></span></button>}
             {wl && <button onClick={leave} disabled={busy}><Icon name="x" /><span><strong>Remove from waitlist</strong><span>No penalty</span></span></button>}
@@ -362,6 +367,9 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
           <SessionPicker excludeId={s.id} onPick={move} title="Move to" noFull clientId={e.clientId} />
           <div className="sh-foot"><button className="btn ghost" onClick={() => setView('main')}>Back</button></div>
         </div>
+      )}
+      {view === 'spot' && spotNames && (
+        <MoveSpotView bookingId={e.id} sessionId={s.id} current={e.spot} names={spotNames} firstName={name} onBack={() => setView('main')} onDone={(sp) => done(sp ? `${name} is in spot ${sp}` : `${name} has a spot`)} />
       )}
       {view === 'promote' && (
         <div className="stack">

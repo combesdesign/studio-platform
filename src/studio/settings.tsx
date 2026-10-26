@@ -13,6 +13,7 @@ import { BrandingTab } from './branding';
 import { LocationsTab, useLocationsTabVisible } from './locations';
 import { PaymentsPanel } from './payments';
 import { isSingleStudio } from '../shared/boot';
+import { SingleRoomLayoutCard } from './spots';
 
 const TABS: { key: string; label: string; perm?: Perm | string; order: number }[] = [
   { key: 'studio', label: 'Studio', order: 10 }, { key: 'branding', label: 'Branding', order: 15 }, { key: 'policies', label: 'Policies', order: 20 },
@@ -197,10 +198,12 @@ function ClassTypesTab() {
               {!t.bookable && <span className="chip cream">Coming soon</span>}
               {!t.active && <span className="chip">Hidden</span>}
               {t.bookingNote && <span className="chip">Booking note</span>}
+              {t.spotPicking && <span className="chip">Clients pick a spot</span>}
             </span>
           </button>
         ))}
       </div>
+      <SingleRoomLayoutCard />
       <ClassTypeSheet t={edit} onClose={() => setEdit(null)} />
     </div>
   );
@@ -217,6 +220,7 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
     const r = await run(() => store.upsertClassType({
       id: v.id, name: (v.name ?? '').trim(), description: v.description ?? '', durationMin: Number(v.durationMin) || 55, color: v.color ?? getBranding().colors.accent,
       defaultCapacity: Number(v.defaultCapacity) || 14, level: v.level || undefined, bookingNote: v.bookingNote || undefined, bookable: v.bookable !== false, active: v.active !== false,
+      ...(v.spotPicking !== undefined ? { spotPicking: !!v.spotPicking } : {}),
     }), 'Class type saved');
     if (r) onClose();
   };
@@ -234,7 +238,7 @@ function ClassTypeSheet({ t, onClose }: { t: Partial<ClassType> | null; onClose:
         </div>
         <label className="field span2"><span>Booking note (shown before booking)</span><textarea className="textarea" rows={2} value={v.bookingNote ?? ''} onChange={s('bookingNote')} placeholder="e.g. Mums must have clearance from a women's health professional" /></label>
         <label className="check span2"><input type="checkbox" checked={v.bookable !== false} onChange={(e) => setV({ ...v, bookable: e.target.checked })} /><span>Bookable (untick for “Coming soon – register interest”)</span></label>
-        {kind !== 'retail' && <label className="check span2"><input type="checkbox" checked={!!v.noClasses} onChange={(e) => setV({ ...v, noClasses: e.target.checked })} /><span>Online only (no studio classes, e.g. the Online membership)</span></label>}
+        <label className="check span2"><input type="checkbox" checked={!!v.spotPicking} onChange={(e) => setV({ ...v, spotPicking: e.target.checked })} /><span><strong>Let clients pick a spot</strong><br /><span className="muted small">They choose their reformer or mat when they book, or tap “Pick for me”. It only applies to classes in a room with a spot layout (Settings, Class types or Locations &amp; rooms).</span></span></label>
         <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>Active</span></label>
       </div>
       <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !(v.name ?? '').trim()}>Save</button></div>
@@ -383,6 +387,7 @@ function ProductSheet({ p, onClose }: { p: Partial<Product> | null; onClose: () 
         <label className="field"><span>Badge (optional)</span><input className="input" value={v.highlight ?? ''} onChange={(e) => setV({ ...v, highlight: e.target.value })} placeholder="Recommended" /></label>
         <label className="field"><span>Sort order</span><input className="input" type="number" value={v.sortOrder ?? 0} onChange={(e) => setV({ ...v, sortOrder: Number(e.target.value) })} /></label>
         <label className="check span2"><input type="checkbox" checked={v.active !== false} onChange={(e) => setV({ ...v, active: e.target.checked })} /><span>On sale (shown in the shop and POS)</span></label>
+        {kind !== 'retail' && <label className="check span2"><input type="checkbox" checked={!!v.noClasses} onChange={(e) => setV({ ...v, noClasses: e.target.checked })} /><span>Online only (no studio classes, e.g. the Online membership)</span></label>}
         {kind !== 'retail' && !v.noClasses && <label className="check span2"><input type="checkbox" checked={shareable} onChange={(e) => setV({ ...v, familyShareable: e.target.checked })} /><span>Family-shareable (a parent's kids and partner can use these credits. Off means they need their own pass)</span></label>}
       </div>
       {kind === 'intro' && <p className="small faint" style={{ marginTop: 12 }}>Intro offers are unlimited for the period and only for clients who've never had a class pass.</p>}
