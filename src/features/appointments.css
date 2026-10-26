@@ -1,0 +1,5 @@
+.ap-list-view { display: none; }
+@media (max-width: 860px) {
+  .ap-grid-view { display: none; }
+  .ap-list-view { display: grid; }
+}
