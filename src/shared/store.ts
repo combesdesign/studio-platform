@@ -46,6 +46,33 @@ export interface CancelResult {
   promoted?: Booking;
 }
 
+/** Result of undoing a cancel / removal. */
+export interface UndoCancelResult {
+  booking: Booking;
+  /** A credit had to be taken again (it was returned when they cancelled). */
+  creditTaken: boolean;
+  /** Someone the waitlist had auto-booked into the spot, put back on the waitlist so this booking could return. */
+  demoted?: Booking;
+}
+
+/** Result of restoring a cancelled class. Names are for the staff list. */
+export interface RestoreSessionResult {
+  session: SessionWithCounts;
+  /** Rebooked (credits taken again) or put back on the waitlist. */
+  restored: { bookingId: ID; clientId: ID; name: string; status: BookingStatus }[];
+  /** Not rebooked: staff sort these out by hand. */
+  needsAttention: { bookingId: ID; clientId: ID; name: string; reason: string }[];
+}
+
+/** What voiding a desk sale would do (dryRun) or did. */
+export interface VoidResult {
+  voided: boolean;
+  /** Plain-English reason it can't be voided. */
+  blocked?: string;
+  sale: Sale;
+  passes: { id: ID; name: string; classesUsed: number }[];
+}
+
 export interface PurchaseResult {
   sale: Sale;
   pass?: Pass; // for class products
@@ -168,6 +195,22 @@ export interface DataStore {
   checkIn(bookingId: ID): Promise<Booking>;
   undoCheckIn(bookingId: ID): Promise<Booking>;
   markNoShow(bookingId: ID): Promise<Booking>;
+  /**
+   * Undo helpers for staff mistakes (all optional; staff only). Each reverses exactly what it undoes.
+   * - undoNoShow: no-show back to booked (any no-show fee is taken off again).
+   * - undoCancelBooking: a staff cancel, late cancel or waitlist removal put back. A credit that came back is taken again;
+   *   `demotePromotedId` (from CancelResult.promoted) puts the person the waitlist auto-booked back on the waitlist, in their old place.
+   *   Throws CLASS_FULL / NO_CREDITS / ALREADY_BOOKED when it can't be put back honestly.
+   * - waivePenalty: "Return credit" later on a late cancel or no-show: becomes a normal cancel, credit back.
+   * - restoreSession: a cancelled class goes back on the timetable; bookings are rebooked where spots and credits allow.
+   * - voidSale: a non-card desk sale made today by mistake (dryRun just describes it). Card sales go through refundSale.
+   */
+  undoNoShow?(bookingId: ID): Promise<Booking>;
+  undoCancelBooking?(bookingId: ID, opts?: { demotePromotedId?: ID }): Promise<UndoCancelResult>;
+  waivePenalty?(bookingId: ID): Promise<Booking>;
+  restoreSession?(sessionId: ID): Promise<RestoreSessionResult>;
+  voidSale?(saleId: ID, opts?: { reason?: string; dryRun?: boolean }): Promise<VoidResult>;
+
   /** Staff: move a booking to another session (credit moves with it). */
   moveBooking?(bookingId: ID, toSessionId: ID): Promise<BookResult>;
 

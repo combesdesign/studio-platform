@@ -632,6 +632,27 @@ export class DemoStore implements DataStore {
     return this.write(() => { this.requireRoster(this.engine.booking(bookingId).sessionId); return this.engine.markNoShow(bookingId); });
   }
 
+  async undoNoShow(bookingId: ID): Promise<Booking> {
+    return this.write(() => { this.requireRoster(this.engine.booking(bookingId).sessionId); return this.engine.undoNoShow(bookingId); });
+  }
+  async undoCancelBooking(bookingId: ID, opts: { demotePromotedId?: ID } = {}) {
+    return this.write(() => { this.requireRoster(this.engine.booking(bookingId).sessionId); return this.engine.undoCancel(bookingId, opts); });
+  }
+  async waivePenalty(bookingId: ID): Promise<Booking> {
+    return this.write(() => { this.requireRoster(this.engine.booking(bookingId).sessionId); return this.engine.waivePenalty(bookingId); });
+  }
+  async restoreSession(sessionId: ID) {
+    return this.write(() => { this.requireStaff('schedule'); return this.engine.restoreSession(sessionId); });
+  }
+  async voidSale(saleId: ID, opts: { reason?: string; dryRun?: boolean } = {}) {
+    return this.write(() => {
+      this.requireStaff('pos_refund');
+      const r = this.engine.voidSale(saleId, opts);
+      if (r.voided) for (const f of demoFeatures()) f.afterRefund?.(this.featureContext(f.name), r.sale);
+      return r;
+    });
+  }
+
   async moveBooking(bookingId: ID, toSessionId: ID) {
     return this.write(() => {
       const st = this.requireRoster(this.engine.booking(bookingId).sessionId);

@@ -393,6 +393,9 @@ export interface Booking {
   checkedInAt?: ISODateTime;
   source: 'client' | 'staff';
   bookedByStaffId?: ID;
+  /** What it was before its last status change (and its waitlist spot, if it was waitlisted). Undo uses these. */
+  priorStatus?: BookingStatus;
+  priorWaitlistPosition?: number;
 }
 
 // ---------------------------------------------------------------- money
