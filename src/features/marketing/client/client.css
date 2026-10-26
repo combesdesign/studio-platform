@@ -1,0 +1,17 @@
+/* Marketing in the client app: the Messages conversation. Theme tokens only. */
+.mk-chat { display: flex; flex-direction: column; min-height: 100dvh; padding-bottom: calc(var(--safe-bottom) + 12px); }
+.mk-notify { display: flex; align-items: center; gap: 14px; padding: 12px 16px; margin: 4px 0 14px; border-radius: 18px; background: var(--soft); }
+.mk-notify-t { display: grid; flex: 1; min-width: 0; }
+.mk-notify-t span { font-size: 14px; color: var(--muted); }
+.mk-msgs { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 6px 0 16px; }
+.mk-hello { margin: 24px 0; }
+.mk-bubble { max-width: 82%; padding: 10px 14px; border-radius: 20px; display: grid; gap: 4px; }
+.mk-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; }
+.mk-bubble span { font-size: 13px; }
+.mk-bubble.theirs { align-self: flex-start; background: var(--soft); color: var(--ink); border-bottom-left-radius: 6px; }
+.mk-bubble.theirs span { color: var(--muted); }
+.mk-bubble.mine { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 6px; }
+.mk-bubble.mine span { color: rgba(255, 255, 255, .78); }
+.mk-compose { position: sticky; bottom: 0; display: flex; gap: 10px; align-items: flex-end; padding: 10px 0 0; background: linear-gradient(transparent, var(--bg) 18%); }
+.mk-compose .input { flex: 1; min-height: 48px; max-height: 140px; resize: none; border-radius: 24px; padding: 12px 16px; }
+.mk-compose .btn { width: 48px; min-width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; }

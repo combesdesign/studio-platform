@@ -48,7 +48,7 @@ export function CampaignsTab() {
               <span className="mk-row-stats">
                 {(c.status === 'sent' || c.status === 'sending') ? (
                   <><strong>{c.stats.sent}</strong><span>{c.channel === 'email' ? `${pct(c.stats.opened, c.stats.sent)} opened` : 'texts sent'}</span></>
-                ) : <span className="faint">{plural(c.stats.audience, 'person', 'people')}</span>}
+                ) : <span className="faint">{c.status === 'scheduled' ? 'Waiting to send' : 'Not sent yet'}</span>}
               </span>
               <Tone tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Tone>
             </button>
@@ -192,6 +192,16 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
           </div>
         )}
       </div>
+      {!readOnly && (
+        <div className="mk-test mk-later">
+          <span className="mk-later-l">Send later</span>
+          <input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} aria-label="Send at" />
+          <button className="btn soft" disabled={busy} onClick={() => run(async () => {
+            const c = await save(); if (!c) return;
+            await m().scheduleCampaign(c.id, new Date(when).toISOString()); onClose();
+          }, 'Scheduled')}>Schedule</button>
+        </div>
+      )}
       {scheduled && campaign?.scheduledFor && <p className="panel small">Scheduled for {dayTime(campaign.scheduledFor)}. Saving takes it off the schedule so you can change it.</p>}
       <div className="sh-foot mk-foot">
         {!readOnly && (
@@ -199,11 +209,6 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
             {campaign && <button className="btn ghost danger" disabled={busy} onClick={() => run(async () => { await m().deleteCampaign(campaign.id); onClose(); }, 'Campaign deleted')}>Delete</button>}
             <span className="mk-grow" />
             <button className="btn soft" disabled={busy} onClick={() => run(async () => { await save(); onClose(); }, 'Draft saved')}>Save draft</button>
-            <label className="mk-when"><span className="mk-sr">Send at</span><input className="input sm" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></label>
-            <button className="btn soft" disabled={busy} onClick={() => run(async () => {
-              const c = await save(); if (!c) return;
-              await m().scheduleCampaign(c.id, new Date(when).toISOString()); onClose();
-            }, 'Scheduled')}>Schedule</button>
             <button className="btn" disabled={busy} onClick={() => run(async () => { await save(); setConfirm('send'); })}>Send now</button>
           </>
         )}

@@ -636,8 +636,9 @@ await t('marketing: the existing drains (send-reminders, send-email flush) send 
     const got = mails(before).filter((m) => m.to[0] === 'alice@example.test');
     assert.equal(got.length, 1, 'alice got her campaign email');
     assert.ok(mails(before).every((m) => m.to[0] !== 'bob@example.test'), 'bob opted out: nothing sent');
-    assert.ok(got[0].subject === 'Hello Alice', got[0].subject);
-    assert.ok(got[0].html.includes('Spring term, Alice') && got[0].html.includes('Snowy Pilates Club'), 'merged, in the studio\'s name');
+    const first = sql(`select first_name from public.clients where id = '${alice}'`);
+    assert.equal(got[0].subject, `Hello ${first}`);
+    assert.ok(got[0].html.includes(`Spring term, ${first}`) && got[0].html.includes('Snowy Pilates Club'), 'merged, in the studio\'s name');
     assert.ok(/k=u/.test(got[0].html) && got[0].html.includes('Unsubscribe') && /Unsubscribe: https:/.test(got[0].text), 'unsubscribe link in html and text');
     assert.equal(sql(`select status from public.marketing_messages where id = '${M2}'`), 'skipped');
     assert.equal(sql(`select status || ':' || coalesce(provider_id, '') from public.marketing_messages where id = '${M3}'`), 'sent:stub-sms', 'sms goes through the stub');

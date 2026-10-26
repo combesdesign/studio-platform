@@ -142,3 +142,6 @@
   .mk-row { grid-template-columns: 40px minmax(0, 1fr) auto; }
   .mk-row-stats { display: none; }
 }
+.mk-later { padding-top: 4px; }
+.mk-later-l { font-size: 14.5px; color: var(--muted); min-width: 72px; }
+.mk-later .input { flex: 0 1 240px; }
