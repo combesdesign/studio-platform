@@ -114,6 +114,52 @@ The link and its status live in `studio_stripe` (one row per studio: `stripe_acc
 - Switching a studio to a different Stripe account later isn't supported by the app (saved customers and prices belong to the old account). Ask a developer.
 - Existing clients, passes and sales are untouched. Only new payments use the connected account.
 
+## Plans and billing
+
+What a studio pays you (the monthly plan) is separate from what its clients pay the studio (Stripe Connect, above). Plans, prices and what each plan switches on are **rows in a table, not code**, so you can change them without a developer.
+
+**Plans.** Platform admin (`/admin/`) → **Plans**. Each plan has a name, monthly price (AUD), a Stripe price id, an order and a list of switches (check-in kiosk, reviews, bulk email, support, family accounts, appointments, on-demand videos, gift cards and retail, payroll, ClassPass and Xero, branded app, custom domain, multiple locations). The first draft is Studio $99, Studio Plus $179 and Signature $299; edit freely. Bulk email is in every plan. The bookings, passes, POS and reports basics are always on.
+
+**Trial and grace.** Same page: free trial for new studios (14 or 30 days) and the grace period (default 14 days). A new studio starts on the cheapest plan with a free trial.
+
+**What a studio sees.** Studio app → **Settings → Plan and billing** (owners; not on a single-studio build): current plan, trial days left, **Manage billing**, and a comparison of the plans with a Choose button. A feature the plan doesn't include shows a calm "Available on Studio Plus" page where its screen would be, not an error.
+
+**Past due.** If a payment fails, staff see a banner. After the grace period the studio app goes read-only for staff (they can look, not change). Clients can still book. Paying again lifts it at once. A cancelled plan, or a trial that ended with no plan chosen and the grace period used up, is read-only the same way.
+
+**Manual plans.** Admin → a studio → **Plan** tab: set its plan and status by hand, and tick **Comped** for a studio that doesn't pay (Snowy is on Signature, comped). The studio list shows each studio's plan and status, and the Plans page shows monthly recurring revenue (paying studios only, comped ones count as $0).
+
+**Snowy's own build** (`STUDIO_SLUG=snowy`) has every feature on, always, and no billing screens.
+
+### Setting it up (once, on your platform Stripe account)
+
+This is the platform's own Stripe account (the one Connect sits on), not a studio's. Never use a studio's keys here.
+
+1. **Products:** in Stripe → Product catalogue, make one product per plan (Studio, Studio Plus, Signature) with a **monthly recurring price in AUD**. Copy each price id (`price_...`).
+2. Paste each price id into **Admin → Plans → Stripe price id**. A plan with no price id shows in the comparison but can't be bought online yet.
+3. **Customer portal:** Stripe → Settings → Billing → Customer portal (on the platform account). Turn on updating payment methods, viewing invoices and cancelling. Plan changes are done in the app, so you can leave plan switching off in the portal.
+4. **Developers → Webhooks → Add endpoint**, under "Listen to" choose **Events on your account** (not Connected accounts):
+   - URL: `https://YOUR-PROJECT-REF.supabase.co/functions/v1/platform-webhook`
+   - Events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`
+   - Reveal the signing secret. That's `PLATFORM_BILLING_WEBHOOK_SECRET`. It is a different secret from the studios' client-payment ones.
+5. Set the secrets, then deploy:
+   ```
+   supabase secrets set PLATFORM_STRIPE_SECRET_KEY=sk_live_... PLATFORM_BILLING_WEBHOOK_SECRET=whsec_...
+   supabase db push
+   supabase functions deploy platform-subscribe platform-portal
+   supabase functions deploy platform-webhook --no-verify-jwt
+   ```
+   `db push` applies `0012_platform_billing.sql` and `2100_plan_gating.sql`. The functions that staff use (refunds, marketing sends, invites) also need a redeploy so they know about read-only: `supabase functions deploy refund-payment marketing-send invite-user`.
+
+| Name | What it does |
+|---|---|
+| `PLATFORM_STRIPE_SECRET_KEY` | Your platform's Stripe key for plan billing. In Connect mode it falls back to `STRIPE_SECRET_KEY` (which is the same account), otherwise it's required. |
+| `PLATFORM_BILLING_WEBHOOK_SECRET` | Signing secret of the "Events on your account" endpoint for `platform-webhook`. |
+| `STUDIO_SLUG` | If set, there's no billing at all: the functions say so and nothing is ever read-only. |
+
+**How a plan change flows.** The owner picks a plan → `platform-subscribe` opens Stripe Checkout (their free trial carries over if more than 2 days are left, so the first charge is the day it ends). Stripe tells `platform-webhook`, which sets the studio's plan and status (trialing, active, past due, cancelled). A studio already subscribed switches in place, prorated, with no Checkout. The webhook is the only thing that moves a studio to cancelled or past due.
+
+**Notes.** Billing fields on a studio (plan, status, trial end) are public like the rest of the studio list; the Stripe ids and renewal date are owner-only (`my_billing()`, `studio_billing`). A studio created any other way than the admin's **Add a studio** has no plan, so nothing is locked for it.
+
 ## Suspending a studio
 
 In the admin, open the studio and click **Suspend studio**. Clients see a polite "taking a break" page and can't book. Staff can still sign in and look, but can't change anything. Nothing is deleted, and **Reopen studio** puts it straight back.
@@ -148,4 +194,6 @@ Nothing about the database changes for this. It's the same platform with a diffe
 | Multi-studio build with subdomains | `PLATFORM_DOMAIN=studioplatform.app node build.mjs` |
 | Studios table | Supabase → Table Editor → `studios` |
 | A studio's Stripe connection | Supabase → Table Editor → `studio_stripe` (owner sees theirs in Settings → Payments) |
+| Plans, prices, trial and grace, MRR | `/admin/` → Plans (table: `plans`) |
+| A studio's plan and billing | `/admin/` → studio → Plan (tables: `studios`, `studio_billing`) |
 | Make someone a platform admin | `insert into platform_admins (user_id) select id from auth.users where email = '…';` |
