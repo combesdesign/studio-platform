@@ -207,7 +207,8 @@ async function drainNotifications(admin: Db, opts: { id?: string; limit?: number
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Feature outboxes: commerce_outbox (gift card e-cards) and payroll_outbox (cover request emails to staff).
+// Feature outboxes: commerce_outbox (gift card e-cards), payroll_outbox (cover request emails to staff) and
+// support_alert_outbox (urgent support requests to the platform's own SUPPORT_ALERT_EMAIL).
 // Each email is sent as the row's own studio: its name, colours, address and reply-to come from the studios row.
 // ---------------------------------------------------------------------------------------------------------------
 interface StudioInfo {
@@ -289,5 +290,61 @@ export async function drainFeatureOutboxes(admin: Db, limit = 25): Promise<{ sen
     id: r.id, kind: r.kind, to_email: r.to_email, attempts: 0,
     payload: { ...r.payload, ...base(r, st), to_name: String(names.get(r.to_staff_id ?? '') ?? '').split(' ')[0], cta_url: studioLink(st.slug, 'studio'), cta_label: 'Open the studio app' },
   }));
-  return { sent: a.sent + b.sent, failed: a.failed + b.failed };
+  const c = await drainSupportAlerts(admin, limit);
+  return { sent: a.sent + b.sent + c.sent, failed: a.failed + b.failed + c.failed };
+}
+
+/** Where the platform admin inbox lives (subdomain setup: the platform domain; single studio: APP_URL). */
+export function adminSupportLink(): string | null {
+  const domain = (Deno.env.get('PLATFORM_DOMAIN') ?? '').trim();
+  const base = domain ? `https://${domain}` : (Deno.env.get('APP_URL') ?? '').replace(/\/+$/, '');
+  return base ? `${base}/admin/#/support` : null;
+}
+
+/**
+ * Urgent support alerts (support_alert_outbox): one email to SUPPORT_ALERT_EMAIL and, if set, a JSON POST to
+ * SUPPORT_ALERT_SMS_WEBHOOK (a hook for an SMS service later). With neither set the rows simply wait.
+ * A failed email is retried (up to 5 times); a failed webhook is logged and not retried, so one dead URL can't resend the email.
+ */
+export async function drainSupportAlerts(admin: Db, limit = 25): Promise<{ sent: number; failed: number }> {
+  const to = (Deno.env.get('SUPPORT_ALERT_EMAIL') ?? '').trim();
+  const hook = (Deno.env.get('SUPPORT_ALERT_SMS_WEBHOOK') ?? '').trim();
+  if (!to && !hook) return { sent: 0, failed: 0 };
+  const rows = (must(await admin.rpc('support_alert_claim_outbox', { p_limit: limit })) ?? []) as { id: string; request_id: string; payload: Payload; created_at: string }[];
+  const link = adminSupportLink();
+  let sent = 0, failed = 0;
+  for (const r of rows) {
+    const p = r.payload ?? {};
+    const who = `${p.person || 'Someone'}${p.role ? ` (${p.role})` : ''}`;
+    try {
+      if (to) {
+        const subject = `URGENT: ${p.studio_name || 'A studio'} needs help now`;
+        const html = layout('Urgent support request', `<p><strong>${esc(p.studio_name)}</strong> marked a request urgent.</p>
+          <p><strong>Who:</strong> ${esc(who)}<br><strong>Page:</strong> ${esc(p.page || '(unknown)')}</p>
+          <blockquote style="margin:12px 0;padding:8px 14px;border-left:3px solid #b42318;white-space:pre-wrap">${esc(p.message)}</blockquote>
+          ${link ? `<p><a href="${esc(link)}">Open the admin inbox</a></p>` : ''}`, {});
+        const text = `URGENT from ${p.studio_name}\n\nWho: ${who}\nPage: ${p.page || '(unknown)'}\n\n${p.message}\n${link ? `\nAdmin inbox: ${link}` : ''}`;
+        await sendViaResend(to, { subject, html, text }, { fromName: 'Studio Platform support' });
+      }
+      if (hook) {
+        try {
+          const res = await fetch(hook, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'support_urgent', requestId: r.request_id, studio: p.studio_name, person: p.person, role: p.role, message: p.message, page: p.page, inboxUrl: link, createdAt: r.created_at }),
+          });
+          if (!res.ok) throw new Error(`webhook ${res.status}`);
+        } catch (e) {
+          if (!to) throw e; // the webhook is the only channel: let the row retry
+          console.error('support alert webhook failed', r.id, e);
+        }
+      }
+      must(await admin.rpc('support_alert_finish_outbox', { p_id: r.id, p_error: null }));
+      sent++;
+    } catch (e) {
+      failed++;
+      console.error('support alert failed', r.id, e);
+      must(await admin.rpc('support_alert_finish_outbox', { p_id: r.id, p_error: e instanceof Error ? e.message.slice(0, 500) : String(e) }));
+    }
+  }
+  return { sent, failed };
 }

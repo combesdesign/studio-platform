@@ -174,8 +174,10 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
      EMAIL_REPLY_TO=admin@snowypilatesclub.com \
      APP_URL=https://app.snowypilatesclub.com \
      APP_URLS=https://app.snowypilatesclub.com,https://YOUR-NETLIFY-SITE.netlify.app \
-     CRON_SECRET=THE-RANDOM-ONE-FROM-BEFORE
+     CRON_SECRET=THE-RANDOM-ONE-FROM-BEFORE \
+     SUPPORT_ALERT_EMAIL=you@yourphone.com
    ```
+   `SUPPORT_ALERT_EMAIL` is where an urgent help request from a studio is emailed (page, person, message and a link to the admin inbox at `/admin/#/support`). Use an address that buzzes your phone. Optional later: `SUPPORT_ALERT_SMS_WEBHOOK=https://...`, a URL the same alert is POSTed to as JSON, for an SMS service. Leave it out for now.
    Supabase provides `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` automatically. No key is ever written into the code.
 4. Deploy them all:
    ```

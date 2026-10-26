@@ -85,7 +85,7 @@ Every feature built from here lands in both.
 ## Support that's actually good (Libby: Momence support is horrible)
 Libby's pain points: Momence only offers a fixed list of problems (hers often isn't on it), and they're US-based so replies come overnight.
 - [x] No problem menus: always a free-text "tell us what's wrong" box (the assistant can suggest answers, never force a category)
-- [ ] Australian-based support in AEST/AEDT business hours; urgent "can't take bookings" issues flagged to Pete's phone straight away
+- [x] Australian-based support in AEST/AEDT business hours; urgent "can't take bookings" issues flagged to Pete's phone straight away (email now; SMS webhook ready)
 - [x] Every request gets an instant reply (assistant answer or "got it, a human will reply by X") so nobody's left wondering
 - [x] In-app "Help" button in the studio app: message us directly, with a screenshot and the page they were on attached automatically
 - [ ] Help assistant: answers how-to questions instantly from our own help docs, then hands off to a real person

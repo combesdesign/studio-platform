@@ -552,6 +552,7 @@ export class Engine {
       purchasedAt: this.now().toISOString(), credits, creditsUsed: 0, priceCents: product.priceCents,
       ...(product.kind === 'membership' ? { billingInterval: product.billingInterval ?? 'week' } : {}),
       ...(product.classTypeIds?.length ? { classTypeIds: [...product.classTypeIds] } : {}),
+      ...(product.noClasses ? { noClasses: true } : {}),
     };
   }
 

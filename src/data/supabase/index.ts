@@ -193,7 +193,7 @@ function toProduct(r: Row): Product {
     validityDays: retail ? undefined : nullableNum(r.validity_days),
     billingInterval: optStr(r.billing_interval) as Product['billingInterval'],
     newClientsOnly: r.new_clients_only === undefined ? undefined : bool(r.new_clients_only),
-    classTypeIds: ids(r.class_type_ids),
+    classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined,
     stock: retail ? nullableNum(r.stock) : undefined,
   });
 }
@@ -211,7 +211,7 @@ function toPass(r: Row): Pass {
     credits: nullableNum(r.credits), creditsUsed: num(r.credits_used),
     billingInterval: optStr(r.billing_interval) as Pass['billingInterval'],
     nextBillingAt: optIso(r.next_billing_at), pausedFrom: optDate(r.paused_from), pausedUntil: optDate(r.paused_until),
-    priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), adjustments: adj.length ? adj : undefined,
+    priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined, adjustments: adj.length ? adj : undefined,
   });
 }
 
@@ -1202,6 +1202,7 @@ class SupabaseStore implements DataStore {
         ['validity_days', p.kind === 'retail' ? null : p.validityDays ?? null],
         ['billing_interval', p.kind === 'membership' ? p.billingInterval ?? 'week' : null], ['new_clients_only', !!p.newClientsOnly],
         ['class_type_ids', p.classTypeIds && p.classTypeIds.length ? p.classTypeIds : null], ['stock', p.kind === 'retail' ? p.stock ?? null : null],
+        ['no_classes', p.kind !== 'retail' && !!p.noClasses],
       ]);
       const r = p.id
         ? await this.one(this.sb.from('products').update(row).eq('id', p.id).select('*'), 'You don’t have permission to edit products.', 'NOT_ALLOWED')

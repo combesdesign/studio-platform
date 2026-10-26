@@ -240,7 +240,7 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
       </div>
       <div className="pass-name">{p.name}</div>
       <div className="pass-credit">
-        {summary ? summary.label : p.credits == null ? 'Unlimited' : p.kind === 'membership' ? `${p.credits} per week` : `${left} of ${p.credits} left`}
+        {summary ? summary.label : p.noClasses ? 'Online only' : p.credits == null ? 'Unlimited' : p.kind === 'membership' ? `${p.credits} per week` : `${left} of ${p.credits} left`}
       </div>
       {left != null && <div className="pass-bar"><span style={{ width: pct + '%' }} /></div>}
       <div className="pass-meta">

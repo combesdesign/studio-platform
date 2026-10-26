@@ -94,6 +94,7 @@ export function daysLeft(iso?: string | null): number | null {
 }
 
 export function perClass(p: Product): string | null {
+  if (p.noClasses) return 'Online classes only';
   if (p.kind === 'membership') {
     if (p.credits == null) return 'Unlimited classes';
     return `${money(Math.round(p.priceCents / p.credits), { cents: true })} per class`;
@@ -106,6 +107,7 @@ export function perClass(p: Product): string | null {
 }
 
 export function productWhat(p: Product): string {
+  if (p.noClasses) return 'The online class library, no studio classes';
   if (p.kind === 'intro') return `${p.validityDays ?? 14} days of unlimited classes, from your first booking`;
   if (p.kind === 'membership') return p.credits == null ? 'Unlimited classes every week' : `${p.credits} class${p.credits === 1 ? '' : 'es'} every week (Mon – Sun)`;
   if (p.kind === 'pack' || p.kind === 'dropin') {

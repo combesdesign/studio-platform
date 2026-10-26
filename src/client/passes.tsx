@@ -152,6 +152,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
 // ------------------------------------------------------------------ my passes
 function passLabel(p: Pass, s?: CreditSummary): string {
   if (s) return s.label;
+  if (p.noClasses) return 'Online only';
   if (p.credits == null) return 'Unlimited';
   if (p.kind === 'membership') return `${p.credits} per week`;
   return `${Math.max(0, p.credits - p.creditsUsed)} of ${p.credits} left`;

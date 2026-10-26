@@ -136,13 +136,13 @@ function seedSlice(studio: Studio, state: DemoState, now: Date, newId: (p: strin
   if (harbour) {
     if (state.products.some((p) => p.id === 'hb_pr_mu')) out.productIds.push('hb_pr_mu');
   } else if (list.length) {
-    // "Online membership": a monthly product that includes the library. Limited to a class type that has no sessions,
-    // so it never gives studio class credits.
+    // "Online membership": a monthly product that includes the library. Flagged noClasses, so it never gives studio class
+    // credits and never shows as "Unlimited".
     if (!state.products.some((p) => p.id === 'pr_online')) {
       const online: Product = {
         id: 'pr_online', kind: 'membership', name: 'Online membership',
         description: 'The whole on-demand library, any time: Mums + Bubs, core, stretch and full body classes to do at home. Doesn\'t include studio classes.',
-        priceCents: 1900, credits: null, validityDays: null, billingInterval: 'month', classTypeIds: ['ct_online'], active: true, sortOrder: 14, highlight: 'Online',
+        priceCents: 1900, credits: null, validityDays: null, billingInterval: 'month', noClasses: true, active: true, sortOrder: 14, highlight: 'Online',
       };
       state.products.push(online);
     }

@@ -185,6 +185,7 @@ export function Pos({ clientId }: { clientId?: string }) {
 }
 
 function passBlurb(p: Product): string {
+  if (p.noClasses) return 'Online classes only';
   if (p.kind === 'membership') return p.credits == null ? 'Unlimited classes' : `${p.credits} class${p.credits === 1 ? '' : 'es'} a week`;
   if (p.kind === 'intro') return `Unlimited for ${p.validityDays ?? 14} days`;
   const c = p.credits ?? 1;

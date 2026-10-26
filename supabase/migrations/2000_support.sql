@@ -5,8 +5,7 @@
 -- There are no problem categories: a request is free text, an urgent flag and the context the app attaches (route, app version, browser).
 -- Writes go through the RPCs below. The staff apps read the tables (RLS). The one platform-wide table (support_status) has no studio.
 --
--- Urgent requests: there is no generic outbox that can email a platform address (the outboxes are per studio and per kind), so this
--- migration does not queue an email. See NOTES.md > support for the one-line database webhook that alerts Pete's phone.
+-- Urgent requests are emailed to the platform by 2001_support_alert_outbox.sql (a platform-level outbox and a trigger on this table).
 
 -- ---------------------------------------------------------------- requests
 create table public.support_requests (

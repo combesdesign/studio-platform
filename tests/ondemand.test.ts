@@ -144,3 +144,39 @@ test('demo: Snowy and Harbour libraries are separate', async () => {
   const sb = (await b.s.features.ondemand!.adminList()).map((v) => v.id);
   assert.ok(sa.every((id) => !sb.includes(id)));
 });
+
+// ---------------------------------------------------------------- online-only (noClasses) products
+import { baseState, harness, mkClient, mkSession, asClient, rejects } from './helpers';
+import { checkPassForSession, creditLabel, isUnlimited } from '../src/domain/rules';
+import type { Product } from '../src/shared/types';
+
+test('online-only: a noClasses pass is never unlimited credit and never pays for a class (rules)', () => {
+  const p = pass({ noClasses: true });
+  assert.equal(isUnlimited(p), false);
+  assert.equal(creditLabel(p, null), 'Online only');
+  const e = checkPassForSession({ pass: p, session: { startsAt: '2026-10-20T08:00:00Z', classTypeId: 'ct_mat' }, uses: [], now: new Date('2026-10-15T00:00:00Z') });
+  assert.equal(e.eligible, false);
+  assert.equal(creditLabel(pass(), null), 'Unlimited', 'a normal unlimited membership still says Unlimited');
+});
+
+test('online-only: Snowy\'s seeded Online membership is flagged, and a member holding only it can\'t book and doesn\'t see "Unlimited"', async () => {
+  const o = await open('snowy');
+  await o.as(o.personas.find((u) => u.kind === 'staff' && u.role === 'owner')!);
+  const online = (await o.s.listProducts({ includeInactive: true })).find((p) => p.id === 'pr_online');
+  assert.equal(online?.noClasses, true);
+
+  const NOW = new Date('2026-10-19T08:00:00+11:00');
+  const online2: Product = { ...online! };
+  const h = await harness(baseState({
+    clients: [mkClient('a', 'Ava')], products: [online2],
+    sessions: [mkSession('mat', '2026-10-21', '09:00')],
+  }), NOW);
+  await h.give('a', 'pr_online');
+  await h.as(asClient('a'));
+  const summary = await h.store.getCreditSummary('a');
+  assert.equal(summary.length, 1);
+  assert.equal(summary[0]!.label, 'Online only');
+  assert.ok(summary[0]!.pass.noClasses, 'the pass carries the flag, so the timetable pill ignores it (shows "Get a pass")');
+  assert.equal((await h.store.getCreditSummary('a', 'mat')).length, 0, 'nothing to book this class with');
+  await rejects(h.store.bookClass('a', 'mat'), 'NO_CREDITS');
+});

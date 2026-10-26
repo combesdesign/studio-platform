@@ -15,7 +15,7 @@ export const SUPPORT_TARGET_HOURS = 2;
 export const SUPPORT_CLOSED_DATES: readonly string[] = [];
 /** Who answers, as the studio sees it ("Pete will reply by..."). */
 export const SUPPORT_NAME = 'Pete';
-/** Where urgent requests should be emailed (see NOTES.md › support: needs an outbox drain). */
+/** Shown to studios. Urgent requests are emailed to the SUPPORT_ALERT_EMAIL edge-function secret (2001_support_alert_outbox.sql). */
 export const SUPPORT_EMAIL = 'support@studioplatform.app';
 /** Shown in the context sent with each request. Bump with releases. */
 export const APP_VERSION = '0.1.0';
