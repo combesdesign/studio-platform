@@ -10,6 +10,7 @@ import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useA
 import { Receipt, ReceiptSkeleton } from './passes';
 import { squarePhoto } from '../shared/photo';
 import { Policies } from './bookings';
+import { useDependants } from './family';
 import { dateShortNoDay, goFlow, isIOS, isNative, isStandalone, mapsUrl, saveClient, staffRole } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -26,8 +27,9 @@ export function Profile({ nav }: { nav: Nav }) {
   const c = app.client;
   const [sheet, setSheet] = useState<'details' | 'history' | null>(null);
   const [savingOpt, setSavingOpt] = useState(false);
+  const family = useDependants();
   const sales = useData(() => store.listSales({ from: '2000-01-01', to: studioDate(), clientId: c.id }).catch(() => null), [c.id]);
-  const salesList = (sales.data ?? []).filter((s) => !s.clientId || s.clientId === c.id);
+  const salesList = (sales.data ?? []).filter((s) => !s.clientId || s.clientId === c.id || family.deps.some((d) => d.id === s.clientId));   // yours, and what you bought for your family
 
   const setOptIn = async (v: boolean) => {
     setSavingOpt(true);
@@ -76,6 +78,16 @@ export function Profile({ nav }: { nav: Nav }) {
             </span>
             {c.waiverSignedAt ? <Icon name="chevron" size={18} className="faint" /> : <span className="tag warn">To do</span>}
           </button>
+          {store.listDependants && (
+            <button className="list-row" onClick={() => goFlow(nav, '/family', { label: 'Profile', where: '/profile' })}>
+              <span className="row-ic"><Icon name="users" size={20} /></span>
+              <span className="list-row-main">
+                <span className="list-row-title">Family</span>
+                <span className="list-row-sub">{family.deps.length ? family.deps.map((d) => d.firstName).join(', ') : 'Add kids or a partner to book for them'}</span>
+              </span>
+              <Icon name="chevron" size={18} className="faint" />
+            </button>
+          )}
           {sales.data !== null && (
             <button className="list-row" onClick={() => setSheet('history')}>
               <span className="row-ic"><Icon name="receipt" size={20} /></span>

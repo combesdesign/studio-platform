@@ -9,6 +9,7 @@ import { Sheet, errorMessage, leaveSheets, store, useBackHandler, useData, useTo
 import { addDays, money, studioDate } from '../../../shared/format';
 import { Accent, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, SheetHead, useApp } from '../../../client/ui';
 import { goFlow, queryOf } from '../../../client/lib';
+import { WhosComing, creditLine, fullName, useDependants } from '../../../client/family';
 import { brandAsset } from '../../../shared/branding';
 import {
   KIND_LABEL, cancelNote, clock, creditsLeft, dayFull, dayLabel, dateOf, eventWhen, needAppts, pageBase, price, range, APPT_STATUS_LABEL,
@@ -61,9 +62,9 @@ async function tryCheckout(order: Parameters<NonNullable<ReturnType<typeof needA
 const returnUrl = () => `${pageBase()}#/appointments?paid=1`;
 const fakeCardDelay = () => new Promise((r) => setTimeout(r, 650));
 
-function WaiverNote({ nav, where }: { nav: Nav; where: string }) {
+function WaiverNote({ nav, where, dep }: { nav: Nav; where: string; /** Family: whose waiver (a dependant's is signed by the parent in Profile, then Family). */ dep?: { id: string; firstName: string } }) {
   return (
-    <div className="note cream"><Icon name="info" size={20} /><div>Please complete your waiver and health form first. <button className="link-btn inline" onClick={() => leaveSheets(() => goFlow(nav, '/waiver', { label: 'Privates and events', where }))}>Do it now</button></div></div>
+    <div className="note cream"><Icon name="info" size={20} /><div>{dep ? `${dep.firstName}’s waiver and health form needs signing first.` : 'Please complete your waiver and health form first.'} <button className="link-btn inline" onClick={() => leaveSheets(() => goFlow(nav, dep ? `/family?sign=${encodeURIComponent(dep.id)}&then=1` : '/waiver', { label: 'Privates and events', where }))}>Do it now</button></div></div>
   );
 }
 
@@ -186,7 +187,11 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
   const ap = needAppts();
   const today = studioDate();
   const slots = useData(() => ap.listSlots({ typeId: type.id, from: today, to: addDays(today, 27) }), [type.id]);
-  const credits = useData(() => ap.listCredits(app.client.id), [app.client.id]);
+  // Family accounts: a private is for one person, so "Who's it for?" is a single choice (me or a dependant)
+  const { deps } = useDependants();
+  const [forId, setForId] = useState<string | undefined>(undefined);
+  const forDep = forId ? deps.find((x) => x.id === forId) : undefined;
+  const credits = useData(() => ap.listCredits(forId ?? app.client.id), [app.client.id, forId]);
   const [staffId, setStaffId] = useState('');
   const [day, setDay] = useState('');
   const [sel, setSel] = useState<AppointmentSlot | null>(null);
@@ -222,7 +227,7 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
     setBusy(true);
     try {
       if (m === 'card_online') await fakeCardDelay();
-      const r = await ap.bookAppointment({ typeId: type.id, staffId: sel.staffId, startsAt: sel.startsAt, people, ...(note.trim() ? { note: note.trim() } : {}), pay: { method: m } });
+      const r = await ap.bookAppointment({ typeId: type.id, staffId: sel.staffId, startsAt: sel.startsAt, people, ...(forId ? { clientId: forId } : {}), ...(note.trim() ? { note: note.trim() } : {}), pay: { method: m } });
       setDone(r.appointment); setStep('done');
     } catch (e: any) {
       if (e?.code === 'WAIVER_REQUIRED') setWaiver(true); else toast(errorMessage(e));
@@ -233,7 +238,7 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
     if (effective === 'pack') return book('pack');
     setBusy(true);
     try {
-      const went = await tryCheckout({ kind: 'appointment', booking: { typeId: type.id, staffId: sel.staffId, startsAt: sel.startsAt, people, ...(note.trim() ? { note: note.trim() } : {}) }, returnUrl: returnUrl() });
+      const went = await tryCheckout({ kind: 'appointment', booking: { typeId: type.id, staffId: sel.staffId, startsAt: sel.startsAt, people, ...(note.trim() ? { note: note.trim() } : {}) }, ...(forId ? { clientId: forId } : {}), returnUrl: returnUrl() });
       if (!went) setStep('pay');
     } catch (e: any) {
       if (e?.code === 'WAIVER_REQUIRED') setWaiver(true); else toast(errorMessage(e));
@@ -258,7 +263,7 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
     return (
       <div className="stack lg ap-stack">
         <SheetHead back={{ label: 'Times', onClick: () => setStep('pick') }} eyebrow="Checkout" title={<>{money(total)} <span className="muted-serif">· {type.name}</span></>} onClose={onClose} />
-        {waiver && <WaiverNote nav={nav} where="/appointments" />}
+        {waiver && <WaiverNote nav={nav} where="/appointments" {...(forDep ? { dep: forDep } : {})} />}
         <PayStep amountCents={total} busy={busy} onPay={() => book('card_online')} note={`${dayFull(sel.startsAt)}, ${clock(sel.startsAt)} with ${staffName(sel.staffId)}`} />
       </div>
     );
@@ -268,7 +273,7 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
       <SheetHead eyebrow={`${type.durationMin} min · ${type.capacity === 2 ? 'Up to 2 people' : '1 person'}`} title={type.name} onClose={onClose} />
       {type.description && <p className="muted">{type.description}</p>}
       {type.bookingNote && <div className="note cream"><Icon name="info" size={20} /><div>{type.bookingNote}</div></div>}
-      {waiver && <WaiverNote nav={nav} where="/appointments" />}
+      {waiver && <WaiverNote nav={nav} where="/appointments" {...(forDep ? { dep: forDep } : {})} />}
       {slots.error && !slots.data ? <ErrorBlock error={slots.error} onRetry={slots.reload} /> : !slots.data ? <CardSkeletons n={2} h={64} /> : (
         <>
           {staffNames.length > 1 && (
@@ -298,11 +303,16 @@ function BookBody({ type, nav, onClose, onDone }: { type: AppointmentType; nav: 
           )}
           {sel && (
             <>
+              {deps.length > 0 && (
+                <WhosComing single title="Who’s coming?" selected={[forId ?? app.client.id]} onChange={([id]) => { setForId(id === app.client.id ? undefined : id); setWaiver(false); }}
+                  options={[{ id: app.client.id, name: `${app.client.firstName} (you)`, ...(app.client.photoUrl ? { photoUrl: app.client.photoUrl } : {}) },
+                    ...deps.map((x) => ({ id: x.id, name: fullName(x), ...(x.waiverSignedAt ? {} : { flag: 'Waiver needed' }), ...(x.photoUrl ? { photoUrl: x.photoUrl } : {}) }))]} />
+              )}
               {type.capacity === 2 && (
-                <div className="group"><div className="group-label">Who’s coming</div>
+                <div className="group"><div className="group-label">{forDep ? `${forDep.firstName} and a friend` : 'Who’s coming'}</div>
                   <div className="ap-opts">
-                    <button className="ap-opt" aria-pressed={people === 1} onClick={() => setPeople(1)}>Just me</button>
-                    <button className="ap-opt" aria-pressed={people === 2} onClick={() => setPeople(2)}>Me and a friend</button>
+                    <button className="ap-opt" aria-pressed={people === 1} onClick={() => setPeople(1)}>{forDep ? `Just ${forDep.firstName}` : 'Just me'}</button>
+                    <button className="ap-opt" aria-pressed={people === 2} onClick={() => setPeople(2)}>{forDep ? `${forDep.firstName} and a friend` : 'Me and a friend'}</button>
                   </div>
                 </div>
               )}
@@ -375,34 +385,62 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
   const [busy, setBusy] = useState(false);
   const [waiver, setWaiver] = useState(false);
   const [outcome, setOutcome] = useState<string>('');
+  // Family accounts: tick who's coming (a paid online checkout in live mode is one person at a time), and cancel a dependant's spot
+  const { deps } = useDependants();
+  const [who, setWho] = useState<string[] | null>(null);
+  const [ctarget, setCtarget] = useState<{ id: string; name: string } | null>(null);
+  const famRegs = useData(() => (deps.length ? ap.listRegistrations({ clientId: app.client.id }) : Promise.resolve([] as EventRegistration[])), [id, deps.length, ev.data?.spotsLeft]);
   useBackHandler(step === 'pay', () => setStep('view'));
   const e: StudioEventSummary | undefined = ev.data;
   if (!e) return <div className="stack lg ap-stack"><SheetHead onClose={onClose} />{ev.error ? <ErrorBlock error={ev.error} onRetry={ev.reload} /> : <CardSkeletons n={2} h={90} />}</div>;
 
   const started = Date.now() >= Date.parse(eventStart(e));
   const full = e.spotsLeft <= 0;
+  const me = app.client.id;
+  const famIn = (famRegs.data ?? []).filter((r) => r.eventId === e.id && r.status === 'registered' && r.clientId !== me);
+  const options = [
+    ...(e.mine ? [] : [{ id: me, name: `${app.client.firstName} (you)`, ...(app.client.photoUrl ? { photoUrl: app.client.photoUrl } : {}) }]),
+    ...deps.filter((x) => !famIn.some((r) => r.clientId === x.id)).map((x) => ({ id: x.id, name: fullName(x), ...(x.waiverSignedAt ? {} : { flag: 'Waiver needed' }), ...(x.photoUrl ? { photoUrl: x.photoUrl } : {}) })),
+  ];
+  const onePerCheckout = store.mode === 'live' && e.priceCents > 0;
+  const picked = (who ?? (e.mine ? [] : [me])).filter((x) => options.some((o) => o.id === x));
+  const sel = onePerCheckout ? picked.slice(0, 1) : picked;
+  const showWho = deps.length > 0 && options.length > 0;
+  const signUp = deps.length > 0 ? sel : [me];
+  const total = e.priceCents * Math.max(1, signUp.length);
+  const nameOf = (cid: string) => (cid === me ? 'you' : deps.find((x) => x.id === cid)?.firstName ?? 'them');
+  const unsigned = deps.find((x) => signUp.includes(x.id) && !x.waiverSignedAt);
   const register = async (viaCard: boolean) => {
+    if (unsigned) { leaveSheets(() => goFlow(nav, `/family?sign=${encodeURIComponent(unsigned.id)}&then=1`, { label: 'Privates and events', where: '/appointments?tab=events' })); return; }
+    if (signUp.length > e.spotsLeft) { toast(e.spotsLeft === 1 ? 'There’s only 1 spot left.' : `There are only ${e.spotsLeft} spots left.`); return; }
     setBusy(true);
     try {
       if (viaCard) await fakeCardDelay();
-      await ap.register({ eventId: e.id, method: 'card_online' });
-      setStep('done'); ev.reload();
+      for (const cid of signUp) await ap.register({ eventId: e.id, ...(cid !== me ? { clientId: cid } : {}), method: 'card_online' });
+      if (signUp.length > 1 || signUp[0] !== me) setOutcome('');
+      setStep('done'); setWho(null); ev.reload(); famRegs.reload();
     } catch (x: any) {
       if (x?.code === 'WAIVER_REQUIRED') setWaiver(true); else toast(errorMessage(x));
     } finally { setBusy(false); }
   };
   const start = async () => {
     if (e.priceCents === 0) return register(false);
+    if (unsigned) return register(false);
     setBusy(true);
-    try { if (!(await tryCheckout({ kind: 'event', eventId: e.id, returnUrl: returnUrl() }))) setStep('pay'); }
+    try {
+      const cid = signUp[0] !== me ? signUp[0] : undefined;
+      if (!(await tryCheckout({ kind: 'event', eventId: e.id, ...(cid ? { clientId: cid } : {}), returnUrl: returnUrl() }))) setStep('pay');
+    }
     catch (x: any) { if (x?.code === 'WAIVER_REQUIRED') setWaiver(true); else toast(errorMessage(x)); }
     finally { setBusy(false); }
   };
+  const target = ctarget ?? (e.mine ? { id: e.mine.id, name: '' } : null);
   const cancel = async () => {
-    if (!e.mine) return;
+    if (!target) return;
     setBusy(true);
     try {
-      const r = await ap.cancelRegistration(e.mine.id);
+      const r = await ap.cancelRegistration(target.id);
+      setCtarget(null);
       setOutcome(r.late ? 'Cancelled. It was inside the refund window, so your payment isn’t returned.' : r.refundDue ? 'Cancelled. The studio will refund what you paid.' : 'Cancelled.');
       setStep('done'); ev.reload();
     } catch (x) { toast(errorMessage(x)); } finally { setBusy(false); }
@@ -417,7 +455,7 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
   if (step === 'pay') {
     return (<div className="stack lg ap-stack"><SheetHead back={{ label: e.title, onClick: () => setStep('view') }} eyebrow="Checkout" title={<>{money(e.priceCents)} <span className="muted-serif">· {e.title}</span></>} onClose={onClose} />
       {waiver && <WaiverNote nav={nav} where="/appointments?tab=events" />}
-      <PayStep amountCents={e.priceCents} busy={busy} onPay={() => register(true)} /></div>);
+      <PayStep amountCents={total} busy={busy} onPay={() => register(true)} note={signUp.length > 1 ? `${signUp.length} spots · ${signUp.map(nameOf).join(', ')}` : undefined} /></div>);
   }
   return (
     <div className="stack lg ap-stack">
@@ -429,21 +467,29 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
       </ul>
       <div className="ap-meta"><span>{price(e.priceCents)}{e.sessions.length > 1 && e.priceCents > 0 ? ' for all sessions' : ''}</span>{e.location && <span>{e.location}</span>}<span>{full ? 'Full' : `${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left`}</span></div>
       {waiver && <WaiverNote nav={nav} where="/appointments?tab=events" />}
-      {e.mine ? (
+      {e.mine && <div className="note ok"><Icon name="check" size={20} /><div>You’re registered{e.mine.payment.amountCents > 0 ? ` and paid ${money(e.mine.payment.amountCents, { cents: true })}` : ''}.</div></div>}
+      {famIn.map((r) => (
+        <div key={r.id} className="note ok fam-row"><Icon name="check" size={20} /><div>{r.clientName.split(' ')[0]} is registered.</div>
+          {!started && <button className="btn sm soft" aria-label={`Cancel ${r.clientName.split(' ')[0]}’s spot`} onClick={() => { setCtarget({ id: r.id, name: r.clientName.split(' ')[0]! }); setStep('cancel'); }}>Cancel</button>}
+        </div>
+      ))}
+      {step === 'cancel' && target && (
+        <div className="stack">
+          <p className="muted">{cancelNote(eventStart(e), e.refundCutoffHours, 'payment')}</p>
+          <button className="btn danger-solid block" disabled={busy} onClick={cancel}>{busy ? 'Cancelling…' : target.name ? `Yes, cancel ${target.name}’s spot` : 'Yes, cancel my spot'}</button>
+          <button className="btn ghost block" onClick={() => { setCtarget(null); setStep('view'); }}>Keep the spot</button>
+        </div>
+      )}
+      {step !== 'cancel' && e.mine && !started && <button className="btn ghost block" onClick={() => { setCtarget(null); setStep('cancel'); }}>Cancel my spot</button>}
+      {step !== 'cancel' && (!e.mine || showWho) && (
         <>
-          <div className="note ok"><Icon name="check" size={20} /><div>You’re registered{e.mine.payment.amountCents > 0 ? ` and paid ${money(e.mine.payment.amountCents, { cents: true })}` : ''}.</div></div>
-          {step === 'cancel' ? (
-            <div className="stack">
-              <p className="muted">{cancelNote(eventStart(e), e.refundCutoffHours, 'payment')}</p>
-              <button className="btn danger-solid block" disabled={busy} onClick={cancel}>{busy ? 'Cancelling…' : 'Yes, cancel my spot'}</button>
-              <button className="btn ghost block" onClick={() => setStep('view')}>Keep my spot</button>
-            </div>
-          ) : !started && <button className="btn ghost block" onClick={() => setStep('cancel')}>Cancel my spot</button>}
-        </>
-      ) : (
-        <>
-          <p className="ap-fine">{e.priceCents > 0 ? cancelNote(eventStart(e), e.refundCutoffHours, 'payment').replace('Free to cancel', 'Full refund if you cancel') : 'Free to join. Please cancel if you can’t make it so someone else can come.'}</p>
-          <button className="btn block big" disabled={busy || full || started} onClick={start}>{started ? 'Sign-up has closed' : full ? 'Sorry, this one is full' : busy ? 'One moment…' : e.priceCents === 0 ? 'Save my spot' : `Sign up for ${money(e.priceCents)}`}</button>
+          {showWho && !started && !full && <WhosComing options={options} selected={sel} onChange={setWho} single={onePerCheckout} />}
+          {!e.mine && <p className="ap-fine">{e.priceCents > 0 ? cancelNote(eventStart(e), e.refundCutoffHours, 'payment').replace('Free to cancel', 'Full refund if you cancel') : 'Free to join. Please cancel if you can’t make it so someone else can come.'}</p>}
+          {(!e.mine || showWho) && (
+            <button className="btn block big" disabled={busy || full || started || (showWho && sel.length === 0)} onClick={start}>
+              {started ? 'Sign-up has closed' : full ? 'Sorry, this one is full' : busy ? 'One moment…' : showWho && sel.length === 0 ? 'Choose who’s coming' : e.priceCents === 0 ? (signUp.length > 1 ? `Save ${signUp.length} spots` : 'Save my spot') : `Sign up for ${money(total)}`}
+            </button>
+          )}
         </>
       )}
     </div>
@@ -496,14 +542,14 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
           <div className="list-card">
             {upcoming.map((a) => (
               <button key={a.id} className="list-row" onClick={() => setOpen(a)}><span className="row-ic"><Icon name="calendar" size={20} /></span>
-                <span className="list-row-main"><span className="list-row-title">{a.typeName}{a.people > 1 ? ' · 2 people' : ''}</span>
+                <span className="list-row-main"><span className="list-row-title">{a.typeName}{a.people > 1 ? ' · 2 people' : ''}{a.clientId !== app.client.id ? ` · ${a.clientName.split(' ')[0]}` : ''}</span>
                   <span className="list-row-sub">{dayLabel(a.startsAt)}, {clock(a.startsAt)} with {a.staffName.split(' ')[0]}</span></span><Icon name="chevron" size={18} /></button>
             ))}
             {myRegs.map((r) => {
               const e = events.find((x) => x.id === r.eventId);
               return (
                 <div key={r.id} className="list-row" style={{ cursor: 'default' }}><span className="row-ic"><Flower size={20} /></span>
-                  <span className="list-row-main"><span className="list-row-title">{r.eventTitle}</span>
+                  <span className="list-row-main"><span className="list-row-title">{r.eventTitle}{r.clientId !== app.client.id ? ` · ${r.clientName.split(' ')[0]}` : ''}</span>
                     <span className="list-row-sub">{e ? eventWhen(e) : dayLabel(r.startsAt)}</span></span>
                   <button className="btn soft sm" onClick={() => nav('/appointments?tab=events')}>Details</button></div>
               );

@@ -15,6 +15,7 @@ import { Bookings } from './bookings';
 import { Passes } from './passes';
 import { Profile, captureInstallPrompt } from './profile';
 import { Waiver } from './waiver';
+import { Family } from './family';
 import { Ctx, ErrorBlock, Flower, Icon, Logo } from './ui';
 import type { AppCtx } from './ui';
 import {
@@ -162,6 +163,7 @@ function SignedIn({ user, path, nav, refreshAuth }: { user: Extract<AuthUser, { 
   let m: Record<string, string> | null = null;
   const feature = clientRoutesList().find((r) => (m = match(r.path, p)));
   if (p === '/waiver') { screen = <Waiver nav={nav} path={path} />; chrome = false; }
+  else if (p === '/family') { screen = <Family nav={nav} path={path} />; chrome = false; }
   else if (p === '/bookings') { screen = <Bookings nav={nav} />; tab = p; }
   else if (p === '/passes') { screen = <Passes nav={nav} path={path} />; tab = p; }
   else if (p === '/profile') { screen = <Profile nav={nav} />; tab = p; }

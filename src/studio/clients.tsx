@@ -46,7 +46,7 @@ export function Clients() {
           {list.map((c) => (
             <a key={c.id} href={`#/clients/${c.id}`} className="crow">
               <Avatar name={fullName(c)} photo={c.photoUrl} size={44} />
-              <span className="cr-name"><strong>{fullName(c)}</strong><span className="cr-sub">{c.email}</span></span>
+              <span className="cr-name"><strong>{fullName(c)}</strong><span className="cr-sub">{c.guardianName ? <><em className="via-tag">via {c.guardianName}</em>{c.email}</> : c.email}</span></span>
               <span className="cr-phone">{c.phone ?? <span className="faint">No phone</span>}</span>
               <span className="cr-flags">
                 {!c.waiverSignedAt && <span className="chip danger">No waiver</span>}
@@ -65,7 +65,7 @@ export function Clients() {
 }
 
 // ------------------------------------------------------------------ profile
-type Prof = { client: Client; passes: Pass[]; credits: CreditSummary[]; upcoming: BookingWithDetails[]; past: BookingWithDetails[] };
+type Prof = { client: Client; passes: Pass[]; credits: CreditSummary[]; upcoming: BookingWithDetails[]; past: BookingWithDetails[]; deps: Client[]; parent?: Client };
 export function ClientProfile({ id }: { id: string }) {
   const { can } = useStudio();
   const { run } = useAction();
@@ -75,10 +75,13 @@ export function ClientProfile({ id }: { id: string }) {
       store.getClient(id), store.listPasses(id, { includeInactive: true }), store.getCreditSummary(id),
       store.listClientBookings(id, { when: 'upcoming' }), store.listClientBookings(id, { when: 'past' }),
     ]);
-    return { client, passes, credits, upcoming, past };
+    // family accounts: a parent's dependants, or a dependant's parent
+    const deps = client.guardianClientId || !store.listDependants ? [] : await store.listDependants(id);
+    const parent = client.guardianClientId ? await store.getClient(client.guardianClientId).catch(() => undefined) : undefined;
+    return { client, passes, credits, upcoming, past, deps, ...(parent ? { parent } : {}) };
   }, [id]);
   const sales = useData(() => (can('salesView') ? store.listSales({ from: '2000-01-01', to: addDays(today, 1), clientId: id }) : Promise.resolve([] as Sale[])), [id, today]);
-  const [sheet, setSheet] = useState<null | 'edit' | 'book' | 'waiver'>(null);
+  const [sheet, setSheet] = useState<null | 'edit' | 'book' | 'waiver' | 'dependant'>(null);
   const [passSheet, setPassSheet] = useState<{ kind: 'adjust' | 'pause' | 'cancel'; pass: Pass } | null>(null);
   const [refund, setRefund] = useState<Sale | null>(null);
   const [voiding, setVoiding] = useState<Sale | null>(null);
@@ -93,7 +96,7 @@ export function ClientProfile({ id }: { id: string }) {
   }, { href: '#/clients', label: 'Clients' });
   if (res.error) return <div className="profile"><BackLink {...back} className="ph-back" /><div className="card pad" style={{ marginTop: 24 }}><Empty title="Client not found"><a href="#/clients">Back to clients</a></Empty></div></div>;
   if (!res.data) return <div className="profile"><BackLink {...back} className="ph-back" /><Loading /></div>;
-  const { client: c, passes, credits, upcoming, past } = res.data;
+  const { client: c, passes, credits, upcoming, past, deps, parent } = res.data;
   const injuries = c.injuries || c.healthForm?.injuries;
   const nowD = new Date();
   const activePasses = passes.filter((p) => isPassCurrent(p, nowD));
@@ -112,6 +115,7 @@ export function ClientProfile({ id }: { id: string }) {
             {c.waiverSignedAt ? <span className="chip ok"><Icon name="check" size={14} />Waiver signed</span> : <button className="chip danger flag" onClick={() => setSheet('waiver')} disabled={!can('waiver')}><Icon name="doc" size={14} />No waiver</button>}
             {injuries && <span className="chip warn"><Icon name="injury" size={14} />Injury noted</span>}
             {c.healthForm?.pregnantOrPostnatal && <span className="chip cream">Pregnant / postnatal</span>}
+            {c.guardianClientId && <a className="chip navy" href={`#/clients/${c.guardianClientId}`}><Icon name="users" size={14} />Dependant of {c.guardianName ?? 'parent'}</a>}
             <span className="chip">Client since {new Date(c.createdAt).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' })}</span>
             {c.archived && <span className="chip">Archived</span>}
           </div>
@@ -136,7 +140,10 @@ export function ClientProfile({ id }: { id: string }) {
           <Slot name="client.profile" props={{ client: c }} can={can} />
           <section className="card pad">
             <div className="sec-head"><h3>Passes</h3>{can('pos') && <a className="linkish" href={`#/pos/${c.id}`}>Sell a pass<Icon name="right" size={16} /></a>}</div>
-            {activePasses.length === 0 && <p className="muted">No active passes. {can('pos') && <a href={`#/pos/${c.id}`}>Sell one</a>}</p>}
+            {activePasses.length === 0 && <p className="muted">No active passes of their own. {can('pos') && <a href={`#/pos/${c.id}`}>Sell one</a>}</p>}
+            {c.guardianClientId && credits.filter((x) => x.pass.clientId !== c.id).length > 0 && (
+              <p className="small muted" style={{ marginTop: 8 }}>Can also use {c.guardianName ?? 'their parent'}’s: {credits.filter((x) => x.pass.clientId !== c.id).map((x) => `${x.pass.name} (${x.label})`).join(', ')}</p>
+            )}
             <div className="passes">
               {activePasses.map((p) => <PassCard key={p.id} p={p} summary={credits.find((x) => x.pass.id === p.id)} onAction={(kind) => setPassSheet({ kind, pass: p })} />)}
             </div>
@@ -191,13 +198,41 @@ export function ClientProfile({ id }: { id: string }) {
           <section className="card pad">
             <div className="sec-head"><h3>Details</h3>{can('editClients') && <button className="linkish" onClick={() => setSheet('edit')}>Edit</button>}</div>
             <dl className="dl">
-              <dt>Email</dt><dd><a href={`mailto:${c.email}`}>{c.email}</a></dd>
+              {(c.email || !c.guardianClientId) && <><dt>Email</dt><dd>{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : <span className="faint">Not added</span>}</dd></>}
               <dt>Mobile</dt><dd>{c.phone ? <a href={`tel:${c.phone}`}>{c.phone}</a> : <span className="faint">Not added</span>}</dd>
               <dt>Birthday</dt><dd>{c.birthday ? `${new Date(c.birthday + 'T00:00:00').toLocaleDateString(LOCALE, { day: 'numeric', month: 'long' })}${age ? ` (${age})` : ''}` : <span className="faint">Not added</span>}</dd>
               <dt>Emergency</dt><dd>{c.emergencyContactName ? `${c.emergencyContactName}${c.emergencyContactPhone ? ', ' + c.emergencyContactPhone : ''}` : <span className="faint">Not added</span>}</dd>
               <dt>Marketing</dt><dd>{c.marketingOptIn ? 'Happy to get news' : 'No marketing emails'}</dd>
             </dl>
           </section>
+
+          {parent && (
+            <section className="card pad fam-card">
+              <div className="sec-head"><h3>Parent or <em>guardian</em></h3></div>
+              <a className="fam-parent fam-link" href={`#/clients/${parent.id}`}>
+                <Avatar name={fullName(parent)} photo={parent.photoUrl} size={44} />
+                <span className="fl-t"><strong>{fullName(parent)}</strong><span>{[parent.phone, parent.email].filter(Boolean).join(' · ') || 'No contact details'}</span></span>
+                <Icon name="right" size={18} className="faint" />
+              </a>
+              <p className="small muted" style={{ marginTop: 8 }}>Books and pays for {c.firstName}, and signed their waiver.</p>
+            </section>
+          )}
+          {!c.guardianClientId && (deps.length > 0 || (can('editClients') && store.saveDependant)) && (
+            <section className="card pad fam-card">
+              <div className="sec-head"><h3>Family</h3>{can('editClients') && store.saveDependant && <button className="linkish" onClick={() => setSheet('dependant')}>Add dependant</button>}</div>
+              {deps.length === 0 ? <p className="small muted">No dependants. Kids or a partner without a login can be added here, or by {c.firstName} in the app (Profile, then Family).</p> : (
+                <div className="fam-list">
+                  {deps.map((d) => (
+                    <a key={d.id} className="fam-link" href={`#/clients/${d.id}`}>
+                      <Avatar name={fullName(d)} photo={d.photoUrl} size={40} />
+                      <span className="fl-t"><strong>{fullName(d)}</strong><span>{d.waiverSignedAt ? 'Waiver signed' : 'No waiver'}{d.injuries ? ' · notes added' : ''}</span></span>
+                      <Icon name="right" size={18} className="faint" />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
 
           <section className="card pad">
             <div className="sec-head"><h3>Health &amp; <em>waiver</em></h3>{can('waiver') && <button className="linkish" onClick={() => setSheet('waiver')}>{c.waiverSignedAt ? 'Update' : 'Record'}</button>}</div>
@@ -215,6 +250,7 @@ export function ClientProfile({ id }: { id: string }) {
       </div>
 
       {sheet === 'edit' && <EditClientSheet c={c} onClose={() => setSheet(null)} />}
+      {sheet === 'dependant' && <AddDependantSheet parent={c} onClose={() => setSheet(null)} />}
       <BookClientSheet open={sheet === 'book'} onClose={() => setSheet(null)} client={c} />
       <WaiverSheet open={sheet === 'waiver'} onClose={() => setSheet(null)} client={c} />
       {passSheet?.kind === 'adjust' && <AdjustSheet p={passSheet.pass} onClose={() => setPassSheet(null)} />}
@@ -309,6 +345,28 @@ function NotesCard({ c }: { c: Client }) {
       <textarea className="textarea" value={v} onChange={(e) => setV(e.target.value)} placeholder="Preferences, payment arrangements, anything the team should know" rows={4} />
       {dirty && <div className="row" style={{ marginTop: 10, justifyContent: 'flex-end' }}><button className="btn sm ghost" onClick={() => setV(c.staffNotes ?? '')}>Discard</button><button className="btn sm" onClick={save} disabled={busy}>Save notes</button></div>}
     </section>
+  );
+}
+
+function AddDependantSheet({ parent, onClose }: { parent: Client; onClose: () => void }) {
+  const [v, setV] = useState({ firstName: '', lastName: '', birthday: '', injuries: '' });
+  const { busy, run } = useAction();
+  const f = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value });
+  const save = async () => {
+    if (await run(() => store.saveDependant!(parent.id, { firstName: v.firstName, lastName: v.lastName, birthday: v.birthday || undefined, injuries: v.injuries || undefined }), `${v.firstName.trim()} added to ${parent.firstName}’s family`)) onClose();
+  };
+  return (
+    <Sheet open onClose={onClose} label="Add dependant">
+      <SheetHead title={<>Add a <em>dependant</em></>} sub={`Booked and paid for by ${fullName(parent)}. No login or email of their own.`} onClose={onClose} />
+      <div className="form-grid">
+        <label className="field"><span>First name</span><input className="input" value={v.firstName} onChange={f('firstName')} /></label>
+        <label className="field"><span>Last name</span><input className="input" value={v.lastName} placeholder={parent.lastName} onChange={f('lastName')} /></label>
+        <label className="field"><span>Date of birth (optional)</span><input className="input" type="date" value={v.birthday} onChange={f('birthday')} /></label>
+        <span />
+        <label className="field span2"><span>Notes or injuries (shown on rosters)</span><textarea className="textarea" rows={2} value={v.injuries} onChange={f('injuries')} /></label>
+      </div>
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy || !v.firstName.trim()}>Add</button></div>
+    </Sheet>
   );
 }
 

@@ -654,3 +654,36 @@ h1, h2, h3 { letter-spacing: -.025em; line-height: .98; text-wrap: balance; }
 
   .toast { bottom: 28px; }
 }
+
+/* ------------------------------------------------------------------ family accounts */
+.fam-empty { display: flex; gap: 14px; align-items: flex-start; }
+.fam-empty p { margin-top: 4px; font-size: 15px; }
+.fam-card { display: grid; gap: 12px; padding: 16px; }
+.fam-top { display: flex; align-items: center; gap: 14px; }
+.fam-who { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.fam-who strong { font-size: 22px; font-weight: 400; line-height: 1.15; overflow-wrap: anywhere; }
+.fam-notes { display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; color: var(--muted); line-height: 1.4; }
+.fam-notes .ic { flex: none; margin-top: 2px; }
+.fam-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.fam-tags .tag { white-space: normal; line-height: 1.25; padding-top: 6px; padding-bottom: 6px; }
+.fam-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.fam-rules p { margin-top: 6px; font-size: 14.5px; }
+.fam-q { display: grid; gap: 10px; }
+.fam-q p { font-size: 15.5px; }
+.fam-yn { display: flex; gap: 8px; }
+.fam-yn .btn { min-width: 84px; }
+.fam-waiver { display: grid; gap: 8px; max-height: 200px; overflow: auto; font-size: 14px; }
+.tickbox { width: 22px; height: 22px; border-radius: 7px; flex: none; display: grid; place-items: center; color: #fff; box-shadow: inset 0 0 0 1.5px rgba(var(--ink-rgb), .3); transition: background .2s, box-shadow .2s; }
+.picker-opt.on .tickbox { background: var(--primary); box-shadow: none; }
+.picker-opt:disabled { opacity: .55; cursor: default; }
+.who .picker-opt { padding: 12px 14px; }
+.who .picker-main .muted { font-size: 14px; }
+.who-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 18px; }
+.who-chips .kicker { margin-right: 4px; }
+.chip-btn { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink); font-size: 15.5px; cursor: pointer; transition: background .2s, border-color .2s, color .2s; }
+.chip-btn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.who-results { list-style: none; display: grid; gap: 8px; margin: 14px auto 0; padding: 0; width: min(100%, 320px); text-align: left; }
+.who-results li { display: flex; align-items: center; gap: 8px; font-size: 15.5px; }
+.who-results .ic { color: var(--primary); flex: none; }
+.fam-row { align-items: center; }
+.fam-row > div { flex: 1; min-width: 0; }

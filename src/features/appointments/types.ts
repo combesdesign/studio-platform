@@ -258,9 +258,9 @@ export interface CancelRegistrationResult {
 
 /** What a client is about to pay for online. Live: appointments-checkout turns it into a Stripe Checkout URL. */
 export type CheckoutOrder =
-  | { kind: 'appointment'; booking: Omit<BookAppointmentInput, 'pay' | 'clientId'> }
+  | { kind: 'appointment'; booking: Omit<BookAppointmentInput, 'pay' | 'clientId'>; /** Family accounts: a parent paying for their dependant. */ clientId?: ID }
   | { kind: 'pack'; packId: ID }
-  | { kind: 'event'; eventId: ID };
+  | { kind: 'event'; eventId: ID; /** Family accounts: a parent paying for their dependant. */ clientId?: ID };
 
 // ---------------------------------------------------------------- the store
 

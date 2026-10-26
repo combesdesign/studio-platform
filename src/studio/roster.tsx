@@ -29,6 +29,12 @@ export function passLabel(e: { pass?: Pass; passId?: string; status: Booking['st
   return `${p.name} · ${Math.max(0, p.credits - p.creditsUsed)} left`;
 }
 
+/** "via Sarah Archer" for a dependant (family accounts), else the usual pass line. */
+export function viaLabel(e: { client: { guardianName?: string } }): string | null {
+  return e.client.guardianName ? `via ${e.client.guardianName}` : null;
+}
+const sub = (e: Parameters<typeof passLabel>[0] & { client: { guardianName?: string } }) => [viaLabel(e), passLabel(e)].filter(Boolean).join(' · ');
+
 const ATTENDING = new Set(['booked', 'checked_in']);
 const STATUS_LABEL: Record<string, string> = { cancelled: 'Cancelled', late_cancelled: 'Late cancel', no_show: 'No-show', removed: 'Removed' };
 
@@ -169,7 +175,7 @@ export function Roster({ id }: { id: string }) {
                     <button className="rr-who" onClick={() => setDetail(e)}>
                       <span className="wl-pos">{i + 1}</span>
                       <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={44} />
-                      <span className="rr-t"><strong>{fullName(e.client)}</strong><span>Joined {time(e.createdAt)}</span></span>
+                      <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{e.client.guardianName && <em className="via-tag">via {e.client.guardianName}</em>}Joined {time(e.createdAt)}</span></span>
                     </button>
                     <button className="btn sm soft" onClick={() => setDetail(e)}>Options</button>
                   </div>
@@ -186,7 +192,7 @@ export function Roster({ id }: { id: string }) {
                   <div key={e.id} className="rrow muted-row">
                     <a className="rr-who" href={`#/clients/${e.clientId}`}>
                       <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={40} />
-                      <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{passLabel(e)}</span></span>
+                      <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{sub(e)}</span></span>
                     </a>
                     <span className={cx('chip', e.status === 'cancelled' || e.status === 'removed' ? '' : 'warn')}>{STATUS_LABEL[e.status] ?? e.status}</span>
                   </div>
@@ -234,7 +240,7 @@ function RosterRow({ e, s, onToggle, onOpen, onInjury, onWaiver, disabled }: { e
     <div className={cx('rrow', inn && 'in')}>
       <button className="rr-who" onClick={onOpen} aria-label={`${fullName(e.client)} options`}>
         <Avatar name={fullName(e.client)} photo={e.client.photoUrl} size={52} />
-        <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{passLabel(e)}</span></span>
+        <span className="rr-t"><strong>{fullName(e.client)}</strong><span>{e.client.guardianName && <em className="via-tag">via {e.client.guardianName}</em>}{passLabel(e)}</span></span>
       </button>
       <div className="rr-flags">
         {flags.map((f) => {
@@ -306,7 +312,7 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
   return (
     <Sheet open onClose={onClose} label={fullName(e.client)}>
       <SheetHead title={view === 'main' ? fullName(e.client) : view === 'cancel' ? <>Cancel <em>booking</em></> : view === 'move' ? <>Move <em>{name}</em></> : <>Book <em>{name}</em> in</>}
-        sub={view === 'main' ? (wl ? `Waitlist position ${e.waitlistPosition ?? ''}` : passLabel(e)) : fullName(e.client)}
+        sub={view === 'main' ? (wl ? `Waitlist position ${e.waitlistPosition ?? ''}` : sub(e)) : fullName(e.client)}
         back={view === 'main' ? undefined : { label: name, onClick: () => setView('main') }} onClose={onClose} />
       {view === 'main' && (
         <>
@@ -334,7 +340,8 @@ function EntrySheet({ e, s, onClose, onWaiver, onToggle }: { e: RosterEntry; s: 
             {wl && <button onClick={() => setView('promote')}><Icon name="plus" /><span><strong>Book in now</strong><span>Squeeze them in ahead of the waitlist</span></span></button>}
             {wl && <button onClick={leave} disabled={busy}><Icon name="x" /><span><strong>Remove from waitlist</strong><span>No penalty</span></span></button>}
             {!e.client.waiverSignedAt && can('waiver') && <button onClick={onWaiver}><Icon name="doc" /><span><strong>Record waiver</strong><span>Signed in person today</span></span></button>}
-            <a href={`#/clients/${e.clientId}`} onClick={(ev) => goFromSheet(ev, `#/clients/${e.clientId}`)}><Icon name="users" /><span><strong>View profile</strong><span>{e.client.email}</span></span></a>
+            <a href={`#/clients/${e.clientId}`} onClick={(ev) => goFromSheet(ev, `#/clients/${e.clientId}`)}><Icon name="users" /><span><strong>View profile</strong><span>{e.client.email || viaLabel(e) || ''}</span></span></a>
+            {e.client.guardianClientId && <a href={`#/clients/${e.client.guardianClientId}`} onClick={(ev) => goFromSheet(ev, `#/clients/${e.client.guardianClientId}`)}><Icon name="users" /><span><strong>View parent</strong><span>{e.client.guardianName}</span></span></a>}
           </div>
         </>
       )}

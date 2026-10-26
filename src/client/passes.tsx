@@ -8,6 +8,8 @@ import { brandAsset, getBranding } from '../shared/branding';
 import { Slot } from '../shared/slots';
 import { Accent, Arrow, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
 import { Marquee } from '../shared/brand';
+import { fullName, useDependants } from './family';
+import { isFamilyShareable } from '../domain';
 import { backOut, daysLeft, dateOnlyShort, dateShortNoDay, expiryLabel, flowFrom, perClass, productWhat, queryOf, validityWords, when } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -15,10 +17,15 @@ type Nav = (to: string, o?: { replace?: boolean }) => void;
 export function Passes({ nav, path }: { nav: Nav; path: string }) {
   const app = useApp();
   const toast = useToast();
-  const cid = app.client.id;
   const q = queryOf(path);
+  // Family accounts: a parent can look at, and buy for, each dependant ("For: me / Mia")
+  const { deps } = useDependants();
+  const [forWho, setForWho] = useState<string | undefined>(q.get('who') || undefined);
+  const cid = forWho ?? app.client.id;
+  const dep = forWho ? deps.find((x) => x.id === forWho) : undefined;
   const forId = q.get('for') || undefined;
   const paid = q.get('paid');
+  const keepQuery = [forId ? 'for=' + encodeURIComponent(forId) : '', forWho ? 'who=' + encodeURIComponent(forWho) : ''].filter(Boolean).map((x, i) => (i ? '&' : '?') + x).join('');
   const passes = useData(() => store.listPasses(cid), [cid]);
   const credits = useData(() => store.getCreditSummary(cid), [cid]);
   const products = useData(() => store.listProducts(), []);
@@ -29,7 +36,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
   useEffect(() => {
     if (paid) {
       toast('Payment received – your pass will appear in a moment');
-      nav('/passes' + (forId ? '?for=' + encodeURIComponent(forId) : ''), { replace: true });
+      nav('/passes' + keepQuery, { replace: true });
     }
   }, [paid]);
 
@@ -41,7 +48,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
     const active = products.data.filter((p) => p.active);
     const target = wantProduct ? active.find((p) => p.id === wantProduct)
       : intro.data ? active.filter((p) => p.kind === 'intro').sort((a, b) => a.sortOrder - b.sortOrder)[0] : undefined;
-    nav('/passes' + (forId ? '?for=' + encodeURIComponent(forId) : ''), { replace: true });
+    nav('/passes' + keepQuery, { replace: true });
     if (target) setBuy(target);
     else toast(wantProduct ? 'That pass isn’t available any more' : 'The intro offer is for new clients – pick a pass below');
   }, [wantProduct, wantIntro, products.data, intro.data]);
@@ -67,7 +74,15 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
   return (
     <div className="screen">
       {forId && <div className="screen-back"><BackPill label={forLabel ?? 'Back to class'} onClick={backToClass} /></div>}
-      <ScreenHead title={<>Your <em>passes</em></>} />
+      <ScreenHead title={dep ? <>{dep.firstName}’s <em>passes</em></> : <>Your <em>passes</em></>} />
+      {deps.length > 0 && (
+        <div className="who-chips" role="radiogroup" aria-label="Buying for">
+          <span className="kicker">Buying for</span>
+          {[{ id: undefined as string | undefined, name: 'Me' }, ...deps.map((x) => ({ id: x.id as string | undefined, name: x.firstName }))].map((o) => (
+            <button key={o.id ?? 'me'} role="radio" aria-checked={forWho === o.id} className={'chip-btn' + (forWho === o.id ? ' on' : '')} onClick={() => setForWho(o.id)}>{o.name}</button>
+          ))}
+        </div>
+      )}
 
       {forId && forSession.data && (
         <div className="note cream mb-20">
@@ -82,13 +97,13 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
             <div className="no-pass">
               <span className="no-pass-mark"><Flower size={30} /></span>
               <div>
-                <strong>No active passes</strong>
-                <p className="muted">Choose one below to start booking.</p>
+                <strong>{dep ? `${dep.firstName} has no passes of their own` : 'No active passes'}</strong>
+                <p className="muted">{dep ? 'They can use your family-shareable passes (usually class packs). Or choose one below to buy for them.' : 'Choose one below to start booking.'}</p>
               </div>
             </div>
           ) : (
             <div className="stack lg">
-              {myPasses.map((p) => <PassCard key={p.id} p={p} summary={credits.data?.find((c) => c.pass.id === p.id)} />)}
+              {myPasses.map((p) => <PassCard key={p.id} p={p} summary={credits.data?.find((c) => c.pass.id === p.id)} shared={deps.length > 0 && !dep && isFamilyShareable(p) && !p.noClasses} />)}
             </div>
           )}
 
@@ -144,7 +159,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
       <Slot name="client.shop" props={{}} />
       <p className="fine muted center mt-28">All prices in {CURRENCY}{app.studio.taxRegistered ? ` and include ${app.studio.taxName}` : ''}.</p>
 
-      <Checkout product={buy} onClose={() => setBuy(null)} nav={nav} forId={forId} forLabel={forCt ? forCt.name : undefined} onBackToClass={backToClass} />
+      <Checkout product={buy} onClose={() => setBuy(null)} nav={nav} forId={forId} forLabel={forCt ? forCt.name : undefined} onBackToClass={backToClass} {...(forWho ? { buyFor: forWho } : {})} {...(dep ? { buyForName: dep.firstName } : {})} />
     </div>
   );
 }
@@ -160,7 +175,7 @@ function passLabel(p: Pass, s?: CreditSummary): string {
 
 const kindName = (p: Pass) => p.kind === 'intro' ? 'Intro offer' : p.kind === 'membership' ? 'Membership' : p.kind === 'dropin' ? 'Single class' : 'Class pack';
 
-function PassCard({ p, summary }: { p: Pass; summary?: CreditSummary }) {
+function PassCard({ p, summary, shared }: { p: Pass; summary?: CreditSummary; shared?: boolean }) {
   const [sheet, setSheet] = useState<'pause' | 'cancel' | null>(null);
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -181,7 +196,7 @@ function PassCard({ p, summary }: { p: Pass; summary?: CreditSummary }) {
         <Flower size={170} white={tone === 'navy'} className="pass-flower" />
         <div className="pass-top">
           <span className="pass-kind">{kindName(p)}</span>
-          {p.status === 'paused' ? <span className="tag cream">Paused</span> : pauseBooked ? <span className="tag cream">Pause booked</span> : p.status === 'cancelled' ? <span className="tag cream">Ending</span> : !p.activatedAt ? <span className="tag pass-tag">Not started</span> : null}
+          {p.status === 'paused' ? <span className="tag cream">Paused</span> : pauseBooked ? <span className="tag cream">Pause booked</span> : p.status === 'cancelled' ? <span className="tag cream">Ending</span> : !p.activatedAt ? <span className="tag pass-tag">Not started</span> : shared ? <span className="tag pass-tag"><Icon name="users" size={14} />Family can use</span> : null}
         </div>
         {p.name.toLowerCase() !== kindName(p).toLowerCase() && <div className="pass-name">{p.name}</div>}
         <div className="pass-big serif">{label}</div>
@@ -297,7 +312,7 @@ function PlanCard({ p, onBuy }: { p: Product; onBuy: () => void }) {
 }
 
 // ------------------------------------------------------------------ checkout
-type CheckoutProps = { onClose: () => void; nav: Nav; forId?: string; forLabel?: string; onBackToClass: () => void };
+type CheckoutProps = { onClose: () => void; nav: Nav; forId?: string; forLabel?: string; onBackToClass: () => void; /** Family: a dependant's id and first name when a parent buys for them. */ buyFor?: string; buyForName?: string };
 function Checkout({ product, ...rest }: CheckoutProps & { product: Product | null }) {
   return (
     <Sheet open={!!product} onClose={rest.onClose} label="Checkout">
@@ -306,7 +321,7 @@ function Checkout({ product, ...rest }: CheckoutProps & { product: Product | nul
   );
 }
 
-function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: CheckoutProps & { p: Product }) {
+function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass, buyFor, buyForName }: CheckoutProps & { p: Product }) {
   const app = useApp();
   const toast = useToast();
   const [step, setStep] = useState<'review' | 'pay' | 'done'>('review');
@@ -323,8 +338,8 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: Check
     try {
       if (store.startCheckout) {
         const base = location.href.split('#')[0];
-        const returnUrl = `${base}#/passes?paid=${encodeURIComponent(p.id)}${forId ? `&for=${encodeURIComponent(forId)}` : ''}`;
-        const r = await store.startCheckout({ clientId: app.client.id, productId: p.id, returnUrl });
+        const returnUrl = `${base}#/passes?paid=${encodeURIComponent(p.id)}${forId ? `&for=${encodeURIComponent(forId)}` : ''}${buyFor ? `&who=${encodeURIComponent(buyFor)}` : ''}`;
+        const r = await store.startCheckout({ clientId: buyFor ?? app.client.id, productId: p.id, returnUrl });
         if (r && r.url) { location.href = r.url; return; }
       }
       setStep('pay');
@@ -335,7 +350,7 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: Check
     setBusy(via);
     try {
       await new Promise((r) => setTimeout(r, 650)); // feels like a real card round-trip
-      const r = await store.purchase({ clientId: app.client.id, productId: p.id, method: 'card_online' });
+      const r = await store.purchase({ clientId: buyFor ?? app.client.id, productId: p.id, method: 'card_online' });
       setResult(r); setStep('done');
     } catch (e) { toast(errorMessage(e)); }
     finally { setBusy(false); }
@@ -348,7 +363,7 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: Check
       <div className="success">
         <div className="success-mark"><Flower size={64} className="bloom" /></div>
         <h2>You’re all <em>set</em></h2>
-        <p className="muted">{isClassProduct ? (result.pass?.activatedAt ? 'Your pass is ready to use.' : 'Your pass starts with your first booking.') : 'Grab it from the front desk next time you’re in.'}</p>
+        <p className="muted">{isClassProduct ? (buyForName ? `${buyForName}’s pass is ready. It starts with their first booking.` : result.pass?.activatedAt ? 'Your pass is ready to use.' : 'Your pass starts with your first booking.') : 'Grab it from the front desk next time you’re in.'}</p>
         <Receipt sale={result.sale} />
         <div className="stack">
           {forId ? (
@@ -392,7 +407,7 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass }: Check
 
   return (
     <div className="stack lg">
-      <SheetHead eyebrow={kindLabel(p).toLowerCase() === p.name.toLowerCase() ? 'New clients only' : kindLabel(p)} title={<Accent text={p.name} />} onClose={onClose} />
+      <SheetHead eyebrow={buyForName ? `For ${buyForName}` : kindLabel(p).toLowerCase() === p.name.toLowerCase() ? 'New clients only' : kindLabel(p)} title={<Accent text={p.name} />} onClose={onClose} />
       <div className="review-price">
         <span className="serif">{money(p.priceCents)}</span>
         <span className="muted">{isMember ? `per ${p.billingInterval === 'month' ? 'month' : 'week'}` : 'one-off'}{perClass(p) && perClass(p) !== 'Per class' ? ` · ${perClass(p)!.toLowerCase()}` : ''}</span>

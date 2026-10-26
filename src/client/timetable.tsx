@@ -11,6 +11,7 @@ import {
   isLateCancel, sessionState, staffRole, takePendingClass, timeRange, when,
 } from './lib';
 import { weekday } from '../shared/format';
+import { WhosComing, creditLine, fullName, useDependants, type WhoOption } from './family';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -271,25 +272,38 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   const [busy, setBusy] = useState(false);
   const [passId, setPassId] = useState<string | undefined>(undefined);
   const [lastCancel, setLastCancel] = useState<{ returned: boolean } | null>(null);
+  // Family accounts: who's coming (null = just me), the dependant booking being cancelled, and what we just booked
+  const { deps } = useDependants();
+  const [who, setWho] = useState<string[] | null>(null);
+  const [target, setTarget] = useState<{ booking: BookingWithDetails; name: string } | null>(null);
+  const [results, setResults] = useState<{ name: string; outcome: 'booked' | 'waitlisted' }[] | null>(null);
+  const [needy, setNeedy] = useState<string | null>(null);
   // the out-of-credits and cancel screens are a step inside the sheet: back returns to the details
   useBackHandler(mode === 'nocredits' || mode === 'cancel', () => setMode('view'));
   const back = { label: backLabel, onClick: onClose };
 
+  const depKey = deps.map((x) => x.id).join(',');
   const d = useData(async () => {
     const [s, bks, credits] = await Promise.all([
       store.getSession(id),
       store.listClientBookings(cid, { when: 'all' }),
       store.getCreditSummary(cid, id),
     ]);
-    const forThis = bks.filter((b) => b.sessionId === id);
-    const mine = forThis.find((b) => ['booked', 'checked_in', 'waitlisted'].includes(b.status)) ?? forThis.find((b) => ['no_show', 'late_cancelled'].includes(b.status));
-    return { s, mine, credits };
-  }, [id, cid]);
+    const pick = (list: BookingWithDetails[]) => {
+      const forThis = list.filter((b) => b.sessionId === id);
+      return forThis.find((b) => ['booked', 'checked_in', 'waitlisted'].includes(b.status)) ?? forThis.find((b) => ['no_show', 'late_cancelled'].includes(b.status));
+    };
+    const mine = pick(bks);
+    const fam = await Promise.all(deps.map(async (dep) => ({
+      dep, booking: pick(await store.listClientBookings(dep.id, { when: 'all' })), credits: await store.getCreditSummary(dep.id, id),
+    })));
+    return { s, mine, credits, fam };
+  }, [id, cid, depKey]);
 
   if (d.error && !d.data) return <><SheetHead back={back} /><ErrorBlock error={d.error} onRetry={d.reload} /></>;
   if (!d.data) return <><SheetHead back={back} /><SheetSkeleton /></>;
 
-  const { s, mine, credits } = d.data;
+  const { s, mine, credits, fam } = d.data;
   const ct = classTypeFor(app.classTypes, s.classTypeId);
   const inst = app.staff.find((x) => x.id === s.instructorId);
   const st = sessionState(s);
@@ -303,11 +317,41 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   const toFlow = (to: string) => leaveSheets(() => goFlow(nav, to, { label: className, where, reopen: id }));
   const toShop = () => toFlow('/passes?for=' + encodeURIComponent(id));
 
+  // ---- family: who can still be added to this class, and who's ticked
+  const isActive = (b?: BookingWithDetails) => !!b && ['booked', 'checked_in', 'waitlisted'].includes(b.status);
+  const meIn = isActive(mine);
+  const options: WhoOption[] = [
+    ...(meIn ? [] : [{ id: cid, name: `${app.client.firstName} (you)`, sub: creditLine(app.client, credits[0], 'You').text, photoUrl: app.client.photoUrl } as WhoOption]),
+    ...fam.filter((f) => !isActive(f.booking)).map((f): WhoOption => ({
+      id: f.dep.id, name: fullName(f.dep), sub: creditLine(f.dep, f.credits[0], app.client.firstName).text,
+      ...(f.dep.waiverSignedAt ? {} : { flag: 'Waiver needed' }), ...(f.dep.photoUrl ? { photoUrl: f.dep.photoUrl } : {}),
+    })),
+  ];
+  const sel = (who ?? (meIn ? [] : [cid])).filter((x) => options.some((o) => o.id === x));
+  const showWho = deps.length > 0 && options.length > 0;
+  const nameOf = (x: string) => (x === cid ? firstName(app.client.firstName) : fam.find((f) => f.dep.id === x)?.dep.firstName ?? 'them');
+
   const book = async () => {
+    if (deps.length > 0 && sel.length === 0) return;
+    // a dependant's waiver has to be signed by the parent first: send them to Family, then back here
+    const unsigned = fam.find((f) => sel.includes(f.dep.id) && !f.dep.waiverSignedAt);
+    if (unsigned) { toFlow(`/family?sign=${encodeURIComponent(unsigned.dep.id)}&then=${encodeURIComponent(id)}`); return; }
+    // a dependant with no usable pass: say who, and offer the shop for them (unless the class is full: the waitlist takes no credit)
+    const noPass = !full && fam.find((f) => sel.includes(f.dep.id) && f.credits.length === 0);
+    if (noPass) { setNeedy(noPass.dep.id); setMode('nocredits'); return; }
     setBusy(true);
     try {
-      const r = await store.bookClass(cid, id, passId ? { passId } : undefined);
-      setMode(r.outcome === 'booked' ? 'booked' : 'waitlisted');
+      if (deps.length > 0 && store.bookAttendees) {
+        const rs = await store.bookAttendees(id, sel, passId && sel.includes(cid) ? { passId } : undefined);
+        const list = rs.map((r, i) => ({ name: nameOf(sel[i]!), outcome: r.outcome }));
+        setResults(list);
+        setMode(list.every((x) => x.outcome === 'waitlisted') ? 'waitlisted' : 'booked');
+        setWho(null);
+      } else {
+        const r = await store.bookClass(cid, id, passId ? { passId } : undefined);
+        setResults(null);
+        setMode(r.outcome === 'booked' ? 'booked' : 'waitlisted');
+      }
       d.reload();
     } catch (e: any) {
       if (e?.code === 'WAIVER_REQUIRED') toFlow('/waiver?then=' + encodeURIComponent(id));
@@ -316,21 +360,23 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     } finally { setBusy(false); }
   };
   const cancel = async () => {
-    if (!mine) return;
+    const b = target?.booking ?? mine;
+    if (!b) return;
     setBusy(true);
     try {
-      const r = await store.cancelBooking(mine.id);
-      setLastCancel({ returned: r.creditReturned });
-      toast(r.creditReturned ? 'Booking cancelled – your credit’s back' : 'Booking cancelled');
+      const r = await store.cancelBooking(b.id);
+      if (!target) setLastCancel({ returned: r.creditReturned });
+      toast(r.creditReturned ? (target ? `${target.name}’s booking cancelled – the credit’s back` : 'Booking cancelled – your credit’s back') : 'Booking cancelled');
       setMode('view');
+      setTarget(null);
       d.reload();
     } catch (e) { toast(errorMessage(e)); }
     finally { setBusy(false); }
   };
-  const leave = async () => {
-    if (!mine) return;
+  const leave = async (b: BookingWithDetails | undefined = mine, name?: string) => {
+    if (!b) return;
     setBusy(true);
-    try { await store.leaveWaitlist(mine.id); toast('You’ve left the waitlist'); d.reload(); }
+    try { await store.leaveWaitlist(b.id); toast(name ? `${name} has left the waitlist` : 'You’ve left the waitlist'); d.reload(); }
     catch (e) { toast(errorMessage(e)); }
     finally { setBusy(false); }
   };
@@ -344,8 +390,13 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
       <SheetHead onClose={onClose} />
       <div className="success">
         <div className="success-mark"><Flower size={64} className="bloom" /></div>
-        <h2>{mode === 'booked' ? <>You’re <em>booked</em> in</> : <>You’re on the <em>waitlist</em></>}</h2>
+        <h2>{results && results.length > 1 ? (mode === 'booked' ? <>You’re all <em>booked</em> in</> : <>You’re on the <em>waitlist</em></>) : mode === 'booked' ? <>You’re <em>booked</em> in</> : <>You’re on the <em>waitlist</em></>}</h2>
         <p className="muted">{ct?.name} · {time(s.startsAt)} {dayLong(s.startsAt)}{inst ? ` with ${firstName(inst.name)}` : ''}</p>
+        {results && (results.length > 1 || results[0]?.name !== firstName(app.client.firstName)) && (
+          <ul className="who-results" aria-label="Who’s booked">
+            {results.map((r) => <li key={r.name}><Icon name={r.outcome === 'booked' ? 'check' : 'clock'} size={16} /><strong>{r.name}</strong><span className="muted">{r.outcome === 'booked' ? 'booked in' : 'on the waitlist'}</span></li>)}
+          </ul>
+        )}
         {mode === 'booked' ? (
           <p className="success-note">Free cancellation until {when(freeCancelUntil(s, app.settings))}. See you on the mat!</p>
         ) : (
@@ -363,19 +414,28 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   if (mode === 'nocredits') {
     return (
       <div className="stack lg">
-        <SheetHead back={{ label: className, onClick: () => setMode('view') }} onClose={onClose} />
+        <SheetHead back={{ label: className, onClick: () => { setNeedy(null); setMode('view'); } }} onClose={onClose} />
         <div className="center-col">
           <div className="empty-mark lg"><Icon name="ticket" size={30} /></div>
-          <h2>You’re out of <em>credits</em></h2>
-          <p className="muted">You’ll need a pass that covers {ct?.name ?? 'this class'} to book. Grab one and we’ll bring you straight back here.</p>
+          {needy ? (
+            <>
+              <h2>{fam.find((f) => f.dep.id === needy)?.dep.firstName ?? 'They'} needs a <em>pass</em></h2>
+              <p className="muted">Your passes can’t cover them for {ct?.name ?? 'this class'}. Memberships are personal, so they’ll need their own pass, or a class pack you can share. Grab one and we’ll bring you straight back here.</p>
+            </>
+          ) : (
+            <>
+              <h2>You’re out of <em>credits</em></h2>
+              <p className="muted">You’ll need a pass that covers {ct?.name ?? 'this class'} to book. Grab one and we’ll bring you straight back here.</p>
+            </>
+          )}
         </div>
-        <button className="btn block" onClick={toShop}>See passes + memberships</button>
-        <button className="btn ghost block" onClick={() => setMode('view')}>Not now</button>
+        <button className="btn block" onClick={needy ? () => toFlow('/passes?for=' + encodeURIComponent(id) + '&who=' + encodeURIComponent(needy)) : toShop}>See passes + memberships</button>
+        <button className="btn ghost block" onClick={() => { setNeedy(null); setMode('view'); }}>Not now</button>
       </div>
     );
   }
 
-  if (mode === 'cancel' && mine) {
+  if (mode === 'cancel' && (target?.booking ?? mine)) {
     return (
       <div className="stack lg">
         <SheetHead back={{ label: className, onClick: () => setMode('view') }} onClose={onClose} />
@@ -388,8 +448,8 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
             </>
           ) : (
             <>
-              <h2>Cancel your <em>spot?</em></h2>
-              <p className="muted">You’re cancelling more than {pluralise(app.settings.cancelWindowHours, 'hour')} before class, so your credit goes straight back on your pass.</p>
+              <h2>{target ? <>Cancel {target.name}’s <em>spot?</em></> : <>Cancel your <em>spot?</em></>}</h2>
+              <p className="muted">{target ? `You’re cancelling more than ${pluralise(app.settings.cancelWindowHours, 'hour')} before class, so the credit goes straight back on the pass it came from.` : `You’re cancelling more than ${pluralise(app.settings.cancelWindowHours, 'hour')} before class, so your credit goes straight back on your pass.`}</p>
             </>
           )}
         </div>
@@ -399,9 +459,9 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         </div>
         <div className="stack">
           <button className={'btn block ' + (late ? 'danger-solid' : 'danger')} disabled={busy} onClick={cancel}>
-            {busy ? 'Cancelling…' : late ? 'Cancel and lose the credit' : 'Yes, cancel my booking'}
+            {busy ? 'Cancelling…' : late ? 'Cancel and lose the credit' : target ? `Yes, cancel ${target.name}’s booking` : 'Yes, cancel my booking'}
           </button>
-          <button className="btn ghost block" onClick={() => setMode('view')}>Keep my spot</button>
+          <button className="btn ghost block" onClick={() => { setTarget(null); setMode('view'); }}>{target ? `Keep ${target.name}’s spot` : 'Keep my spot'}</button>
         </div>
       </div>
     );
@@ -433,6 +493,20 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
       {st !== 'cancelled' && waitlisted && (
         <div className="note cream"><Icon name="users" size={20} /><div><strong>You’re #{mine?.waitlistPosition ?? '–'} on the waitlist.</strong> We’ll book you in automatically if a spot opens.</div></div>
       )}
+      {st !== 'cancelled' && fam.filter((f) => isActive(f.booking)).map((f) => {
+        const b = f.booking!;
+        const wl = b.status === 'waitlisted';
+        return (
+          <div key={f.dep.id} className={'note ' + (wl ? 'cream' : 'ok') + ' fam-row'}>
+            <Icon name={wl ? 'users' : 'check'} size={20} />
+            <div><strong>{f.dep.firstName} {wl ? `is #${b.waitlistPosition ?? '–'} on the waitlist.` : 'is booked in.'}</strong></div>
+            {st === 'open' && b.status !== 'checked_in' && (
+              <button className="btn sm soft" disabled={busy} aria-label={wl ? `Take ${f.dep.firstName} off the waitlist` : `Cancel ${f.dep.firstName}’s booking`}
+                onClick={() => (wl ? leave(b, f.dep.firstName) : (setTarget({ booking: b, name: f.dep.firstName }), setMode('cancel')))}>{wl ? 'Leave' : 'Cancel'}</button>
+            )}
+          </div>
+        );
+      })}
       {st === 'cancelled' && (
         <div className="note danger"><Icon name="info" size={20} /><div><strong>This class has been cancelled.</strong>{s.cancelReason ? <div>{s.cancelReason}</div> : null} Any credits used have been returned.</div></div>
       )}
@@ -463,7 +537,8 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         </figure>
       )}
 
-      {st === 'open' && bookable && !booked && !waitlisted && (
+      {st === 'open' && bookable && showWho && <WhosComing options={options} selected={sel} onChange={setWho} />}
+      {st === 'open' && bookable && !booked && !waitlisted && (!showWho || sel.includes(cid)) && (
         <PassPicker credits={credits} passId={passId} setPassId={setPassId} full={full} onShop={toShop} />
       )}
       {booked && mine?.passId && (
@@ -480,6 +555,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
           </>
         ) : booked ? (
           <>
+            {showWho && <button className="btn block" disabled={busy || sel.length === 0} onClick={book}>{busy ? 'Booking…' : sel.length === 0 ? 'Choose who’s coming' : full ? 'Join waitlist' : `Add ${sel.map(nameOf).join(' and ')}`}</button>}
             <p className={'policy-line' + (late ? ' late' : '')}>
               <Icon name={late ? 'info' : 'check'} size={17} />
               {late
@@ -493,13 +569,14 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
           </>
         ) : waitlisted ? (
           <>
+            {showWho && <button className="btn block" disabled={busy || sel.length === 0} onClick={book}>{busy ? 'Booking…' : sel.length === 0 ? 'Choose who’s coming' : `Add ${sel.map(nameOf).join(' and ')}`}</button>}
             <p className="policy-line"><Icon name="users" size={17} />You’re #{mine?.waitlistPosition ?? '–'} on the waitlist. We’ll book you in automatically if a spot opens.</p>
-            <button className="btn danger block" disabled={busy} onClick={leave}>{busy ? 'Leaving…' : 'Leave waitlist'}</button>
+            <button className="btn danger block" disabled={busy} onClick={() => leave()}>{busy ? 'Leaving…' : 'Leave waitlist'}</button>
           </>
         ) : full ? (
           <>
             <p className="policy-line"><Icon name="users" size={17} />Class is full{s.waitlistCount ? ` · ${s.waitlistCount} on the waitlist` : ''}. Joining is free – a credit is only used if you get a spot.</p>
-            <button className="btn block" disabled={busy} onClick={book}>{busy ? 'Joining…' : 'Join waitlist'}</button>
+            <button className="btn block" disabled={busy || (showWho && sel.length === 0)} onClick={book}>{busy ? 'Joining…' : showWho && sel.length === 0 ? 'Choose who’s coming' : 'Join waitlist'}</button>
           </>
         ) : (
           <>
@@ -508,7 +585,9 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
             ) : (
               <p className="policy-line"><Icon name="check" size={17} />Free cancellation until {when(freeCancelUntil(s, app.settings))}.</p>
             )}
-            <button className="btn block big" disabled={busy} onClick={book}>{busy ? 'Booking…' : <>Book this class <Arrow /></>}</button>
+            <button className="btn block big" disabled={busy || (showWho && sel.length === 0)} onClick={book}>
+              {busy ? 'Booking…' : showWho && sel.length === 0 ? 'Choose who’s coming' : showWho && sel.length > 1 ? <>Book {sel.length} spots <Arrow /></> : showWho && !sel.includes(cid) ? <>Book for {nameOf(sel[0]!)} <Arrow /></> : <>Book this class <Arrow /></>}
+            </button>
           </>
         )}
       </div>

@@ -69,6 +69,9 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     if (!staff) throw err('AUTH_REQUIRED', 'Please sign in first.');
     return { kind: 'staff', staff };
   };
+  /** Family accounts: a client may act for their dependants (clients with guardianClientId = them). */
+  const guardianOf = (id: ID): ID | undefined => clientOf(id)?.guardianClientId;
+  const familyOf = (clientId: ID): ID[] => [clientId, ...core().clients.filter((c) => c.guardianClientId === clientId && !c.archived).map((c) => c.id)];
   const requireView = (): Staff => ctx.requireStaff('appointments.view');
 
   // ------------------------------------------------------------ decorate
@@ -116,8 +119,8 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
   /** The booker: a client books for themselves; the front desk books for a client. */
   const booker = (w: Who, clientId?: ID, what = 'book'): { clientId: ID; staffId?: ID } => {
     if (w.kind === 'client') {
-      if (clientId && clientId !== w.clientId) throw err('NOT_ALLOWED', `You can only ${what} for yourself.`);
-      return { clientId: w.clientId };
+      if (clientId && clientId !== w.clientId && guardianOf(clientId) !== w.clientId) throw err('NOT_ALLOWED', `You can only ${what} for yourself and your family.`);
+      return { clientId: clientId ?? w.clientId };
     }
     ctx.requireStaff('appointments.book');
     if (!clientId) throw err('INVALID', 'Choose a client.');
@@ -278,7 +281,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       const a = S().appointments.find((x) => x.id === id);
       if (!a) throw err('NOT_FOUND', 'We couldn’t find that appointment.');
       if (w.kind === 'client') {
-        if (a.clientId !== w.clientId) throw err('NOT_FOUND', 'We couldn’t find that appointment.');
+        if (a.clientId !== w.clientId && guardianOf(a.clientId) !== w.clientId) throw err('NOT_FOUND', 'We couldn’t find that appointment.');
         if (opts?.waivePenalty) throw err('NOT_ALLOWED', 'Only staff can waive the cancellation policy.');
       } else ctx.requireStaff('appointments.book');
       if (a.status !== 'booked') throw err('INVALID', 'This appointment can’t be cancelled.');
@@ -316,14 +319,15 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     listAppointments: (q) => ctx.read(() => {
       const w = who();
       let staffId = q?.staffId, clientId = q?.clientId;
-      if (w.kind === 'client') clientId = w.clientId;
+      const family = w.kind === 'client' ? familyOf(w.clientId) : undefined;   // a parent sees their dependants' sessions too
+      if (w.kind === 'client') clientId = undefined;
       else {
         const me = requireView();
         if (!can(me.role, 'appointments.book')) staffId = me.id; // instructors: their own sessions only
       }
       return S().appointments
         .filter((a) => a.status !== 'pending_payment' && (q?.includeCancelled || (a.status !== 'cancelled' && a.status !== 'late_cancelled'))
-          && (!staffId || a.staffId === staffId) && (!clientId || a.clientId === clientId)
+          && (!staffId || a.staffId === staffId) && (!clientId || a.clientId === clientId) && (!family || family.includes(a.clientId))
           && (!q?.from || a.startsAt >= q.from) && (!q?.to || a.startsAt < q.to))
         .sort((x, y) => x.startsAt.localeCompare(y.startsAt)).map(dec);
     }),
@@ -346,7 +350,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     listCredits: (clientId, opts) => ctx.read(() => {
       const w = who();
       let id = clientId;
-      if (w.kind === 'client') id = w.clientId; else requireView();
+      if (w.kind === 'client') id = clientId && guardianOf(clientId) === w.clientId ? clientId : w.clientId; else requireView();
       if (!id) throw err('INVALID', 'Choose a client.');
       return S().credits.filter((c) => c.clientId === id).map(decCredit)
         .filter((c) => opts?.includeInactive || c.status === 'active')
@@ -437,7 +441,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       const e = r && S().events.find((x) => x.id === r.eventId);
       if (!r || !e) throw err('NOT_FOUND', 'We couldn’t find that registration.');
       if (w.kind === 'client') {
-        if (r.clientId !== w.clientId) throw err('NOT_FOUND', 'We couldn’t find that registration.');
+        if (r.clientId !== w.clientId && guardianOf(r.clientId) !== w.clientId) throw err('NOT_FOUND', 'We couldn’t find that registration.');
         if (opts?.waivePenalty) throw err('NOT_ALLOWED', 'Only staff can waive the cancellation policy.');
       } else ctx.requireStaff('appointments.book');
       if (r.status !== 'registered') throw err('INVALID', 'This registration can’t be cancelled.');
@@ -455,9 +459,11 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       const w = who();
       let rows: StoredRegistration[];
       if ('clientId' in q) {
-        if (w.kind === 'client') { if (q.clientId !== w.clientId) throw err('NOT_ALLOWED', 'You can only see your own sign-ups.'); }
+        if (w.kind === 'client') { if (q.clientId !== w.clientId && guardianOf(q.clientId) !== w.clientId) throw err('NOT_ALLOWED', 'You can only see your own sign-ups.'); }
         else requireView();
-        rows = S().registrations.filter((r) => r.clientId === q.clientId);
+        // asking for your own sign-ups includes your dependants'
+        const ids = w.kind === 'client' && q.clientId === w.clientId ? familyOf(w.clientId) : [q.clientId];
+        rows = S().registrations.filter((r) => ids.includes(r.clientId));
       } else {
         if (w.kind === 'client') throw err('NOT_ALLOWED', 'Only staff can see attendee lists.');
         const e = S().events.find((x) => x.id === q.eventId);

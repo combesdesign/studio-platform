@@ -935,3 +935,15 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .b-item .btn { flex: none; }
 .void-list { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 10px; line-height: 1.5; }
 .void-list.ok li::marker { color: var(--primary); }
+
+/* ------------------------------------------------------------------ family accounts */
+.via-tag { font-style: normal; display: inline-block; margin-right: 8px; padding: 1px 9px; border-radius: 999px; background: var(--soft); color: var(--primary); font-size: 13px; line-height: 1.5; vertical-align: 1px; }
+.fam-card h3 { margin: 0; }
+.fam-list { display: grid; gap: 4px; margin-top: 4px; }
+.fam-link { display: flex; align-items: center; gap: 12px; padding: 10px 6px; border-radius: 12px; text-decoration: none; color: var(--ink); min-height: 56px; }
+.fam-link:hover { background: var(--soft); }
+.fam-link .fl-t { display: grid; flex: 1; min-width: 0; line-height: 1.3; }
+.fam-link .fl-t span { font-size: 14px; color: var(--muted); }
+.fam-parent { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fam-parent .fl-t { display: grid; flex: 1; min-width: 180px; line-height: 1.3; }
+.fam-parent .fl-t span { font-size: 14px; color: var(--muted); }
