@@ -97,7 +97,7 @@ Libby's pain points: Momence only offers a fixed list of problems (hers often is
 
 ## Selling it to other studios (Pete, 27 Oct)
 - [ ] Pick a platform name (check domain + AU trademark before committing)
-- [ ] Plans and pricing: simple tiers, bulk email to ALL clients included in every plan (Momence restricts this), no platform fee on top of Stripe, few add-ons
+- [ ] Plans and pricing (discuss with Pete once the main build is done; draft was ~$99 / $179 / $299 but could go higher, Libby pays ~$300/mo for a low Momence plan; what each plan includes is open): simple tiers, bulk email to ALL clients included in every plan (Momence restricts this), no platform fee on top of Stripe, few add-ons
 - [ ] Plan gating in the platform (which features each plan unlocks) + platform billing
 - [ ] "Switching is easy" PDF guide for prospects: steps from Momence/Mindbody/etc, what we move for them, cost comparison
 
