@@ -30,6 +30,12 @@ export function seedMarketing(args: { studio: Studio; state: DemoState; now: Dat
     id: newId('sg'), name: s.name, description: s.description, filter: JSON.parse(JSON.stringify(s.filter)), createdAt: iso(nowMs - (60 - i) * DAY_MS),
   }));
   const seg = (name: string) => slice.segments.find((s) => s.name === name)!;
+  slice.settings = { fromName: studio.name, replyTo: studio.email, smsSender: '', footerNote: '' };
+  // A brand-new studio has no clients yet: it gets the starter audiences and the automations, but no made-up history.
+  if (!state.clients.some((c) => !c.archived)) {
+    slice.automations = defaultAutomations().map((a) => ({ ...a, updatedAt: iso(nowMs) }));
+    return slice;
+  }
 
   // ---------------------------------------------------------------- tags: the regulars get VIP
   const visitCount = new Map<ID, number>();
