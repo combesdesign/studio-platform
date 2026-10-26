@@ -91,7 +91,7 @@ Libby's pain points: Momence only offers a fixed list of problems (hers often is
 - [ ] Help assistant: answers how-to questions instantly from our own help docs, then hands off to a real person
 - [x] Short help centre: a 1-minute guide for each common job (add a class, refund, change a pass)
 - [x] Response promise shown in the app (e.g. reply within 1 business day), plus a status page when something's down
-- [ ] Studio owners can safely "undo" common mistakes (cancelled class, wrong refund) without needing support
+- [x] Studio owners can safely "undo" common mistakes (cancelled class, wrong sale) without needing support (Stripe refunds can't be undone, see NOTES.md `## undo`)
 - [ ] Onboarding call and data import done for them, not left as a DIY job
 
 ## Phase C: launch-readiness (Snowy and platform)

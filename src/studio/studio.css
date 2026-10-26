@@ -928,3 +928,10 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .onb-tick { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--muted); }
 .onb-checks .ok .onb-tick { background: var(--ok-bg); color: var(--ok); }
 @media (max-width: 700px) { .onb-card .form-grid { grid-template-columns: 1fr; } .onb-tpl { grid-template-columns: 24px 1fr; } .onb-tpl .money-in, .onb-tpl .chip { grid-column: 2; } }
+
+/* undo */
+.b-item { display: flex; align-items: center; gap: 8px; }
+.b-item .b-row { flex: 1; min-width: 0; }
+.b-item .btn { flex: none; }
+.void-list { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 10px; line-height: 1.5; }
+.void-list.ok li::marker { color: var(--primary); }

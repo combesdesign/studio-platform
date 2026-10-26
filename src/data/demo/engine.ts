@@ -448,7 +448,7 @@ export class Engine {
       const pass = this.bestPass(pick.clientId, s);
       if (!pass) break;
       this.consume(pass);
-      pick.status = 'booked';
+      this.setStatus(pick, 'booked');
       pick.passId = pass.id;
       pick.promotedFromWaitlistAt = now.toISOString();
       delete pick.waitlistPosition;
@@ -531,8 +531,9 @@ export class Engine {
     }
     if (fromWaitlist) {
       if (hasStarted(session, now)) throw err('TOO_LATE', 'The class has started, so the waitlist is closed.');
+      const place = b.priorWaitlistPosition;
       this.setStatus(b, 'waitlisted');
-      this.rejoinWaitlist(b);
+      this.rejoinWaitlist(b, place);
       return { booking: b, creditTaken: false };
     }
     let demoted: Booking | undefined;
@@ -540,9 +541,10 @@ export class Engine {
       const w = this.booking(opts.demotePromotedId);
       if (w.sessionId !== session.id || w.status !== 'booked' || !w.promotedFromWaitlistAt) throw err('INVALID', "The person who took that spot can't be moved back.");
       this.returnCredit(w);
+      const place = w.priorStatus === 'waitlisted' ? w.priorWaitlistPosition : undefined;   // where they were before the promotion
       this.setStatus(w, 'waitlisted');
       delete w.passId; delete w.promotedFromWaitlistAt;
-      this.rejoinWaitlist(w);
+      this.rejoinWaitlist(w, place);
       demoted = w;
     }
     if (this.counts(session.id).booked >= session.capacity) throw err('CLASS_FULL', 'Someone else has taken that spot, so they can\'t be put back.');
@@ -559,10 +561,10 @@ export class Engine {
     return { booking: b, creditTaken: needsCredit, ...(demoted ? { demoted } : {}) };
   }
 
-  /** Back on the waitlist where they were (by when they joined). */
-  private rejoinWaitlist(b: Booking): void {
+  /** Back on the waitlist where they were (`place`, else by when they joined). */
+  private rejoinWaitlist(b: Booking, place?: number): void {
     const others = this.sessionBookings(b.sessionId).filter((x) => x.id !== b.id && x.status === 'waitlisted');
-    b.waitlistPosition = others.filter((x) => Date.parse(x.createdAt) < Date.parse(b.createdAt)).length + 0.5;
+    b.waitlistPosition = (place ?? others.filter((x) => Date.parse(x.createdAt) < Date.parse(b.createdAt)).length + 1) - 0.5;
     this.renumberWaitlist(b.sessionId);
   }
 

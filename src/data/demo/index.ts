@@ -645,6 +645,7 @@ export class DemoStore implements DataStore {
     return this.write(() => { this.requireStaff('schedule'); return this.engine.restoreSession(sessionId); });
   }
   async voidSale(saleId: ID, opts: { reason?: string; dryRun?: boolean } = {}) {
+    if (opts.dryRun) return this.read(() => { this.requireStaff('pos_refund'); return this.engine.voidSale(saleId, { ...opts, dryRun: true }); });   // describes only: no write, so UIs don't refetch in a loop
     return this.write(() => {
       this.requireStaff('pos_refund');
       const r = this.engine.voidSale(saleId, opts);

@@ -7,6 +7,7 @@ import { FlowerStars, Logo } from '../shared/brand';
 import { Avatar, BackLink, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dateTime, fullName, toCents, useStudio, type BackTo } from './ui';
 import { ClientSearch, MethodPicker, NewClientSheet, productKindLabel } from './book';
 import { METHOD_LABEL } from './clients';
+import { VoidSaleSheet, canVoidSale } from './undo';
 
 const KIND_ORDER: Product['kind'][] = ['intro', 'dropin', 'pack', 'membership', 'retail'];
 type Line = { productId: string; qty: number };
@@ -194,7 +195,8 @@ function passBlurb(p: Product): string {
 }
 
 function Receipt({ r, onNew, back }: { r: { sale: Sale; passes: Pass[]; client: Client | null }; onNew: () => void; back?: BackTo }) {
-  const { settings, studio } = useStudio();
+  const { settings, studio, can } = useStudio();
+  const [voiding, setVoiding] = useState(false);
   const s = r.sale;
   const sub = s.items.reduce((n, i) => n + i.unitCents * i.qty, 0);
   const disc = sub - s.totalCents;
@@ -224,8 +226,10 @@ function Receipt({ r, onNew, back }: { r: { sale: Sale; passes: Pass[]; client: 
       <div className="rc-actions no-print">
         <button className="btn soft" onClick={() => window.print()}><Icon name="print" size={20} />Print</button>
         {r.client && <a className="btn soft" href={`#/clients/${r.client.id}`}>View {r.client.firstName}</a>}
+        {can('refund') && canVoidSale(s) && <button className="btn ghost" onClick={() => setVoiding(true)}><Icon name="undo" size={20} />Made a mistake? Void sale</button>}
         <button className="btn" onClick={onNew}><Icon name="plus" size={20} />New sale</button>
       </div>
+      {voiding && <VoidSaleSheet sale={s} clientName={r.client?.firstName} onClose={(done) => { setVoiding(false); if (done) onNew(); }} />}
     </div>
   );
 }

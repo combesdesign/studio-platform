@@ -7,6 +7,7 @@ import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import { Avatar, BackLink, Empty, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, fullName, replaceRoute, toCents, toDollars, useStudio } from './ui';
 import { BookClientSheet, NewClientSheet, WaiverSheet } from './book';
 import { computePassStatus, isPassCurrent } from '../domain';
+import { VoidSaleSheet, canVoidSale, wasVoided } from './undo';
 
 // ------------------------------------------------------------------ list
 type Filter = 'all' | 'nowaiver' | 'new' | 'injury';
@@ -67,6 +68,7 @@ export function Clients() {
 type Prof = { client: Client; passes: Pass[]; credits: CreditSummary[]; upcoming: BookingWithDetails[]; past: BookingWithDetails[] };
 export function ClientProfile({ id }: { id: string }) {
   const { can } = useStudio();
+  const { run } = useAction();
   const today = studioDate();
   const res = useData<Prof>(async () => {
     const [client, passes, credits, upcoming, past] = await Promise.all([
@@ -79,6 +81,7 @@ export function ClientProfile({ id }: { id: string }) {
   const [sheet, setSheet] = useState<null | 'edit' | 'book' | 'waiver'>(null);
   const [passSheet, setPassSheet] = useState<{ kind: 'adjust' | 'pause' | 'cancel'; pass: Pass } | null>(null);
   const [refund, setRefund] = useState<Sale | null>(null);
+  const [voiding, setVoiding] = useState<Sale | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
   // Back to the roster / Today / list you came from.
@@ -157,7 +160,9 @@ export function ClientProfile({ id }: { id: string }) {
 
           <section className="card pad">
             <div className="sec-head"><h3>Bookings</h3><Seg value={tab} onChange={setTab} options={[{ value: 'upcoming', label: `Upcoming (${upcoming.length})` }, { value: 'past', label: `Past (${past.length})` }]} /></div>
-            <BookingList list={tab === 'upcoming' ? upcoming : [...past].reverse()} empty={tab === 'upcoming' ? 'No upcoming classes.' : 'No past classes yet.'} />
+            <BookingList list={tab === 'upcoming' ? upcoming : [...past].reverse()} onReturnCredit={can('allRosters') && store.waivePenalty ? async (b) => {
+              await run(() => store.waivePenalty!(b.id), `Credit returned to ${c.firstName}`);
+            } : undefined} empty={tab === 'upcoming' ? 'No upcoming classes.' : 'No past classes yet.'} />
           </section>
 
           {can('salesView') && (
@@ -169,8 +174,11 @@ export function ClientProfile({ id }: { id: string }) {
                     <div key={s.id} className="sale-row">
                       <span className="sr-date">{dayShort(s.createdAt)}<span className="faint small">{new Date(s.createdAt).getFullYear()}</span></span>
                       <span className="sr-items">{s.items.map((i) => `${i.qty > 1 ? i.qty + ' × ' : ''}${i.name}`).join(', ')}<span className="faint small">{METHOD_LABEL[s.method] ?? s.method}</span></span>
-                      <span className="sr-total">{money(s.totalCents)}{s.refundedCents ? <span className="chip danger">Refunded {money(s.refundedCents)}</span> : null}</span>
-                      {can('refund') && (s.refundedCents ?? 0) < s.totalCents && s.method !== 'comp' && s.totalCents > 0 && <button className="btn sm ghost" onClick={() => setRefund(s)}>Refund</button>}
+                      <span className="sr-total">{money(s.totalCents)}{wasVoided(s) ? <span className="chip">Voided</span> : s.refundedCents ? <span className="chip danger">Refunded {money(s.refundedCents)}</span> : null}</span>
+                      <span className="row" style={{ gap: 8 }}>
+                        {can('refund') && canVoidSale(s) && <button className="btn sm soft" onClick={() => setVoiding(s)}>Void</button>}
+                        {can('refund') && (s.refundedCents ?? 0) < s.totalCents && s.method !== 'comp' && s.totalCents > 0 && <button className="btn sm ghost" onClick={() => setRefund(s)}>Refund</button>}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -213,6 +221,7 @@ export function ClientProfile({ id }: { id: string }) {
       {passSheet?.kind === 'pause' && <PauseSheet p={passSheet.pass} onClose={() => setPassSheet(null)} />}
       {passSheet?.kind === 'cancel' && <CancelMembershipSheet p={passSheet.pass} onClose={() => setPassSheet(null)} />}
       {refund && <RefundSheet s={refund} onClose={() => setRefund(null)} />}
+      {voiding && <VoidSaleSheet sale={voiding} clientName={c.firstName} onClose={() => setVoiding(null)} />}
     </div>
   );
 }
@@ -264,7 +273,7 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
   );
 }
 
-function BookingList({ list, empty }: { list: BookingWithDetails[]; empty: string }) {
+function BookingList({ list, empty, onReturnCredit }: { list: BookingWithDetails[]; empty: string; onReturnCredit?: (b: BookingWithDetails) => void }) {
   if (list.length === 0) return <p className="muted">{empty}</p>;
   const ST: Record<string, [string, string]> = {
     booked: ['Booked', 'navy'], waitlisted: ['Waitlist', 'cream'], checked_in: ['Attended', 'ok'], cancelled: ['Cancelled', ''],
@@ -274,13 +283,15 @@ function BookingList({ list, empty }: { list: BookingWithDetails[]; empty: strin
     <div className="list blist">
       {list.slice(0, 40).map((b) => {
         const [l, tone] = ST[b.status] ?? [b.status, ''];
-        return (
+        const penalty = onReturnCredit && (b.status === 'late_cancelled' || b.status === 'no_show') && b.session.status !== 'cancelled';
+        const row = (
           <a key={b.id} href={`#/class/${b.sessionId}`} className="b-row" style={{ ['--ct' as string]: b.classType.color }}>
             <span className="b-date"><strong>{dayShort(b.session.startsAt)}</strong><span>{time(b.session.startsAt)}</span></span>
             <span className="b-t"><strong>{b.classType.name}</strong><span>{b.instructor?.name ?? ''}{b.session.status === 'cancelled' ? ' · class cancelled' : ''}</span></span>
             <span className={cx('chip', tone)}>{l}</span>
           </a>
         );
+        return penalty ? <div key={b.id} className="b-item">{row}<button className="btn sm soft" onClick={() => onReturnCredit(b)}>Return credit</button></div> : row;
       })}
     </div>
   );
