@@ -1,5 +1,5 @@
 /** The Help sheet: one free-text box, instant article suggestions, urgent toggle, photo, and what we attach. No categories. */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { currentStudio } from '../../../data';
 import { Sheet, errorMessage, store } from '../../../shared/react';
 import { Flower } from '../../../shared/brand';
@@ -29,11 +29,14 @@ export function HelpSheet({ open, onClose, who, initialText }: {
   const [solved, setSolved] = useState<string | null>(null);
   const [openReq, setOpenReq] = useState<string | null>(null);
   const mine = useMyRequests(open);
+  const box = useRef<HTMLTextAreaElement>(null);
 
   // A fresh sheet each time it opens.
   useEffect(() => {
     if (!open) return;
+    const t = setTimeout(() => box.current?.focus({ preventScroll: true }), 120);
     setView('ask'); setText(initialText ?? ''); setUrgent(false); setShot(null); setErr(''); setSent(null); setOpenArt(null); setDismissed([]); setSolved(null);
+    return () => clearTimeout(t);
   }, [open]);
 
   const suggestions = useMemo(() => searchArticles(text, 3).filter((a) => !dismissed.includes(a.slug)), [text, dismissed]);
@@ -99,7 +102,7 @@ export function HelpSheet({ open, onClose, who, initialText }: {
         <form className="sp-form" onSubmit={submit}>
           <label className="field">
             <span className="sp-lbl">What's going on?</span>
-            <textarea className="textarea sp-text" rows={4} value={text} autoFocus maxLength={4000} onChange={(e) => setText(e.target.value)} placeholder="e.g. a client was charged twice, or how do I move a class?" />
+            <textarea ref={box} className="textarea sp-text" rows={4} value={text} maxLength={4000} onChange={(e) => setText(e.target.value)} placeholder="e.g. a client was charged twice, or how do I move a class?" />
           </label>
 
           {suggestions.length > 0 && (
