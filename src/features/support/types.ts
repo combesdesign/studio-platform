@@ -63,8 +63,19 @@ export interface SupportBanner {
   updatedAt: ISODateTime;
 }
 
+/** The Help sheet's instant answer. Same shape whether the AI or the best-matching help article wrote it. */
+export interface SupportAssist {
+  answer: string;
+  /** The answer says this needs a person: nudge towards sending it to us. */
+  suggestHuman: boolean;
+  /** A help article to open for the full guide (the article fallback always has one). */
+  link?: { label: string; href: string };
+}
+
 /** Studio staff side. */
 export interface SupportStore {
+  /** An instant written answer to what they typed, before (or instead of) sending it to us. Never throws for "not switched on". */
+  assist(input: { question: string; page: string }): Promise<SupportAssist>;
   send(input: SupportSendInput): Promise<SupportRequest>;
   /** The signed-in staff member's requests (owners and managers also see their studio's), newest first. */
   listMine(): Promise<SupportRequest[]>;

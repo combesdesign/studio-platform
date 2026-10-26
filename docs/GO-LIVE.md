@@ -178,6 +178,7 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
      SUPPORT_ALERT_EMAIL=you@yourphone.com
    ```
    `SUPPORT_ALERT_EMAIL` is where an urgent help request from a studio is emailed (page, person, message and a link to the admin inbox at `/admin/#/support`). Use an address that buzzes your phone. Optional later: `SUPPORT_ALERT_SMS_WEBHOOK=https://...`, a URL the same alert is POSTed to as JSON, for an SMS service. Leave it out for now.
+   **Help assistant (optional).** The Help sheet's "Ask" button gives an instant written answer. Without a key it quietly falls back to the best-matching help guide, so you can skip this until you want it. To switch it on: `ANTHROPIC_API_KEY=sk-ant-...` (from console.anthropic.com), and optionally `SUPPORT_ASSIST_MODEL` (default `claude-haiku-5-5`). Deploy `supabase functions deploy support-assist` as well. It is capped at 30 questions per person per day. Rough cost with Haiku: each question sends the help guides plus a short reply, a few cents per hundred questions, so a studio's team would cost cents a month. It never sees client data, only the question, the page name and the studio's booking and cancel settings.
    Supabase provides `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` automatically. No key is ever written into the code.
 4. Deploy them all:
    ```
@@ -186,6 +187,7 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
    supabase functions deploy billing-portal
    supabase functions deploy refund-payment
    supabase functions deploy invite-user
+   supabase functions deploy support-assist
    supabase functions deploy stripe-webhook --no-verify-jwt
    supabase functions deploy send-email --no-verify-jwt
    supabase functions deploy send-reminders --no-verify-jwt

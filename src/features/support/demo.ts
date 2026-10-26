@@ -5,6 +5,7 @@
 import './permissions';
 import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/features';
 import { can } from '../../domain/permissions';
+import { articleAnswer } from './assist';
 import { cleanBody, cleanScreenshot, statusAfter } from './calc';
 import { demoDb, ensureSeed, msg } from './demoDb';
 import type { SupportRequest, SupportStore } from './types';
@@ -23,6 +24,9 @@ function create(ctx: DemoFeatureContext): SupportStore {
     r.studioId === ctx.studioId && (can(staff.role, 'support.all') || (r.staffId ? r.staffId === staff.id : r.staffName === staff.name));
 
   return {
+    // No API call in the demo: build the answer from the best-matching help article.
+    assist: (input) => ctx.read(() => articleAnswer(input.question)),
+
     send: (input) => ctx.write(() => {
       const staff = ctx.requireStaff('support.use');
       let body: string, screenshot: string | null;

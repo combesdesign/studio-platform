@@ -88,7 +88,7 @@ Libby's pain points: Momence only offers a fixed list of problems (hers often is
 - [x] Australian-based support in AEST/AEDT business hours; urgent "can't take bookings" issues flagged to Pete's phone straight away (email now; SMS webhook ready)
 - [x] Every request gets an instant reply (assistant answer or "got it, a human will reply by X") so nobody's left wondering
 - [x] In-app "Help" button in the studio app: message us directly, with a screenshot and the page they were on attached automatically
-- [ ] Help assistant: answers how-to questions instantly from our own help docs, then hands off to a real person
+- [x] Help assistant: answers how-to questions instantly from our own help docs, then hands off to a real person ("Ask" in the Help sheet; needs `ANTHROPIC_API_KEY`, falls back to the best help article without it)
 - [x] Short help centre: a 1-minute guide for each common job (add a class, refund, change a pass)
 - [x] Response promise shown in the app (e.g. reply within 1 business day), plus a status page when something's down
 - [x] Studio owners can safely "undo" common mistakes (cancelled class, wrong sale) without needing support (Stripe refunds can't be undone, see NOTES.md `## undo`)

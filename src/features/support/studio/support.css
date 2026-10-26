@@ -88,3 +88,14 @@
 .sp-cols { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 .sp-cols h3 { margin: 0; }
 @media (max-width: 999px) { .sp-cols { grid-template-columns: minmax(0, 1fr); } }
+
+/* Help assistant answer card */
+.sp-foot-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.sp-assist { border: 1px solid var(--line); border-radius: var(--r); background: var(--soft-light); padding: 14px 16px; display: grid; gap: 10px; }
+.sp-assist-tag { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink); text-transform: uppercase; letter-spacing: .06em; }
+.sp-assist-tag span { margin-left: 8px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.sp-assist-a { margin: 0; font-size: 15.5px; line-height: 1.5; white-space: pre-line; }
+.sp-assist-wait { margin: 0; }
+.sp-assist-link { font-size: 14.5px; font-weight: 500; }
+.sp-assist-human { margin: 0; font-size: 14px; color: var(--muted); }
+.sp-assist-b { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -5,10 +5,11 @@ import { Sheet, errorMessage, store } from '../../../shared/react';
 import { Flower } from '../../../shared/brand';
 import { Seg, SheetHead } from '../../../studio/ui';
 import { ARTICLES, searchArticles } from '../articles';
+import { withAssistContext } from '../assist';
 import { deviceOf } from '../calc';
 import { APP_VERSION, SUPPORT_CLOSE_HOUR, SUPPORT_NAME, SUPPORT_OPEN_HOUR, SUPPORT_TZ } from '../config';
 import { replyBy } from '../hours';
-import type { SupportRequest } from '../types';
+import type { SupportAssist, SupportRequest } from '../types';
 import { ArticleCard, RequestCard, replyByText, shrinkImage, useMyRequests } from './parts';
 
 type View = 'ask' | 'mine';
@@ -28,6 +29,8 @@ export function HelpSheet({ open, onClose, who, initialText }: {
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [solved, setSolved] = useState<string | null>(null);
   const [openReq, setOpenReq] = useState<string | null>(null);
+  const [assist, setAssist] = useState<SupportAssist | null>(null);
+  const [asking, setAsking] = useState(false);
   const mine = useMyRequests(open);
   const box = useRef<HTMLTextAreaElement>(null);
 
@@ -35,7 +38,7 @@ export function HelpSheet({ open, onClose, who, initialText }: {
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(() => box.current?.focus({ preventScroll: true }), 120);
-    setView('ask'); setText(initialText ?? ''); setUrgent(false); setShot(null); setErr(''); setSent(null); setOpenArt(null); setDismissed([]); setSolved(null);
+    setView('ask'); setText(initialText ?? ''); setUrgent(false); setShot(null); setErr(''); setSent(null); setOpenArt(null); setDismissed([]); setSolved(null); setAssist(null); setAsking(false);
     return () => clearTimeout(t);
   }, [open]);
 
@@ -52,6 +55,13 @@ export function HelpSheet({ open, onClose, who, initialText }: {
     try { setShot(await shrinkImage(f)); } catch (x) { setErr(errorMessage(x)); }
   };
 
+  const ask = async () => {
+    const s = store.features.support;
+    if (!s || text.trim().length < 3) return;
+    setAsking(true); setErr(''); setAssist(null);
+    try { setAssist(await s.assist({ question: text.trim(), page: route })); } catch (x) { setErr(errorMessage(x)); } finally { setAsking(false); }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const s = store.features.support;
@@ -60,7 +70,7 @@ export function HelpSheet({ open, onClose, who, initialText }: {
     try {
       const now = new Date();
       const r = await s.send({
-        body: text, urgent, screenshot: shot, context: { route, appVersion: APP_VERSION, userAgent: ua },
+        body: withAssistContext(text, assist), urgent, screenshot: shot, context: { route, appVersion: APP_VERSION, userAgent: ua },
         replyBy: urgent ? null : replyBy(now).toISOString(),
       });
       setSent(r);
@@ -102,8 +112,25 @@ export function HelpSheet({ open, onClose, who, initialText }: {
         <form className="sp-form" onSubmit={submit}>
           <label className="field">
             <span className="sp-lbl">What's going on?</span>
-            <textarea ref={box} className="textarea sp-text" rows={4} value={text} maxLength={4000} onChange={(e) => setText(e.target.value)} placeholder="e.g. a client was charged twice, or how do I move a class?" />
+            <textarea ref={box} className="textarea sp-text" rows={4} value={text} maxLength={4000} onChange={(e) => { setText(e.target.value); setAssist(null); }} placeholder="e.g. a client was charged twice, or how do I move a class?" />
           </label>
+
+          {(asking || assist) && (
+            <div className="sp-assist" aria-live="polite">
+              {asking && !assist ? <p className="sp-assist-wait muted">Having a look…</p> : assist && (
+                <>
+                  <p className="sp-assist-tag">Quick answer <span>Written automatically, not checked by a person.</span></p>
+                  <p className="sp-assist-a">{assist.answer}</p>
+                  {assist.link && <a className="sp-assist-link" href={assist.link.href} onClick={() => close()}>{assist.link.label}</a>}
+                  {assist.suggestHuman && <p className="sp-assist-human">This one is best with a person, so it's worth sending to {SUPPORT_NAME}.</p>}
+                  <div className="sp-assist-b">
+                    <button type="button" className="btn sm" onClick={close}>That fixed it</button>
+                    <button type="submit" className="btn sm ghost" disabled={busy}>{busy ? 'Sending…' : `Still need help → send to ${SUPPORT_NAME}`}</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {suggestions.length > 0 && (
             <div className="sp-sug" aria-live="polite">
@@ -146,7 +173,10 @@ export function HelpSheet({ open, onClose, who, initialText }: {
           {err && <p className="form-error" role="alert">{err}</p>}
           <div className="sp-foot">
             <a className="sp-browse" href="#/help" onClick={() => close()}>Browse all help</a>
+            <span className="sp-foot-btns">
+            <button type="button" className="btn soft" disabled={asking || text.trim().length < 3} onClick={ask}>{asking ? 'Asking…' : 'Ask'}</button>
             <button className="btn" disabled={busy || !text.trim()}>{busy ? 'Sending…' : urgent ? 'Send as urgent' : `Send to ${SUPPORT_NAME}`}</button>
+            </span>
           </div>
         </form>
       )}

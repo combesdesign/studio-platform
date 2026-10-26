@@ -7,6 +7,8 @@ import { ARTICLES, searchArticles } from '../src/features/support/articles';
 import { cleanBanner, cleanBody, cleanScreenshot, inboxOrder } from '../src/features/support/calc';
 import { demoDb } from '../src/features/support/demoDb';
 import { formatReplyBy, isOpenNow, replyBy } from '../src/features/support/hours';
+import { articleAnswer, withAssistContext } from '../src/features/support/assist';
+import { HELP_ARTICLES } from '../supabase/functions/_shared/help-articles';
 import type { SupportRequest } from '../src/features/support/types';
 
 const TZ = 'Australia/Sydney';
@@ -153,4 +155,34 @@ test('demo store: staff send and follow up, the admin side sees every studio, in
   await assert.rejects(() => harbour.features.support!.follow(normal.id, 'hi'), /find that request/);
   assert.ok(!(await harbour.features.support!.listMine()).some((r) => r.studioId === normal.studioId), 'Harbour never lists Snowy requests');
   demoDb.reset();
+});
+
+test('the edge function\'s copy of the help articles matches the app (regenerate: node --import tsx scripts/sync-help-articles.mts)', () => {
+  const want = ARTICLES.map(({ slug, title, summary, steps, tip }) => ({ slug, title, summary, steps, ...(tip ? { tip } : {}) }));
+  assert.deepEqual(HELP_ARTICLES, want);
+});
+
+test('help assistant without AI: first steps of the best article plus a link; a person when nothing fits', async () => {
+  const a = articleAnswer('how do I cancel a class');
+  assert.match(a.answer, /^1\. /m);
+  assert.equal(a.link?.href, '#/help/cancel-a-class');
+  assert.equal(a.suggestHuman, false);
+  assert.ok(a.answer.split('\n').filter((l) => /^\d\. /.test(l)).length <= 3);
+  const none = articleAnswer('zzzz qqqq');
+  assert.equal(none.suggestHuman, true);
+  assert.equal(none.link, undefined);
+
+  demoDb.reset();
+  const p = createDemoPlatform({ now: () => new Date('2026-10-21T01:30:00Z'), latencyMs: 0, storage: memoryStorage(), app: 'studio' });
+  const snowy = p.forStudio((await p.findStudio({ slug: 'snowy' }))!);
+  const u = (await snowy.demoPersonas!()).find((x) => x.kind === 'staff' && x.role === 'front_desk')!; await snowy.demoSignInAs!(u);
+  assert.equal((await snowy.features.support!.assist({ question: 'how do I refund a sale', page: '#/pos' })).link?.href, '#/help/refund-a-sale');
+});
+
+test('sending on after an answer attaches what was suggested', () => {
+  const ans = { answer: '1. Open Schedule.', suggestHuman: false };
+  assert.equal(withAssistContext('Still stuck', null), 'Still stuck');
+  assert.match(withAssistContext('Still stuck', ans), /^Still stuck\n\n---\nThe help assistant suggested:\n1\. Open Schedule\.$/);
+  const long = 'x'.repeat(3990);
+  assert.equal(withAssistContext(long, ans), long, 'never pushes a message over the limit');
 });

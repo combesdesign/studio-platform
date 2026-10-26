@@ -46,10 +46,15 @@ globalThis.fetch = async (url, init = {}) => {
   const reply = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
   if (u.host === 'api.resend.com') return reply({ id: 'email_1' });
   if (u.host === 'sms.example') return reply({ ok: true });
+  if (u.host === 'api.anthropic.com') return anthropic(JSON.parse(body));
   const p = u.pathname.replace('/v1/', '');
   if (p in stripeObjects) return reply(typeof stripeObjects[p] === 'function' ? stripeObjects[p](body) : stripeObjects[p]);
   return reply({ error: { message: `no stub for ${init.method} ${p}` } }, 404);
 };
+
+// Fake Anthropic Messages API for support-assist: set `anthropicReply` to a function (request body) -> Response, or leave it for a default answer.
+let anthropicReply = null;
+const anthropic = (req) => anthropicReply ? anthropicReply(req) : new Response(JSON.stringify({ content: [{ type: 'text', text: '{"answer":"1. Open Schedule.\\n2. Tap the class.","suggestHuman":false}' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
 const out = mkdtempSync(path.join(process.env.SNOWY_WORK || tmpdir(), 'fns-'));
 async function load(name) {
@@ -527,6 +532,85 @@ await t('send-reminders: an urgent support request is emailed to SUPPORT_ALERT_E
   } finally {
     delete ENV.SUPPORT_ALERT_EMAIL; delete ENV.SUPPORT_ALERT_SMS_WEBHOOK;
     sql(`delete from public.support_requests where studio_id = '${SNOWY_ID}' and staff_name = 'Fran'`);
+  }
+});
+
+await t('support-assist: staff get a written answer (Anthropic stubbed), no key is a 501, 30 a day, non-staff refused', async () => {
+  const h = await load('support-assist');
+  const as = (who) => ({ Authorization: `Bearer ${id(who)}` });
+  const ask = (who, over = {}) => post(h, { question: 'How do I move a class?', page: '#/schedule', studioId: SNOWY_ID, ...over }, who ? as(who) : {});
+  const asks = () => calls.filter((c) => c.host === 'api.anthropic.com');
+  const logged = (who) => sql(`select count(*) from public.support_assist_log where user_id = '${id(who)}'`);
+  try {
+    // no key: 501, and nothing is called or counted
+    let r = await ask('fran');
+    assert.equal(r.status, 501);
+    assert.equal(asks().length, 0);
+    assert.equal(logged('fran'), '0');
+
+    ENV.ANTHROPIC_API_KEY = 'sk-ant-test';
+    // an answer: the right request goes to Anthropic
+    r = await ask('fran');
+    assert.equal(r.status, 200);
+    assert.deepEqual(await r.json(), { answer: '1. Open Schedule.\n2. Tap the class.', suggestHuman: false });
+    let call = asks().at(-1);
+    let sent = JSON.parse(call.body);
+    assert.equal(call.path, '/v1/messages');
+    assert.equal(call.headers['x-api-key'], 'sk-ant-test');
+    assert.equal(call.headers['anthropic-version'], '2023-06-01');
+    assert.equal(sent.model, 'claude-haiku-5-5', 'default model');
+    assert.equal(sent.max_tokens, 400);
+    assert.match(sent.system, /Add a class/, 'the help articles are in the prompt');
+    assert.match(sent.system, /Clients can book up to 14 days ahead/);
+    assert.match(sent.system, /free of charge until 3 hours before class/);
+    assert.match(sent.system, /never invent/i);
+    assert.match(sent.messages[0].content, /How do I move a class\?/);
+    assert.match(sent.messages[0].content, /#\/schedule/);
+    assert.equal(logged('fran'), '1');
+
+    // the model can be changed, and it can say "ask a person"
+    ENV.SUPPORT_ASSIST_MODEL = 'claude-sonnet-5-5';
+    anthropicReply = () => new Response(JSON.stringify({ content: [{ type: 'text', text: 'Sure.\n```json\n{"answer":"That needs Pete.","suggestHuman":true}\n```' }] }), { status: 200 });
+    r = await ask('fran', { question: 'A client was charged twice' });
+    assert.deepEqual(await r.json(), { answer: 'That needs Pete.', suggestHuman: true });
+    assert.equal(JSON.parse(asks().at(-1).body).model, 'claude-sonnet-5-5');
+    delete ENV.SUPPORT_ASSIST_MODEL;
+
+    // plain text back instead of JSON: still shown
+    anthropicReply = () => new Response(JSON.stringify({ content: [{ type: 'text', text: 'Open Schedule and tap the class.' }] }), { status: 200 });
+    assert.equal((await (await ask('fran')).json()).answer, 'Open Schedule and tap the class.');
+
+    // Anthropic down: a 502 the app answers from the articles instead
+    anthropicReply = () => new Response('{"error":"overloaded"}', { status: 529 });
+    r = await ask('fran');
+    assert.equal(r.status, 502);
+    assert.equal((await r.json()).code, 'ASSIST_FAILED');
+    anthropicReply = null;
+
+    // refused before Anthropic is called: not staff, signed out, another studio's staff, nothing asked
+    const before = asks().length;
+    assert.equal((await ask('alice')).status, 403, 'a client is not staff');
+    assert.equal((await ask(null)).status, 401);
+    const other = sql(`insert into public.studios (slug, name, email, currency, status) values ('assist-other', 'Other', 'o@assist.test', 'AUD', 'live') returning id`).split('\n')[0];
+    assert.equal((await ask('fran', { studioId: other })).status, 403, 'staff of one studio cannot use another');
+    assert.equal((await ask('fran', { question: ' ' })).status, 400);
+    assert.equal(asks().length, before, 'none of those reached Anthropic');
+    sql(`delete from public.studios where id = '${other}'`);
+
+    // the daily cap: 30 in a rolling 24 hours, per person
+    sql(`delete from public.support_assist_log where user_id = '${id('fran')}';
+         insert into public.support_assist_log (user_id, studio_id, created_at) select '${id('fran')}', '${SNOWY_ID}', now() - interval '2 hours' from generate_series(1, 29);
+         insert into public.support_assist_log (user_id, studio_id, created_at) select '${id('fran')}', '${SNOWY_ID}', now() - interval '30 hours' from generate_series(1, 10)`);
+    assert.equal((await ask('fran')).status, 200, 'the 30th question in a day still works (older ones do not count)');
+    const n = asks().length;
+    r = await ask('fran');
+    assert.equal(r.status, 429, 'the 31st does not');
+    assert.equal((await r.json()).code, 'RATE_LIMITED');
+    assert.equal(asks().length, n, 'and it never reaches Anthropic');
+    assert.equal((await ask('mia')).status, 200, 'someone else is unaffected');
+  } finally {
+    delete ENV.ANTHROPIC_API_KEY; delete ENV.SUPPORT_ASSIST_MODEL; anthropicReply = null;
+    sql(`delete from public.support_assist_log`);
   }
 });
 
