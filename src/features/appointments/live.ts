@@ -112,7 +112,7 @@ function createStore(ctx: LiveFeatureContext): AppointmentsStore {
     removeTimeOff: (id) => ctx.write(async () => { await rpc('appointments_remove_time_off', { p_id: id }); }),
 
     listSlots: (q) => ctx.read(async () => arr(await rpc('appointments_list_slots', {
-      p_type_id: q.typeId, p_from: q.from, p_to: q.to, p_staff_id: q.staffId ?? null,
+      p_type_id: q.typeId, p_from: q.from, p_to: q.to, p_staff_id: q.staffId ?? null, p_exclude_appointment: q.excludeAppointmentId ?? null,
     })) as AppointmentSlot[]),
     bookAppointment: (input) => ctx.write(async () => {
       const r = obj(await rpc('appointments_book', {
@@ -125,6 +125,7 @@ function createStore(ctx: LiveFeatureContext): AppointmentsStore {
       const r = obj(await rpc('appointments_cancel', { p_id: id, p_waive_penalty: !!opts?.waivePenalty }));
       return { appointment: toAppt(r.appointment), creditsReturned: num(r.creditsReturned), refundDue: !!r.refundDue, late: !!r.late };
     }),
+    moveAppointment: (id, to) => ctx.write(async () => toAppt(await rpc('appointments_move', { p_id: id, p_starts_at: to.startsAt, p_staff_id: to.staffId ?? null }))),
     setAppointmentStatus: (id, status) => ctx.write(async () => toAppt(await rpc('appointments_set_status', { p_id: id, p_status: status }))),
     listAppointments: (q) => ctx.read(async () => arr(await rpc('appointments_list', {
       p_from: q?.from ?? null, p_to: q?.to ?? null, p_staff_id: q?.staffId ?? null, p_client_id: q?.clientId ?? null, p_include_cancelled: !!q?.includeCancelled,

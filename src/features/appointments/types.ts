@@ -313,11 +313,20 @@ export interface AppointmentsStore {
   removeTimeOff(id: ID): Promise<void>;
 
   // --- slots and booking
-  /** Open start times for a type between two studio dates (inclusive). Avoids classes they teach, other appointments, time off, buffers. */
-  listSlots(q: { typeId: ID; from: ISODate; to: ISODate; staffId?: ID }): Promise<AppointmentSlot[]>;
+  /**
+   * Open start times for a type between two studio dates (inclusive). Avoids classes they teach, other appointments, time off, buffers.
+   * `excludeAppointmentId`: an appointment being moved, so its own time doesn't count as busy.
+   */
+  listSlots(q: { typeId: ID; from: ISODate; to: ISODate; staffId?: ID; excludeAppointmentId?: ID }): Promise<AppointmentSlot[]>;
   bookAppointment(input: BookAppointmentInput): Promise<BookAppointmentResult>;
   /** Client (own, with the studio cancel window) or staff (can waive the penalty). */
   cancelAppointment(id: ID, opts?: { waivePenalty?: boolean }): Promise<CancelAppointmentResult>;
+  /**
+   * Move a booked appointment to another open time for the same session type, with the same instructor (default) or another who
+   * offers it. One step, not a cancel and a rebook: it keeps its payment or pack credits and sends a "moved" email. Clients can
+   * move (their own and their family's) until the studio's cancellation window; staff can move any time.
+   */
+  moveAppointment(id: ID, to: { startsAt: ISODateTime; staffId?: ID }): Promise<Appointment>;
   /** Staff: mark completed / no-show (or put back to booked). */
   setAppointmentStatus(id: ID, status: 'completed' | 'no_show' | 'booked'): Promise<Appointment>;
   /** Clients see their own; instructors see theirs; owner / manager / front desk see all. startsAt in [from, to). */

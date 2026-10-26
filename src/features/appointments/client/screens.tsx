@@ -12,7 +12,7 @@ import { goFlow, queryOf } from '../../../client/lib';
 import { WhosComing, creditLine, fullName, useDependants } from '../../../client/family';
 import { brandAsset } from '../../../shared/branding';
 import {
-  KIND_LABEL, cancelNote, clock, creditsLeft, dayFull, dayLabel, dateOf, eventWhen, needAppts, pageBase, price, range, APPT_STATUS_LABEL,
+  KIND_LABEL, cancelNote, clock, creditsLeft, dayFull, dayLabel, dateOf, eventWhen, hoursUntil, needAppts, pageBase, price, range, APPT_STATUS_LABEL,
 } from '../api';
 import { eventEnd, eventStart, usableCredits } from '../logic';
 import type {
@@ -522,6 +522,81 @@ function EventBody({ id, nav, onClose }: { id: string; nav: Nav; onClose: () => 
   );
 }
 
+// ------------------------------------------------------------------ move a session
+/** Pick another open time for the same session (same instructor, or anyone who offers it) and move it in one step. */
+function MoveBody({ appt, onClose, onMoved }: { appt: Appointment; onClose: () => void; onMoved: () => void }) {
+  const app = useApp();
+  const toast = useToast();
+  const ap = needAppts();
+  const today = studioDate();
+  const types = useData(() => ap.listTypes(), []);
+  const [staffId, setStaffId] = useState(appt.staffId);
+  const [day, setDay] = useState('');
+  const [sel, setSel] = useState<AppointmentSlot | null>(null);
+  const [busy, setBusy] = useState(false);
+  const slots = useData(() => ap.listSlots({ typeId: appt.typeId, from: today, to: addDays(today, 27), excludeAppointmentId: appt.id, ...(staffId ? { staffId } : {}) }), [appt.id, staffId]);
+  const type = (types.data ?? []).find((t) => t.id === appt.typeId);
+  const staffName = (id: string) => app.staff.find((x) => x.id === id)?.name ?? 'your instructor';
+  const offered = (type?.staffIds ?? [appt.staffId]);
+  const open = (slots.data ?? []).filter((x) => !(x.staffId === appt.staffId && x.startsAt === appt.startsAt));
+  const unique = useMemo(() => { const seen = new Set<string>(); return open.filter((x) => (seen.has(x.startsAt) ? false : (seen.add(x.startsAt), true))); }, [slots.data, staffId]);
+  const days = useMemo(() => { const m = new Map<string, AppointmentSlot[]>(); for (const x of unique) { const d = dateOf(x.startsAt); (m.get(d) ?? m.set(d, []).get(d)!).push(x); } return m; }, [unique]);
+  const dayKeys = [...days.keys()];
+  const activeDay = day && days.has(day) ? day : dayKeys[0] ?? '';
+  useEffect(() => { setSel(null); }, [staffId]);
+  const move = async () => {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      await ap.moveAppointment(appt.id, { startsAt: sel.startsAt, staffId: sel.staffId });
+      toast('Moved. We’ve emailed you the new time.');
+      onMoved();
+    } catch (e) { toast(errorMessage(e)); setSel(null); slots.reload(); } finally { setBusy(false); }
+  };
+  return (
+    <div className="stack lg ap-stack">
+      <SheetHead eyebrow={appt.typeName} title={<>Move to <em>another time</em></>} onClose={onClose} />
+      <p className="muted">Now: {dayFull(appt.startsAt)}, {range(appt.startsAt, appt.endsAt)} with {staffName(appt.staffId).split(' ')[0]}. Moving keeps your {appt.payment.method === 'pack' ? 'credit' : 'payment'}, so nothing more to pay.</p>
+      {offered.length > 1 && (
+        <div className="group"><div className="group-label">Instructor</div>
+          <div className="ap-opts">
+            <button className="ap-opt" aria-pressed={staffId === appt.staffId} onClick={() => setStaffId(appt.staffId)}>{staffName(appt.staffId).split(' ')[0]} (same)</button>
+            <button className="ap-opt" aria-pressed={staffId === ''} onClick={() => setStaffId('')}>Anyone</button>
+            {offered.filter((id) => id !== appt.staffId).map((id) => <button key={id} className="ap-opt" aria-pressed={staffId === id} onClick={() => setStaffId(id)}>{staffName(id).split(' ')[0]}</button>)}
+          </div>
+        </div>
+      )}
+      {slots.error && !slots.data ? <ErrorBlock error={slots.error} onRetry={slots.reload} /> : !slots.data ? <CardSkeletons n={2} h={64} /> : dayKeys.length === 0 ? (
+        <p className="panel-soft">No other times are open in the next four weeks{staffId ? ` with ${staffName(staffId).split(' ')[0]}` : ''}. {offered.length > 1 && staffId ? 'Try “Anyone”, or ask' : 'Ask'} the studio.</p>
+      ) : (
+        <>
+          <div className="group"><div className="group-label">Day</div>
+            <div className="ap-days" role="group" aria-label="Choose a day">
+              {dayKeys.map((d) => {
+                const [wd, dn] = dayLabel(d).split(' ');
+                return <button key={d} className="ap-day" aria-pressed={d === activeDay} onClick={() => { setDay(d); setSel(null); }}><small>{wd}</small><strong>{dn}</strong><small>{dayLabel(d).split(' ')[2]}</small></button>;
+              })}
+            </div>
+          </div>
+          <div className="group"><div className="group-label">Time · {dayFull(activeDay)}</div>
+            <div className="ap-slots">
+              {(days.get(activeDay) ?? []).map((x) => <button key={x.startsAt + x.staffId} className="ap-slot" aria-pressed={sel?.startsAt === x.startsAt} onClick={() => setSel(x)}>{clock(x.startsAt)}</button>)}
+            </div>
+          </div>
+        </>
+      )}
+      {sel && (
+        <>
+          <div className="ap-sum"><strong>{dayFull(sel.startsAt)}, {clock(sel.startsAt)}</strong><span>{appt.typeName} with {staffName(sel.staffId)}</span>
+            <span className="ap-fine">{cancelNote(sel.startsAt, app.settings.cancelWindowHours, appt.payment.method === 'pack' ? 'credit' : 'payment')}</span></div>
+          <button className="btn block big" disabled={busy} onClick={move}>{busy ? 'One moment…' : 'Move my session'}</button>
+        </>
+      )}
+      <button className="btn ghost block" onClick={onClose}>Keep my current time</button>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ mine
 function Mine({ nav, appts, regs, credits, events, reload }: {
   nav: Nav;
@@ -532,6 +607,7 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
   const app = useApp();
   const toast = useToast();
   const [open, setOpen] = useState<Appointment | null>(null);
+  const [moving, setMoving] = useState(false);
   const [busy, setBusy] = useState(false);
   const now = Date.now();
   const list = appts.data ?? [];
@@ -605,12 +681,16 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
           ))}</div>
         </div>
       )}
-      <Sheet open={!!open} onClose={() => setOpen(null)} label="Your appointment">
-        {open && (
+      <Sheet open={!!open} onClose={() => { setOpen(null); setMoving(false); }} label="Your appointment">
+        {open && moving && <MoveBody key={open.id} appt={open} onClose={() => setMoving(false)} onMoved={() => { setOpen(null); setMoving(false); reload(); }} />}
+        {open && !moving && (
           <div className="stack lg ap-stack">
             <SheetHead eyebrow={`${open.people > 1 ? '2 people · ' : ''}${open.staffName}`} title={open.typeName} onClose={() => setOpen(null)} />
             <div className="ap-sum"><strong>{dayFull(open.startsAt)}</strong><span>{range(open.startsAt, open.endsAt)}</span>{open.note && <span className="ap-fine">Your note: {open.note}</span>}</div>
             <p className="muted">{cancelNote(open.startsAt, app.settings.cancelWindowHours, open.payment.method === 'pack' ? 'credit' : 'payment')}</p>
+            {hoursUntil(open.startsAt) >= app.settings.cancelWindowHours
+              ? <button className="btn block" onClick={() => setMoving(true)}>Move to another time</button>
+              : <p className="ap-fine">It’s too close to move online. Please contact the studio if you need to change it.</p>}
             <button className="btn danger-solid block" disabled={busy} onClick={cancel}>{busy ? 'Cancelling…' : 'Cancel this session'}</button>
             <button className="btn ghost block" onClick={() => setOpen(null)}>Keep it</button>
           </div>

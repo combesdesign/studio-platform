@@ -155,6 +155,7 @@ ${gst ? `<p style="font-size:13px">Total includes ${esc(taxName)} of ${money(gst
     case 'appointment_confirmed':
     case 'appointment_cancelled':
     case 'appointment_reminder':
+    case 'appointment_moved':
     case 'event_registered':
     case 'event_cancelled':
     case 'event_reminder':
@@ -187,6 +188,14 @@ function renderAppointments(kind: string, p: Payload, hi: string, policy: string
         subject: `You're booked: ${title}, ${p.when}`,
         html: layout(isEvent ? 'You’re in' : 'You’re booked in', `<p>${hi}</p><p>Your ${what} is confirmed.${esc(paid)}</p>${box}${note}${policy}`, p),
         text: txt(`Your ${what} is confirmed.${paid}`),
+      };
+    }
+    case 'appointment_moved': {
+      const was = p.previous_when ? `${p.previous_when}${p.previous_staff && p.previous_staff !== p.staff ? ` with ${p.previous_staff}` : ''}` : '';
+      return {
+        subject: `Moved: ${title}, ${p.when}`,
+        html: layout('Your session has moved', `<p>${hi}</p><p>Your ${what} has been moved to a new time. Nothing else changes: it’s still paid for.</p>${box}${was ? `<p style="font-size:13px;color:#4b5563">It was ${esc(was)}.</p>` : ''}${note}${policy}`, p),
+        text: txt(`Your ${what} has been moved to a new time. Nothing else changes: it's still paid for.${was ? ` It was ${was}.` : ''}`),
       };
     }
     case 'waitlist_offer': {

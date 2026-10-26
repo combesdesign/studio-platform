@@ -5,7 +5,7 @@ import { createDemoStore, memoryStorage } from '../src/data/demo';
 import { studioToUTC, studioDate, addDays, weekday } from '../src/shared/format';
 import type { AuthUser, ID } from '../src/shared/types';
 import type { DataStore } from '../src/shared/store';
-import { allocateCredits, availabilityProblem, computeSlots, creditStatus, isLateCancel, planWaitlist, DEFAULT_SETTINGS, type WaitlistLine } from '../src/features/appointments/logic';
+import { allocateCredits, availabilityProblem, computeSlots, creditStatus, creditsLastUntil, isLateCancel, moveProblem, planWaitlist, DEFAULT_SETTINGS, type WaitlistLine } from '../src/features/appointments/logic';
 import type { AppointmentCredit } from '../src/features/appointments/types';
 import { asClient, at, rejects } from './helpers';
 
@@ -327,6 +327,83 @@ test('workshops and courses: register, pay, capacity, cancel with the refund cut
   assert.equal((await a.listEvents()).find((e) => e.id === workshop.id)!.cancelled, true, 'staff still see it, marked cancelled');
   await as(asClient(hannah));
   assert.ok(!(await a.listEvents()).some((e) => e.id === workshop.id), 'clients no longer see it');
+});
+
+// ---------------------------------------------------------------- moving an appointment
+test('move rules: clients until the cancel window, staff any time, only booked sessions, credits must outlast the new time', () => {
+  const a = { startsAt: iso('2026-10-20', '10:00'), status: 'booked' as const };
+  assert.equal(moveProblem(a, at('2026-10-20', '07:00'), 3, false), null, 'exactly on the line is still in time');
+  assert.equal(moveProblem(a, at('2026-10-20', '07:01'), 3, false)?.code, 'TOO_LATE', 'inside the window');
+  assert.equal(moveProblem(a, at('2026-10-20', '07:01'), 3, true), null, 'the front desk can still move it');
+  assert.equal(moveProblem(a, at('2026-10-20', '10:30'), 3, false)?.code, 'TOO_LATE', 'already started');
+  assert.equal(moveProblem({ ...a, status: 'cancelled' }, at('2026-10-14', '09:00'), 3, true)?.code, 'INVALID');
+  const uses = [{ creditId: 'a', n: 1 }];
+  assert.equal(creditsLastUntil(uses, [{ id: 'a', expiresAt: '2026-11-01T00:00:00.000Z' }], '2026-10-31T00:00:00.000Z'), true);
+  assert.equal(creditsLastUntil(uses, [{ id: 'a', expiresAt: '2026-11-01T00:00:00.000Z' }], '2026-11-02T00:00:00.000Z'), false, 'the pack would have run out');
+  assert.equal(creditsLastUntil(uses, [{ id: 'a' }], '2030-01-01T00:00:00.000Z'), true, 'no expiry');
+});
+
+test('moving: one step to another free time, same payment or credit, own time never blocks, family and staff rules', async () => {
+  const { store, as, setNow } = demo();
+  await as(owner('snowy'));
+  const a = store.features.appointments!;
+  const priv = (await a.listTypes()).find((t) => t.name === 'Private Session')!;
+  const [jess, alice, hannah] = [await clientId(store, 'Jess'), await clientId(store, 'Alice'), await clientId(store, 'Hannah')];
+  const day = addDays(studioDate(NOW), 10);
+  const all = await a.listSlots({ typeId: priv.id, from: day, to: addDays(day, 10) });
+  const first = all[0]!;
+
+  // Jess pays with her last credit
+  await as(asClient(jess));
+  const r = await a.bookAppointment({ typeId: priv.id, staffId: first.staffId, startsAt: first.startsAt, pay: { method: 'pack' } });
+  const id = r.appointment.id;
+  const credit = (await a.listCredits(undefined, { includeInactive: true }))[0]!;
+  assert.equal(credit.remaining, 0);
+  // 30 minutes later overlaps her own session: not offered normally, but fine for a move
+  const near = new Date(Date.parse(first.startsAt) + 30 * 60_000).toISOString();
+  const plain = await a.listSlots({ typeId: priv.id, from: day, to: day, staffId: first.staffId });
+  const forMove = await a.listSlots({ typeId: priv.id, from: day, to: day, staffId: first.staffId, excludeAppointmentId: id });
+  assert.ok(!plain.some((x) => x.startsAt === near) && forMove.some((x) => x.startsAt === near), 'its own time doesn’t block the move');
+  assert.ok(forMove.some((x) => x.startsAt === first.startsAt && x.staffId === first.staffId), 'and its current time is open again');
+  const countBefore = (await a.listAppointments({ includeCancelled: true })).length;
+  const moved = await a.moveAppointment(id, { startsAt: near });
+  assert.equal(moved.id, id, 'the same appointment');
+  assert.deepEqual([moved.startsAt, moved.staffId, moved.status], [near, first.staffId, 'booked']);
+  assert.equal(moved.endsAt, new Date(Date.parse(near) + 55 * 60_000).toISOString(), 'the session length stays');
+  assert.deepEqual(moved.payment, r.appointment.payment, 'still paid with the same credit');
+  assert.equal((await a.listCredits(undefined, { includeInactive: true }))[0]!.remaining, 0, 'the credit isn’t returned and taken again');
+  assert.equal((await a.listAppointments({ includeCancelled: true })).length, countBefore, 'not a cancel and a rebook');
+  assert.equal((await store.listSales({ from: '2026-10-14', to: '2026-10-14', clientId: jess })).length, 0, 'no money moved');
+  await rejects(a.moveAppointment(id, { startsAt: near }), 'INVALID');
+  await rejects(a.moveAppointment(id, { startsAt: new Date(NOW.getTime() + 3600_000).toISOString() }), 'SLOT_TAKEN');
+
+  // a card payment stays one sale, whoever it moves to
+  await as(asClient(alice));
+  const other = all.find((x) => Date.parse(x.startsAt) >= Date.parse(near) + 3 * 3600_000)!;
+  const paid = await a.bookAppointment({ typeId: priv.id, staffId: other.staffId, startsAt: other.startsAt, pay: { method: 'card_online' } });
+  const julia = (await a.listSlots({ typeId: priv.id, from: day, to: addDays(day, 10), staffId: 'st_julia' }))[0];
+  assert.ok(julia, 'Julia offers privates too');
+  const swapped = await a.moveAppointment(paid.appointment.id, { startsAt: julia!.startsAt, staffId: 'st_julia' });
+  assert.deepEqual([swapped.staffId, swapped.staffName, swapped.payment.saleId], ['st_julia', 'Julia', paid.sale!.id]);
+  assert.equal((await store.listSales({ from: '2026-10-14', to: '2026-10-14', clientId: alice })).length, 1, 'one sale before and after');
+  // somebody else's slot and somebody else's session
+  await rejects(a.moveAppointment(paid.appointment.id, { startsAt: near, staffId: first.staffId }), 'SLOT_TAKEN');
+  await as(asClient(hannah));
+  await rejects(a.moveAppointment(paid.appointment.id, { startsAt: other.startsAt }), 'NOT_FOUND');
+
+  // inside the studio's 3 hour window: clients can't, the front desk can
+  await as(asClient(alice));
+  setNow(new Date(Date.parse(swapped.startsAt) - 2 * 3600_000));
+  const last = all[all.length - 1]!;
+  await rejects(a.moveAppointment(paid.appointment.id, { startsAt: last.startsAt, staffId: last.staffId }), 'TOO_LATE');
+  await as(owner('snowy'));
+  const rescued = await a.moveAppointment(paid.appointment.id, { startsAt: last.startsAt, staffId: last.staffId });
+  assert.equal(rescued.startsAt, last.startsAt);
+  // cancelled sessions can't be moved
+  await as(asClient(alice));
+  setNow(NOW);
+  await a.cancelAppointment(paid.appointment.id);
+  await rejects(a.moveAppointment(paid.appointment.id, { startsAt: julia!.startsAt, staffId: 'st_julia' }), 'INVALID');
 });
 
 // ---------------------------------------------------------------- waitlist

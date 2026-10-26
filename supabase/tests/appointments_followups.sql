@@ -138,6 +138,80 @@ select public.appointments_cancel_event(:'ev', 'Instructor unwell');
 select test.admin();
 select test.eq((select status from public.studio_event_waitlist where id = (:'w4'::jsonb ->> 'id')::uuid), 'expired', 'a cancelled event clears its line');
 
+-- ================================================================ moving an appointment
+select test.at('2026-10-19 08:00+11');
+select test.login('mia');
+select (public.appointments_upsert_type(jsonb_build_object('name', 'Private move', 'durationMin', 55, 'priceCents', 9500, 'capacity', 1, 'bufferMin', 5,
+        'staffIds', jsonb_build_array(test.id('libby_staff'), test.id('julia_staff'))))) ->> 'id' as tm \gset
+select (public.appointments_upsert_pack(jsonb_build_object('name', '3 privates', 'credits', 3, 'priceCents', 27000, 'validityDays', 30,
+        'typeIds', jsonb_build_array(:'tm')))) ->> 'id' as pkm \gset
+select test.login('libby');
+select public.appointments_set_availability(test.id('libby_staff'), '[{"weekday":6,"start":"07:00","end":"12:00"}]');
+select test.login('julia');
+select public.appointments_set_availability(test.id('julia_staff'), '[{"weekday":6,"start":"07:00","end":"12:00"}]');
+select test.login('fran');
+select public.appointments_buy_pack(:'pkm', test.id('alice_client'), 'card_reader');
+select public.appointments_book(:'tm', test.id('libby_staff'), '2026-10-24 10:00+11', 1, test.id('bob_client'), null, 'cash') as bobs \gset
+
+select test.login('alice');
+select public.appointments_book(:'tm', test.id('libby_staff'), '2026-10-24 08:00+11', 1, null, null, 'pack') -> 'appointment' ->> 'id' as ap1 \gset
+select test.ok(not test.ap_has_slot(public.appointments_list_slots(:'tm', '2026-10-24', '2026-10-24', test.id('libby_staff')), '2026-10-24 08:30+11'),
+               'her own session blocks the slot list as usual');
+select test.ok(test.ap_has_slot(public.appointments_list_slots(:'tm', '2026-10-24', '2026-10-24', test.id('libby_staff'), :'ap1'::uuid), '2026-10-24 08:30+11'),
+               'but not when moving it');
+select test.ok(not test.ap_has_slot(public.appointments_list_slots(:'tm', '2026-10-24', '2026-10-24', test.id('libby_staff'), (:'bobs'::jsonb -> 'appointment' ->> 'id')::uuid), '2026-10-24 10:00+11'),
+               'and someone else''s session still blocks (it only leaves out your own)');
+
+-- one step: the same appointment, a new time, the same credit
+select public.appointments_move(:'ap1'::uuid, '2026-10-24 08:30+11') as mv \gset
+select test.eq(:'mv'::jsonb ->> 'id', :'ap1', 'the same appointment');
+select test.ok((select starts_at = '2026-10-24 08:30+11' and ends_at = '2026-10-24 09:25+11' and status = 'booked' from public.appointments where id = :'ap1'::uuid), 'at the new time');
+select test.eq((select used from public.appointment_credits where client_id = test.id('alice_client')), 1, 'the credit is not given back and taken again');
+select test.eq((select count(*)::int from public.appointments where client_id = test.id('alice_client')), 1, 'not a cancel and a rebook');
+select test.eq(:'mv'::jsonb -> 'payment' ->> 'method', 'pack', 'still paid by credit');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-24 08:30+11')$$, :'ap1'), 'INVALID', 'to the time it already has');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-24 10:00+11')$$, :'ap1'), 'SLOT_TAKEN', 'onto someone else''s');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-24 06:00+11')$$, :'ap1'), 'SLOT_TAKEN', 'or outside the hours');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-24 09:00+11', %L)$$, :'ap1', test.id('fran_staff')), 'SLOT_TAKEN', 'or with someone who doesn''t offer it');
+
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_moved' and client_id = test.id('alice_client')
+                  and payload ? 'previous_when' and payload ->> 'title' = 'Private move'), 1, 'she gets a moved email with the old time');
+select test.login('bob');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-24 09:00+11')$$, :'ap1'), 'NOT_FOUND', 'only your own');
+
+-- another instructor who offers the same session
+select test.login('alice');
+select test.eq(public.appointments_move(:'ap1'::uuid, '2026-10-24 09:00+11', test.id('julia_staff')) ->> 'staffName', 'Julia', 'with Julia instead');
+
+-- a reminder already sent for the old time doesn't stop one for the new time
+select test.at('2026-10-23 09:30+11');
+select test.service();
+select public.appointments_queue_reminders(24);
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'ap1'), 1, 'reminded once');
+select test.login('alice');
+select public.appointments_move(:'ap1'::uuid, '2026-10-24 09:00+11', test.id('libby_staff'));
+select test.service();
+select public.appointments_queue_reminders(24);
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'appointment_reminder' and payload ->> 'appointment_id' = :'ap1'), 2, 'and reminded again for the new time');
+
+-- inside the studio's cancellation window clients can't move it online; the front desk can; a credit that runs out first stops it
+select set_config('test.window', (select cancel_window_hours::text from public.studio_settings where studio_id = app.default_studio()), false);
+select test.at(('2026-10-24 09:00+11'::timestamptz - (current_setting('test.window')::numeric / 2) * interval '1 hour')::text);
+select test.login('alice');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-24 11:30+11', %L)$$, :'ap1', test.id('julia_staff')), 'TOO_LATE', 'too close to move');
+select test.login('fran');
+select test.eq(public.appointments_move(:'ap1'::uuid, '2026-10-24 09:00+11', test.id('julia_staff')) ->> 'staffName', 'Julia', 'the front desk can');
+select test.throws(format($$select public.appointments_move(%L, '2026-11-21 09:00+11', %L)$$, :'ap1', test.id('julia_staff')), 'CREDIT_EXPIRES', 'the pack would run out before the new time');
+select test.at('2026-10-24 12:30+11');
+select test.login('libby');
+select public.appointments_set_status(:'ap1'::uuid, 'completed');
+select test.login('fran');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-31 09:00+11')$$, :'ap1'), 'INVALID', 'a finished session can''t be moved');
+select test.at('2026-10-19 08:00+11');
+
 -- ================================================================ another studio can't see or use any of it
 select test.admin();
 insert into public.studios (slug, name, timezone, currency) values ('bayside', 'Bayside Test', 'Australia/Sydney', 'AUD') returning id as bay \gset
@@ -153,6 +227,7 @@ select test.eq(test.count_rows('studio_event_waitlist'), 0, 'studio B sees none 
 select test.throws(format($$select public.appointments_join_waitlist(%L)$$, :'ev'), 'NOT_FOUND', 'or joins its events');
 select test.throws(format($$select public.appointments_list_waitlist(null, %L)$$, :'ev'), 'NOT_FOUND', 'or reads its line');
 select test.throws(format($$select public.appointments_leave_waitlist(%L)$$, :'w4'::jsonb ->> 'id'), 'NOT_FOUND', 'or removes its people');
+select test.throws(format($$select public.appointments_move(%L, '2026-10-31 09:00+11')$$, :'ap1'), 'NOT_FOUND', 'or moves its appointments');
 select test.ap_studio(null);
 
 rollback;

@@ -15,7 +15,7 @@ import type {
   BookAppointmentInput, EventRegistration, RegisterInput, StudioEvent, StudioEventSummary, TimeOff, WaitlistEntry,
 } from './types';
 import {
-  DEFAULT_SETTINGS, HOUR_MS, allocateCredits, availabilityProblem, computeSlots, creditStatus, eventEnd, eventProblem, eventStart, isLateCancel, planWaitlist,
+  DEFAULT_SETTINGS, HOUR_MS, allocateCredits, availabilityProblem, computeSlots, creditStatus, creditsLastUntil, eventEnd, eventProblem, eventStart, isLateCancel, moveProblem, planWaitlist,
 } from './logic';
 import { seedAppointments } from './seed';
 
@@ -39,7 +39,7 @@ export interface Slice {
   /** Event waitlists (added after the first demos: may be missing). */
   waitlist?: StoredWaitlist[];
   /** Emails the live system would send (confirmations, cancellations, waitlist offers); the demo just records them, newest last, capped. */
-  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'event_registered' | 'event_cancelled' | 'waitlist_offer'; text: string }[];
+  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'event_registered' | 'event_cancelled' | 'waitlist_offer'; text: string }[];
 }
 
 const err = (code: string, message: string) => new StoreError(code, message);
@@ -267,7 +267,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (q.to < q.from) return [];
       const to = q.to > addDays(q.from, 62) ? addDays(q.from, 62) : q.to;
       return computeSlots({
-        type, rules: S().availability, timeOff: S().timeOff, appointments: S().appointments, sessions: core().sessions,
+        type, rules: S().availability, timeOff: S().timeOff, appointments: S().appointments.filter((a) => a.id !== q.excludeAppointmentId), sessions: core().sessions,
         settings: settings(), now: ctx.now(), from: q.from, to, ...(q.staffId ? { staffId: q.staffId } : {}), asStaff: w.kind === 'staff',
       });
     }),
@@ -350,6 +350,37 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       }
       queueEmail(a.clientId, 'appointment_cancelled', `${a.typeName} cancelled${late ? ' (late)' : ''}`);
       return { appointment: dec(a), creditsReturned, refundDue, late };
+    }),
+
+    moveAppointment: (id, to) => ctx.write(() => {
+      const w = who();
+      const a = S().appointments.find((x) => x.id === id);
+      if (!a) throw err('NOT_FOUND', 'We couldn’t find that appointment.');
+      if (w.kind === 'client') {
+        if (a.clientId !== w.clientId && guardianOf(a.clientId) !== w.clientId) throw err('NOT_FOUND', 'We couldn’t find that appointment.');
+      } else ctx.requireStaff('appointments.book');
+      const now = ctx.now();
+      const problem = moveProblem(a, now, cancelWindow(), w.kind === 'staff');
+      if (problem) throw err(problem.code, problem.message);
+      const type = S().types.find((t) => t.id === a.typeId);
+      if (!type || (!type.active && w.kind === 'client')) throw err('NOT_FOUND', 'We couldn’t find that session.');
+      const staffId = to.staffId ?? a.staffId;
+      const startsAt = new Date(to.startsAt).toISOString();
+      if (staffId === a.staffId && startsAt === a.startsAt) throw err('INVALID', 'That is the time you already have.');
+      const day = studioDate(new Date(startsAt));
+      const open = computeSlots({
+        type, rules: S().availability, timeOff: S().timeOff, appointments: S().appointments.filter((x) => x.id !== a.id), sessions: core().sessions,
+        settings: settings(), now, from: day, to: day, staffId, asStaff: w.kind === 'staff',
+      }).find((s) => s.startsAt === startsAt);
+      if (!open) throw err('SLOT_TAKEN', 'That time isn’t available any more. Please pick another.');
+      if (S().appointments.some((x) => x.id !== a.id && x.clientId === a.clientId && x.status === 'booked' && x.startsAt === startsAt)) throw err('ALREADY_BOOKED', 'You already have a session at that time.');
+      if (a.payment.method === 'pack' && !creditsLastUntil(a.payment.credits ?? [], S().credits.map(decCredit), startsAt)) {
+        throw err('CREDIT_EXPIRES', 'Your pack runs out before that time. Please pick an earlier one.');
+      }
+      // the same appointment, a new time: payment, credits and history stay as they were
+      a.startsAt = startsAt; a.endsAt = open.endsAt; a.staffId = staffId; a.bufferMin = type.bufferMin;
+      queueEmail(a.clientId, 'appointment_moved', `${a.typeName} moved to ${startsAt}`);
+      return dec(a);
     }),
 
     setAppointmentStatus: (id, status) => ctx.write(() => {

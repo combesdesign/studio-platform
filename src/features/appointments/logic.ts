@@ -161,6 +161,25 @@ export function isLateCancel(startsAt: ISODateTime, now: Date, windowHours: numb
   return now.getTime() > Date.parse(startsAt) - windowHours * HOUR_MS;
 }
 
+// ---------------------------------------------------------------- moving
+
+/**
+ * Whether a booked appointment may be moved right now, or why not (the SQL appointments_move does the same).
+ * Clients can move while it is still outside the studio's cancellation window (the same line cancelling uses); staff any time before it ends.
+ */
+export function moveProblem(a: Pick<Appointment, 'startsAt' | 'status'>, now: Date, windowHours: number, asStaff: boolean): { code: string; message: string } | null {
+  if (a.status !== 'booked') return { code: 'INVALID', message: 'This appointment can’t be moved.' };
+  if (asStaff) return null;
+  if (now.getTime() >= Date.parse(a.startsAt)) return { code: 'TOO_LATE', message: 'This session has already started.' };
+  if (isLateCancel(a.startsAt, now, windowHours)) return { code: 'TOO_LATE', message: 'It’s inside the cancellation window, so it can’t be moved online. Please contact the studio.' };
+  return null;
+}
+
+/** Pack credits keep paying for a moved session only if none of them runs out before the new start. */
+export function creditsLastUntil(uses: readonly { creditId: ID }[], credits: readonly Pick<AppointmentCredit, 'id' | 'expiresAt'>[], newStart: ISODateTime): boolean {
+  return uses.every((u) => { const e = credits.find((c) => c.id === u.creditId)?.expiresAt; return !e || Date.parse(e) > Date.parse(newStart); });
+}
+
 // ---------------------------------------------------------------- events
 
 export const eventStart = (e: Pick<StudioEvent, 'sessions'>): ISODateTime => e.sessions[0]?.startsAt ?? '';
