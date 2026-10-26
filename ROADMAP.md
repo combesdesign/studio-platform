@@ -42,17 +42,17 @@ Every feature built from here lands in both.
 - [ ] Spot or mat selection (optional, per class)
 
 ### B2 Marketing and messaging
-- [ ] Email campaigns, using segments built from client filters
-- [ ] SMS campaigns, with an SMS provider stub
-- [ ] Automations:
-  - welcome series
-  - intro offer ending
-  - pack running low or expiring
-  - win-back after X days
-  - birthday
-  - post-first-class
-- [ ] Two-way inbox (studio ⇄ client messages in the app)
-- [ ] Push notifications (Capacitor and web push)
+- [x] Email campaigns, using segments built from client filters
+- [x] SMS campaigns, with an SMS provider stub
+- [x] Automations:
+  - [x] welcome series
+  - [x] intro offer ending
+  - [x] pack running low or expiring
+  - [x] win-back after X days
+  - [x] birthday
+  - [x] post-first-class
+- [x] Two-way inbox (studio ⇄ client messages in the app)
+- [x] Push notifications (Capacitor and web push): device registration and the queue are built; delivery is stubbed until VAPID / FCM keys exist
 
 ### B3 Selling extras
 - [x] Gift cards: buy, send and redeem, with balance tracking
