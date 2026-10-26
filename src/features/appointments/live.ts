@@ -162,6 +162,8 @@ function createStore(ctx: LiveFeatureContext): AppointmentsStore {
 
     // Holds the slot / place and returns a Stripe Checkout URL; the appointments-stripe-webhook completes it.
     startCheckout: (order) => ctx.write(async () => {
+      // Family accounts: online card checkout for a dependant isn't built yet (docs/features/family.md). Don't charge the parent for the wrong person.
+      if ('clientId' in order && order.clientId) throw new StoreError('NOT_ALLOWED', 'Card payment for a family member isn’t available online yet. Please pay at the studio or use a credit.');
       let res: { data: unknown; error: unknown };
       try {
         res = await ctx.sb.functions.invoke('appointments-checkout', { body: { ...order, studioId: ctx.studioId } });

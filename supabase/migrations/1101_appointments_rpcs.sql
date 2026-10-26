@@ -67,7 +67,11 @@ begin
     end if;
     return p_client;
   end if;
-  if p_client is not null and p_client <> p_actor.client_id then perform app.fail('NOT_ALLOWED', format('You can only %s for yourself.', p_what)); end if;
+  if p_client is not null and p_client <> p_actor.client_id then
+    -- family accounts (0010_family.sql): a parent acts for their dependants
+    if app.is_guardian_of(p_client) then return p_client; end if;
+    perform app.fail('NOT_ALLOWED', format('You can only %s for yourself and your family.', p_what));
+  end if;
   return p_actor.client_id;
 end $$;
 
@@ -572,7 +576,7 @@ begin
   if a.id is null then perform app.fail('NOT_FOUND', 'We couldn''t find that appointment.'); end if;
   v := app.ap_actor(a.client_id);
   if not v.as_staff then
-    if a.client_id <> v.client_id then perform app.fail('NOT_FOUND', 'We couldn''t find that appointment.'); end if;
+    if a.client_id <> v.client_id and not app.is_guardian_of(a.client_id) then perform app.fail('NOT_FOUND', 'We couldn''t find that appointment.'); end if;
     if p_waive_penalty then perform app.fail('NOT_ALLOWED', 'Only staff can waive the cancellation policy.'); end if;
   else
     perform app.ap_require(v, 'book');
@@ -626,7 +630,7 @@ begin
       from public.appointments a
      where a.studio_id = v.studio and a.status <> 'pending_payment'
        and (p_include_cancelled or a.status not in ('cancelled', 'late_cancelled'))
-       and (v_staff is null or a.staff_id = v_staff) and (v_client is null or a.client_id = v_client)
+       and (v_staff is null or a.staff_id = v_staff) and (v_client is null or a.client_id = v_client or (not v.as_staff and app.is_guardian_of(a.client_id)))
        and (p_from is null or a.starts_at >= p_from) and (p_to is null or a.starts_at < p_to)), '[]'::jsonb);
 end $$;
 
@@ -651,7 +655,7 @@ create or replace function public.appointments_list_credits(p_client_id uuid def
 language plpgsql stable security definer set search_path = public, pg_temp as $$
 declare v app.ap_actor_t := app.ap_actor(p_client_id); v_client uuid := p_client_id;
 begin
-  if not v.as_staff then v_client := v.client_id; end if;
+  if not v.as_staff then v_client := case when p_client_id is not null and app.is_guardian_of(p_client_id) then p_client_id else v.client_id end; end if;
   if v_client is null then perform app.fail('INVALID', 'Choose a client.'); end if;
   return coalesce((
     select jsonb_agg(j.x order by c.purchased_at, c.id)
@@ -818,7 +822,7 @@ begin
   select * into e from public.studio_events where id = r.event_id;
   v := app.ap_actor(r.client_id);
   if not v.as_staff then
-    if r.client_id <> v.client_id then perform app.fail('NOT_FOUND', 'We couldn''t find that registration.'); end if;
+    if r.client_id <> v.client_id and not app.is_guardian_of(r.client_id) then perform app.fail('NOT_FOUND', 'We couldn''t find that registration.'); end if;
     if p_waive_penalty then perform app.fail('NOT_ALLOWED', 'Only staff can waive the cancellation policy.'); end if;
   else
     perform app.ap_require(v, 'book');
@@ -853,9 +857,14 @@ begin
   end if;
   v_client := case when v.as_staff then p_client_id else v.client_id end;
   if v_client is null then perform app.fail('INVALID', 'Choose a client.'); end if;
+  if not v.as_staff and p_client_id is not null and p_client_id <> v.client_id and not app.is_guardian_of(p_client_id) then
+    perform app.fail('NOT_ALLOWED', 'You can only see your own sign-ups.');
+  end if;
+  -- a client's own list includes their dependants' (family accounts)
   return coalesce((select jsonb_agg(app.ap_reg_json(r.id) order by r.created_at, r.id)
                      from public.studio_event_registrations r
-                    where r.studio_id = v.studio and r.client_id = v_client and r.status <> 'pending_payment'), '[]'::jsonb);
+                    where r.studio_id = v.studio and r.status <> 'pending_payment'
+                      and (r.client_id = v_client or (not v.as_staff and v_client = v.client_id and app.is_guardian_of(r.client_id)))), '[]'::jsonb);
 end $$;
 
 create or replace function public.appointments_set_attendance(p_registration_id uuid, p_session_starts_at timestamptz, p_present boolean) returns jsonb

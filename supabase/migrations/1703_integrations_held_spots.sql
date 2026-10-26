@@ -105,7 +105,11 @@ begin
   else
     v_client := public.current_client_id();
     if v_client is null then perform app.fail('AUTH_REQUIRED', 'Please sign in to book.'); end if;
-    if p_client_id is not null and p_client_id <> v_client then perform app.fail('NOT_ALLOWED', 'You can only book for yourself.'); end if;
+    if p_client_id is not null and p_client_id <> v_client then
+      -- family accounts (0010_family.sql): a parent books for their dependants
+      if app.is_guardian_of(p_client_id) then v_client := p_client_id;
+      else perform app.fail('NOT_ALLOWED', 'You can only book for yourself and your family.'); end if;
+    end if;
     if p_allow_over_capacity or p_skip_credit then perform app.fail('NOT_ALLOWED', 'Only staff can do that.'); end if;
   end if;
 
@@ -146,12 +150,13 @@ begin
     return jsonb_build_object('outcome', 'waitlisted', 'booking', app.booking_json(b_id), 'pass', null);
   end if;
 
-  perform 1 from public.passes where client_id = v_client for update;
+  perform 1 from public.passes where client_id in (v_client, coalesce(app.guardian_of(v_client), v_client)) for update;
 
   if p_skip_credit then
     p := null;
   elsif p_pass_id is not null then
-    select * into p from public.passes where id = p_pass_id and client_id = v_client;
+    select * into p from public.passes where id = p_pass_id
+       and (client_id = v_client or (client_id = app.guardian_of(v_client) and app.pass_family_shareable(passes)));
     if p.id is null or not app.pass_usable(p, s.starts_at, s.class_type_id, v_now)
        or coalesce(app.pass_remaining(p, s.starts_at), 1) <= 0 then
       perform app.fail('NO_CREDITS', 'That pass can''t be used for this class.');

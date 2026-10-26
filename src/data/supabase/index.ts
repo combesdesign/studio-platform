@@ -18,7 +18,7 @@ import type {
 } from '../../shared/types';
 import {
   StoreError,
-  type BookResult, type BookingWithDetails, type CancelResult, type CreditSummary, type DataStore, type PurchaseResult, type RestoreSessionResult, type UndoCancelResult, type VoidResult,
+  type BookResult, type BookingWithDetails, type CancelResult, type CreditSummary, type DataStore, type DependantInput, type PurchaseResult, type RestoreSessionResult, type UndoCancelResult, type VoidResult,
   type RosterEntry, type Unsubscribe, type FeatureStores, type StudioPatch, type PlatformStore, type NewStudioInput,
 } from '../../shared/store';
 import { liveFeatures, type LiveFeatureContext } from './features';
@@ -122,6 +122,7 @@ function toClient(r: Row, staffNotes?: string): Client {
     emergencyContactName: optStr(r.emergency_contact_name), emergencyContactPhone: optStr(r.emergency_contact_phone),
     waiverSignedAt: optIso(r.waiver_signed_at), healthForm, marketingOptIn: bool(r.marketing_opt_in),
     source: optStr(r.source) as Client['source'], archived: bool(r.archived),
+    guardianClientId: optStr(r.guardian_client_id), guardianName: optStr(r.guardian_name),
   });
 }
 
@@ -195,6 +196,7 @@ function toProduct(r: Row): Product {
     newClientsOnly: r.new_clients_only === undefined ? undefined : bool(r.new_clients_only),
     classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined,
     stock: retail ? nullableNum(r.stock) : undefined,
+    familyShareable: r.family_shareable === null || r.family_shareable === undefined ? undefined : bool(r.family_shareable),
   });
 }
 
@@ -212,6 +214,7 @@ function toPass(r: Row): Pass {
     billingInterval: optStr(r.billing_interval) as Pass['billingInterval'],
     nextBillingAt: optIso(r.next_billing_at), pausedFrom: optDate(r.paused_from), pausedUntil: optDate(r.paused_until),
     priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined, adjustments: adj.length ? adj : undefined,
+    familyShareable: r.family_shareable === null || r.family_shareable === undefined ? undefined : bool(r.family_shareable),
   });
 }
 
@@ -1030,8 +1033,10 @@ class SupabaseStore implements DataStore {
 
   async getRoster(sessionId: ID): Promise<RosterEntry[]> {
     const list = arr(await this.rpc('get_roster', { p_session_id: sessionId })).map(obj);
+    const guardians = await this.guardianNames(list.map((e) => optStr(obj(e.client).guardian_client_id)));
     return list.map((e) => {
-      const entry: RosterEntry = { ...toBooking(e), client: toClient(obj(e.client)), flags: arr(e.flags).map(str) as RosterEntry['flags'] };
+      const gid = optStr(obj(e.client).guardian_client_id);
+      const entry: RosterEntry = { ...toBooking(e), client: toClient({ ...obj(e.client), ...(gid && guardians.get(gid) ? { guardian_name: guardians.get(gid) } : {}) }), flags: arr(e.flags).map(str) as RosterEntry['flags'] };
       if (e.pass && typeof e.pass === 'object') entry.pass = toPass(e.pass as Row);
       return entry;
     });
@@ -1065,9 +1070,11 @@ class SupabaseStore implements DataStore {
     if (!opts.includeArchived) q = q.eq('archived', false);
     const [rows, notes] = await Promise.all([this.rows(q), this.notesFor()]);
     const terms = (opts.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
-    return rows.map((r) => toClient(r, notes.get(str(r.id)))).filter((c) => {
+    const names = new Map(rows.map((r) => [str(r.id), `${str(r.first_name)} ${str(r.last_name)}`.trim()] as const));
+    return rows.map((r) => toClient({ ...r, ...(r.guardian_client_id && names.get(str(r.guardian_client_id)) ? { guardian_name: names.get(str(r.guardian_client_id)) } : {}) }, notes.get(str(r.id)))).filter((c) => {
       if (!terms.length) return true;
-      const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone ?? ''} ${(c.phone ?? '').replace(/\D/g, '')}`.toLowerCase();
+      // family accounts: search a parent's name to find their dependants too
+      const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone ?? ''} ${(c.phone ?? '').replace(/\D/g, '')} ${c.guardianName ?? ''}`.toLowerCase();
       return terms.every((t) => hay.includes(t));
     });
   }
@@ -1077,7 +1084,38 @@ class SupabaseStore implements DataStore {
       this.one(this.sb.from('clients').select('*').eq('id', id).limit(1), 'We couldn’t find that client.'),
       this.notesFor(id),
     ]);
-    return toClient(r, notes.get(id));
+    const gid = optStr(r.guardian_client_id);
+    const guardian = gid ? (await this.guardianNames([gid])).get(gid) : undefined;
+    return toClient(guardian ? { ...r, guardian_name: guardian } : r, notes.get(id));
+  }
+
+  /** Family accounts: parent ids -> full names (for "via Sarah" tags). Unknown or hidden parents are left out. */
+  private async guardianNames(ids: (string | undefined)[]): Promise<Map<string, string>> {
+    const want = [...new Set(ids.filter((x): x is string => !!x))];
+    if (!want.length) return new Map();
+    const rows = await this.rows(this.sb.from('clients').select('id, first_name, last_name').in('id', want));
+    return new Map(rows.map((r) => [str(r.id), `${str(r.first_name)} ${str(r.last_name)}`.trim()] as const));
+  }
+
+  // ------------------------------------------------------------------ family accounts (0010_family.sql; docs/features/family.md)
+  async listDependants(guardianId: ID): Promise<Client[]> {
+    const rows = await this.rows(this.sb.from('clients').select('*').eq('guardian_client_id', guardianId).eq('archived', false).order('created_at'));
+    return rows.map((r) => toClient(r));
+  }
+
+  async saveDependant(guardianId: ID, input: DependantInput): Promise<Client> {
+    return this.write(async () => toClient(obj(await this.rpc('save_dependant', {
+      p_guardian_id: guardianId, p_id: input.id ?? null, p_first_name: input.firstName, p_last_name: input.lastName ?? null,
+      p_birthday: input.birthday ?? null, p_injuries: input.injuries ?? null,
+    }))));
+  }
+
+  async removeDependant(dependantId: ID): Promise<void> {
+    await this.write(() => this.rpc('remove_dependant', { p_dependant_id: dependantId }));
+  }
+
+  async bookAttendees(sessionId: ID, clientIds: ID[], opts: { passId?: ID } = {}): Promise<BookResult[]> {
+    return this.write(async () => arr(await this.rpc('book_attendees', { p_session_id: sessionId, p_client_ids: clientIds, p_pass_id: opts.passId ?? null })).map((x) => this.toBookResult(x)));
   }
 
   /** Upload a profile photo (data: URL from src/shared/photo.ts) to avatars/<clientId>/<timestamp>.jpg; returns its public URL. */
@@ -1241,7 +1279,7 @@ class SupabaseStore implements DataStore {
         ['validity_days', p.kind === 'retail' ? null : p.validityDays ?? null],
         ['billing_interval', p.kind === 'membership' ? p.billingInterval ?? 'week' : null], ['new_clients_only', !!p.newClientsOnly],
         ['class_type_ids', p.classTypeIds && p.classTypeIds.length ? p.classTypeIds : null], ['stock', p.kind === 'retail' ? p.stock ?? null : null],
-        ['no_classes', p.kind !== 'retail' && !!p.noClasses],
+        ['no_classes', p.kind !== 'retail' && !!p.noClasses], ['family_shareable', p.kind === 'retail' ? null : p.familyShareable ?? null],
       ]);
       const r = p.id
         ? await this.one(this.sb.from('products').update(row).eq('id', p.id).select('*'), 'You don’t have permission to edit products.', 'NOT_ALLOWED')
@@ -1300,7 +1338,10 @@ class SupabaseStore implements DataStore {
   }
 
   async startCheckout(input: { clientId: ID; productId: ID; returnUrl: string }): Promise<{ url: string } | null> {
-    const r = await this.invoke('create-checkout', { productId: input.productId, returnUrl: input.returnUrl });
+    // family accounts: a parent buying a pass for a dependant sends the dependant's id (the function checks the family link)
+    const me = await this.meOrNull();
+    const forOther = me?.kind === 'client' && me.clientId !== input.clientId ? { clientId: input.clientId } : {};
+    const r = await this.invoke('create-checkout', { productId: input.productId, returnUrl: input.returnUrl, ...forOther });
     const url = str(r.url);
     if (!url) throw new StoreError('ERROR', 'We couldn’t start checkout. Please try again.');
     return { url };
