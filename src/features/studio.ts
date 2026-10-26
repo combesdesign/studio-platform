@@ -10,3 +10,4 @@ import './kiosk/studio/index';
 import './reviews/studio/index';
 import './integrations/studio/index';
 import './ondemand/studio/index';
+import './support/studio/index';

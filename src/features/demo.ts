@@ -10,3 +10,4 @@ import './kiosk/demo';
 import './reviews/demo';
 import './integrations/demo';
 import './ondemand/demo';
+import './support/demo';

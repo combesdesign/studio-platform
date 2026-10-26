@@ -10,3 +10,4 @@ import './kiosk/live';
 import './reviews/live';
 import './integrations/live';
 import './ondemand/live';
+import './support/live';
