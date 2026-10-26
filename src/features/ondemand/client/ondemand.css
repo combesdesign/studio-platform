@@ -1,5 +1,5 @@
 /* Online classes in the client app. Theme tokens only. */
-.od-screen { display: grid; gap: 18px; align-content: start; }
+.od-screen { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-content: start; }
 .od-screen .shead { margin-bottom: 4px; }
 .od-h { margin: 0 0 10px; font-family: var(--display); font-weight: 400; font-size: 26px; color: var(--ink); }
 .od-h em { font-style: italic; color: var(--primary); }
@@ -18,6 +18,9 @@
 .od-chip:active { transform: scale(.97); }
 .od-chip.on { background: var(--primary); border-color: var(--primary); color: var(--bg-light); }
 
+.od-bleed { margin: 0 -20px; }
+.od-bleed > .od-h { padding: 0 20px; }
+.od-bleed .od-row { margin: 0; }
 .od-grid { display: grid; gap: 22px; }
 .od-row { display: flex; gap: 14px; overflow-x: auto; margin: 0 -20px; padding: 2px 20px 8px; scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .od-row::-webkit-scrollbar { display: none; }

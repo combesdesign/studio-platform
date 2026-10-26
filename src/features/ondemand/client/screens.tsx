@@ -61,7 +61,7 @@ export function Library({ nav }: { nav: Nav }) {
         <>
           {!cat.data.access && <UnlockCard nav={nav} />}
           {recent.length > 0 && (
-            <section className="od-recent" aria-label="Recently watched">
+            <section className="od-bleed" aria-label="Recently watched">
               <h2 className="od-h">Recently <em>watched</em></h2>
               <div className="od-row">{recent.map((v) => <Card key={v.id} v={v} small onOpen={() => open(v)} />)}</div>
             </section>
@@ -116,7 +116,7 @@ export function WatchScreen({ id, nav }: { id: string; nav: Nav }) {
       </div>
       {v.locked && <UnlockCard nav={nav} compact />}
       {more.length > 0 && (
-        <section aria-label={`More ${v.category}`}>
+        <section className="od-bleed" aria-label={`More ${v.category}`}>
           <h2 className="od-h">More <em>{v.category}</em></h2>
           <div className="od-row">{more.map((m) => <Card key={m.id} v={m} small onOpen={() => nav('/online/' + m.id)} />)}</div>
         </section>

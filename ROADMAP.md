@@ -71,7 +71,7 @@ Every feature built from here lands in both.
 - [x] Payroll export (CSV for Xero and others)
 
 ### B5 More Momence parity (after B1–B4)
-- [ ] On-demand video library and on-demand subscriptions (**next big job**, Pete 26 Oct: an "Online classes" section for Mums + Bubs starters and busy clients who can't make it in)
+- [x] On-demand video library and on-demand subscriptions (built: `src/features/ondemand`; Pete 26 Oct: an "Online classes" section for Mums + Bubs starters and busy clients who can't make it in)
 - [ ] Family and child accounts on one profile
 - [ ] Multi-location and rooms
 - [x] Check-in kiosk mode (an iPad clients tap themselves)

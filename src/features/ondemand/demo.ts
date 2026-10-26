@@ -83,7 +83,7 @@ function create(ctx: DemoFeatureContext): OnDemandStore {
     reorder: (ids) => ctx.write(() => {
       ctx.requireStaff('ondemand.manage');
       const s = slice();
-      if (new Set(ids).size !== ids.length || ids.some((i) => !s.videos.some((v) => v.id === i))) throw ctx.error('INVALID', 'That order doesn\'t match the videos.');
+      if (new Set(ids).size !== ids.length || ids.length !== s.videos.length || ids.some((i) => !s.videos.some((v) => v.id === i))) throw ctx.error('INVALID', 'That order doesn\'t match the videos.');
       ids.forEach((i, n) => { find(i).sortOrder = (n + 1) * 10; });
     }),
 

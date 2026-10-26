@@ -186,6 +186,9 @@ begin
   foreach v_id in array coalesce(p_ids, '{}') loop
     perform app.assert_in_studio('ondemand_videos', v_id, 'We couldn''t find that video.');
   end loop;
+  if coalesce(array_length(p_ids, 1), 0) <> (select count(*) from public.ondemand_videos where studio_id = app.current_studio_id()) then
+    perform app.fail('INVALID', 'That order doesn''t match the videos.');
+  end if;
   update public.ondemand_videos v set sort_order = o.n * 10
     from unnest(p_ids) with ordinality as o(id, n) where v.id = o.id;
 end $$;
