@@ -9,6 +9,7 @@ import type { CreditSummary } from '../shared/store';
 import type { Client } from '../shared/types';
 import { store, useData, useToast, errorMessage, Sheet, leaveSheets } from '../shared/react';
 import { studioDate } from '../shared/format';
+import { healthPolicy } from '../domain';
 import { Avatar, BackPill, CardSkeletons, ErrorBlock, Icon, SheetHead, useApp } from './ui';
 import { backOut, flowFrom, goFlow, queryOf } from './lib';
 
@@ -195,12 +196,14 @@ function WaiverBody({ d, onClose, onSigned }: { d: Client; onClose: () => void; 
   const [sig, setSig] = useState('');
   const [busy, setBusy] = useState(false);
   const paras = (app.settings.waiverText || '').split(/\n{2,}|\r?\n/).filter((s) => s.trim());
-  const ok = qs.every((x) => answers[x]?.yn) && agree && sig.trim().length >= 2;
+  // Same rule as the parent's own waiver: with the long form off, a first-timer needs only the waiver itself.
+  const skipHealth = !healthPolicy(app.settings).longFormFirstTimers && !d.waiverSignedAt;
+  const ok = (skipHealth || qs.every((x) => answers[x]?.yn)) && agree && sig.trim().length >= 2;
   const submit = async () => {
     setBusy(true);
     try {
       const out: Record<string, string> = {};
-      qs.forEach((x) => { const a = answers[x]!; out[x] = a.yn === 'Yes' ? (a.detail.trim() ? `Yes: ${a.detail.trim()}` : 'Yes') : 'No'; });
+      if (!skipHealth) qs.forEach((x) => { const a = answers[x]!; out[x] = a.yn === 'Yes' ? (a.detail.trim() ? `Yes: ${a.detail.trim()}` : 'Yes') : 'No'; });
       out['Signed by parent or guardian'] = sig.trim();
       await store.submitWaiver(d.id, { answers: out, ...(injuries.trim() ? { injuries: injuries.trim() } : {}) });
       toast(`${d.firstName}’s waiver is signed`);
@@ -211,7 +214,7 @@ function WaiverBody({ d, onClose, onSigned }: { d: Client; onClose: () => void; 
     <div className="stack lg">
       <SheetHead back={{ label: 'Family', onClick: onClose }} title={<>{d.firstName}’s <em>waiver</em></>} />
       <p className="muted">You’re signing for {d.firstName} as their parent or guardian. Please answer the questions about {d.firstName}, not yourself.</p>
-      {qs.map((x) => {
+      {!skipHealth && qs.map((x) => {
         const a = answers[x]!;
         return (
           <div key={x} className="fam-q">

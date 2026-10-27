@@ -170,3 +170,27 @@ test('renewal date rules', () => {
   assert.equal(renewalDateProblem('2026-10-27', '2026-10-27'), 'Pick a date after today.');
   assert.match(renewalDateProblem('2026-12-30', '2026-10-27')!, /within the next 60 days/);
 });
+
+test('dependants get the same health rules; the parent answers and it saves to the child', async () => {
+  const st = state();
+  st.clients.push(mkClient('kid', 'Kid', { guardianClientId: 'back', email: '', waiverSignedAt: '2026-08-01T00:00:00.000Z' }));
+  st.clients.push(mkClient('baby', 'Baby', { guardianClientId: 'back', email: '', waiverSignedAt: undefined }));
+  const h = await harness(st, NOW);
+  const settings = (await h.store.getSettings());
+  // the child has signed and attended before: the quick check; the new one has no waiver: the full form
+  assert.equal(healthStepFor({ client: await h.store.getClient('kid'), settings, attended: true, now: NOW }), 'quick');
+  assert.equal(healthStepFor({ client: await h.store.getClient('baby'), settings, attended: false, now: NOW }), 'full');
+  await h.as(asClient('back'));
+  const c = await h.store.submitHealthCheck('kid', { changes: true, note: 'sprained wrist' });
+  assert.equal(c.injuries, '27 Oct 2026: sprained wrist', 'saved to the child, not the parent');
+  assert.equal((await h.store.getClient('back')).injuries, undefined);
+  assert.equal(healthStepFor({ client: c, settings, attended: true, now: NOW }), 'none', 'answered today');
+  // the parent can sign for the child (no long form when the studio has it off), but not for someone else's child
+  await h.as(OWNER);
+  await h.store.updateSettings({ longHealthFormFirstTimers: false });
+  await h.as(asClient('back'));
+  const signed = await h.store.submitWaiver('baby', { answers: { 'Signed by parent or guardian': 'Back Test' } });
+  assert.ok(signed.waiverSignedAt);
+  await h.as(asClient('first'));
+  await rejects(h.store.submitHealthCheck('kid', { changes: false }), 'NOT_ALLOWED');
+});

@@ -306,8 +306,10 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   // the out-of-credits, cancel and spot screens are a step inside the sheet: back returns to the details
   useBackHandler(mode === 'nocredits' || mode === 'cancel' || mode === 'spot' || mode === 'health', () => setMode('view'));
   // The quick health check ("any new injuries?") before confirming: No by default, Yes needs a few words.
-  const [hcYes, setHcYes] = useState(false);
-  const [hcNote, setHcNote] = useState('');
+  // One answer per person (the parent answers for each dependant): who's asked, and what they said.
+  const [hc, setHc] = useState<Record<string, { yes: boolean; note: string }>>({});
+  const [hcIds, setHcIds] = useState<string[]>([]);
+  const hcOf = (x: string) => hc[x] ?? { yes: false, note: '' };
   const back = { label: backLabel, onClick: onClose };
 
   const depKey = deps.map((x) => x.id).join(',');
@@ -324,7 +326,10 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     };
     const mine = pick(bks);
     const fam = await Promise.all(deps.map(async (dep) => ({
-      dep, booking: pick(await store.listClientBookings(dep.id, { when: 'all' })), credits: await store.getCreditSummary(dep.id, id),
+      dep, ...await (async () => {
+        const dbks = await store.listClientBookings(dep.id, { when: 'all' });
+        return { booking: pick(dbks), attended: dbks.some((b) => b.status === 'checked_in') };
+      })(), credits: await store.getCreditSummary(dep.id, id),
     })));
     // "Has attended before" for the health step: any checked-in booking at this studio (same data in demo and live)
     const attended = bks.some((b) => b.status === 'checked_in');
@@ -381,12 +386,14 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     // Booking for yourself: no pass yet means the shop first (so the pass is settled before any forms), then the health step.
     const forMe = deps.length === 0 || sel.includes(cid);
     if (forMe && !full && credits.length === 0) { setMode('nocredits'); return; }
-    if (forMe && !healthDone && healthStep !== 'none') {
-      if (healthStep === 'full') {
-        toFlow('/waiver?then=' + encodeURIComponent(id) + (passId ? '&pass=' + encodeURIComponent(passId) : '') + (spot ? '&spot=' + encodeURIComponent(spot) : ''));
-      } else { setHcYes(false); setHcNote(''); setChoice(spot); setMode('health'); }
+    if (forMe && !healthDone && healthStep === 'full') {
+      toFlow('/waiver?then=' + encodeURIComponent(id) + (passId ? '&pass=' + encodeURIComponent(passId) : '') + (spot ? '&spot=' + encodeURIComponent(spot) : ''));
       return;
     }
+    // The same rule for each dependant (their waiver is signed by now): the quick check, answered by the parent.
+    const askIds = healthDone ? [] : sel.filter((x) => x === cid ? healthStep === 'quick'
+      : (() => { const f = fam.find((y) => y.dep.id === x); return !!f && healthStepFor({ client: f.dep, settings: app.settings, attended: f.attended }) === 'quick'; })());
+    if (askIds.length) { setHc({}); setHcIds(askIds); setChoice(spot); setMode('health'); return; }
     setBusy(true);
     try {
       if (deps.length > 0 && store.bookAttendees) {
@@ -506,8 +513,11 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     const confirmHealth = async () => {
       setBusy(true);
       try {
-        await store.submitHealthCheck(cid, hcYes ? { changes: true, note: hcNote.trim() } : { changes: false });
-        app.refreshAuth();
+        for (const x of hcIds) {
+          const a = hcOf(x);
+          await store.submitHealthCheck(x, a.yes ? { changes: true, note: a.note.trim() } : { changes: false });
+        }
+        if (hcIds.includes(cid)) app.refreshAuth();
       } catch (e) { toast(errorMessage(e)); setBusy(false); return; }
       setBusy(false);
       await book(choice, true);
@@ -520,14 +530,24 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
           <h2>Any new injuries or <em>health changes</em> since last time?</h2>
           <p className="muted">{className} · {time(s.startsAt)} {dayLong(s.startsAt)}{usingPass ? ` · using ${usingPass.name}` : ''}</p>
         </div>
-        <YesNo value={hcYes ? 'Yes' : 'No'} onChange={(v) => setHcYes(v === 'Yes')} />
-        {hcYes && (
-          <label className="field"><span>What’s changed? Your instructor will see this.</span>
-            <textarea className="textarea" rows={3} autoFocus placeholder="e.g. sore lower back, new knee niggle, now pregnant" value={hcNote} onChange={(e) => setHcNote(e.target.value)} />
-          </label>
-        )}
+        {hcIds.map((x) => {
+          const a = hcOf(x);
+          const them = x !== cid;
+          return (
+            <div key={x} className="stack hc-person">
+              {(them || hcIds.length > 1) && <div className="kicker">{x === cid ? 'You' : nameOf(x)}</div>}
+              {them && <p className="muted">You’re answering for {nameOf(x)}.</p>}
+              <YesNo value={a.yes ? 'Yes' : 'No'} onChange={(v) => setHc({ ...hc, [x]: { ...a, yes: v === 'Yes' } })} />
+              {a.yes && (
+                <label className="field"><span>{them ? `What’s changed for ${nameOf(x)}? Their instructor will see this.` : 'What’s changed? Your instructor will see this.'}</span>
+                  <textarea className="textarea" rows={3} autoFocus={hcIds.length === 1} placeholder="e.g. sore lower back, new knee niggle, now pregnant" value={a.note} onChange={(e) => setHc({ ...hc, [x]: { ...a, note: e.target.value } })} />
+                </label>
+              )}
+            </div>
+          );
+        })}
         <div className="stack">
-          <button className="btn block big" disabled={busy || (hcYes && hcNote.trim().length < 2)} onClick={confirmHealth}>
+          <button className="btn block big" disabled={busy || hcIds.some((x) => hcOf(x).yes && hcOf(x).note.trim().length < 2)} onClick={confirmHealth}>
             {busy ? 'Booking…' : full ? <>Join the waitlist <Arrow /></> : <>Confirm booking <Arrow /></>}
           </button>
           <button className="btn ghost block" onClick={() => setMode('view')}>Back</button>
