@@ -17,6 +17,7 @@ export function AppointmentSheet({ appt, onClose }: { appt: Appointment; onClose
   const canBook = roleCan(me.role, 'appointments.book');
   const own = roleCan(me.role, 'appointments.own');
   const [confirm, setConfirm] = useState<null | 'cancel' | 'waive'>(null);
+  const [moving, setMoving] = useState(false);
   const started = Date.now() >= Date.parse(appt.startsAt);
   const live = appt.status === 'booked';
   const cancel = (waive: boolean) => run(async () => {
@@ -30,6 +31,7 @@ export function AppointmentSheet({ appt, onClose }: { appt: Appointment; onClose
     onClose();
   }, 'Refunded');
   const mark = (s: 'completed' | 'no_show' | 'booked') => run(async () => { await ap.setAppointmentStatus(appt.id, s); onClose(); }, s === 'completed' ? 'Marked done' : s === 'no_show' ? 'Marked no-show' : 'Back to booked');
+  if (moving) return <StaffMoveBody appt={appt} onClose={() => setMoving(false)} onMoved={onClose} />;
   return (
     <>
       <SheetHead title={<>{appt.typeName}</>} sub={`${dayFull(appt.startsAt)} · ${range(appt.startsAt, appt.endsAt)}`} onClose={onClose} />
@@ -57,6 +59,7 @@ export function AppointmentSheet({ appt, onClose }: { appt: Appointment; onClose
         )}
         {canBook && live && (
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn soft" onClick={() => setMoving(true)}>Move to another time</button>
             <button className="btn ghost" onClick={() => setConfirm('cancel')}>Cancel appointment</button>
             <button className="btn ghost" onClick={() => setConfirm('waive')}>Cancel, no penalty</button>
           </div>
@@ -67,6 +70,54 @@ export function AppointmentSheet({ appt, onClose }: { appt: Appointment; onClose
         body={confirm === 'waive' ? 'The client gets their credit back, or a refund is queued if they paid, whatever the cancellation window says.'
           : `Inside the ${settings.cancelWindowHours} hour window the client keeps no credit or refund. Otherwise they get it back.`}
         onConfirm={() => cancel(confirm === 'waive')} />
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ move an appointment (staff)
+/**
+ * Staff move an appointment any time, to any free slot for any instructor who offers that session type. The client window doesn't
+ * apply. It is the same move as the client's (same payment, same credit) and sends the same "moved" email.
+ */
+function StaffMoveBody({ appt, onClose, onMoved }: { appt: Appointment; onClose: () => void; onMoved: () => void }) {
+  const { staffById } = useStudio();
+  const { busy, run } = useAction();
+  const ap = needAppts();
+  const types = useData(() => ap.listTypes(), []);
+  const [staffId, setStaffId] = useState('');
+  const [day, setDay] = useState(dateOf(appt.startsAt) < studioDate() ? studioDate() : dateOf(appt.startsAt));
+  const [sel, setSel] = useState<AppointmentSlot | null>(null);
+  const type = types.data?.find((t) => t.id === appt.typeId);
+  const slots = useData(() => ap.listSlots({ typeId: appt.typeId, from: day, to: day, excludeAppointmentId: appt.id }), [appt.id, day]);
+  useEffect(() => { setSel(null); }, [day, staffId]);
+  const list = useMemo(() => {
+    const seen = new Set<string>();
+    return (slots.data ?? []).filter((s) => (!staffId || s.staffId === staffId) && !(s.staffId === appt.staffId && s.startsAt === appt.startsAt) && (seen.has(s.startsAt) ? false : (seen.add(s.startsAt), true)));
+  }, [slots.data, staffId]);
+  const who = (id: string) => staffById(id)?.name ?? 'Instructor';
+  const move = async () => {
+    if (!sel) return;
+    const r = await run(() => ap.moveAppointment(appt.id, { startsAt: sel.startsAt, staffId: sel.staffId }), `Moved. ${appt.clientName.split(' ')[0]} has been emailed the new time.`);
+    if (r) onMoved(); else slots.reload();
+  };
+  return (
+    <>
+      <SheetHead title={<>Move <em>{appt.typeName}</em></>} sub={`Now: ${dayFull(appt.startsAt)}, ${range(appt.startsAt, appt.endsAt)} with ${who(appt.staffId)}`} onClose={onClose} back={{ label: 'Back', onClick: onClose }} />
+      <div className="stack" style={{ gap: 16 }}>
+        <p className="muted small">Any time works, the cancellation window doesn’t apply. {appt.clientName.split(' ')[0]} keeps their {appt.payment.method === 'pack' ? 'credit' : 'payment'} and gets the usual “moved” email.</p>
+        <div className="form-grid">
+          <label className="field"><span>Day</span><input className="input" type="date" value={day} min={studioDate()} onChange={(e) => e.target.value && setDay(e.target.value)} /></label>
+          <label className="field"><span>Instructor</span><select className="select" value={staffId} onChange={(e) => setStaffId(e.target.value)}><option value="">Anyone</option>{(type?.staffIds ?? [appt.staffId]).map((id) => <option key={id} value={id}>{who(id)}</option>)}</select></label>
+        </div>
+        <div>
+          <div className="muted small" style={{ marginBottom: 8 }}>Open times · {dayLabel(day)}</div>
+          {slots.loading && !slots.data ? <p className="muted">Looking…</p> : list.length === 0 ? <p className="muted">Nothing else open that day. Check the instructor’s hours, or pick another day.</p> : (
+            <div className="ap-slots">{list.map((s) => <button key={s.startsAt + s.staffId} type="button" className="ap-slot" aria-pressed={sel?.startsAt === s.startsAt && sel.staffId === s.staffId} onClick={() => setSel(s)}>{clock(s.startsAt)}</button>)}</div>
+          )}
+        </div>
+        {sel && <div className="muted small">{dayFull(sel.startsAt)}, {range(sel.startsAt, sel.endsAt)} with {who(sel.staffId)}</div>}
+      </div>
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Keep it where it is</button><button className="btn" disabled={busy || !sel} onClick={move}>Move it</button></div>
     </>
   );
 }

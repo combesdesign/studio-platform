@@ -2,7 +2,7 @@
 import { type Db, must } from './db.ts';
 import { drainMarketing } from './marketing.ts';
 import { env } from './http.ts';
-import { escapeHtml as esc, layout as baseLayout, renderClassEmail, theme } from './emails.ts';
+import { escapeHtml as esc, isEmailKind, layout as baseLayout, money, renderEmail, samplePayload, theme } from './emails.ts';
 
 // deno-lint-ignore no-explicit-any
 type Payload = Record<string, any>;
@@ -11,18 +11,7 @@ export interface Notification { id: string; kind: string; to_email: string | nul
 // Every email is sent as its own studio (name, colours, logo, address, currency, timezone, policy text). These are only the
 // neutral platform defaults for a studio with no branding yet (same values as PLATFORM_BRANDING in src/shared/branding.ts).
 const PLATFORM_NAME = 'Studio Platform';
-const DEFAULT_CURRENCY = 'AUD';
-const DEFAULT_LOCALE = 'en-AU';
 
-/** Money in the studio's own currency and locale (falls back to the platform default if either is unusable). */
-function money(cents: number, p: Payload = {}): string {
-  const amount = (Number.isFinite(cents) ? cents : 0) / 100;
-  try {
-    return new Intl.NumberFormat(String(p.locale ?? DEFAULT_LOCALE), { style: 'currency', currency: String(p.currency ?? DEFAULT_CURRENCY) }).format(amount);
-  } catch {
-    return new Intl.NumberFormat(DEFAULT_LOCALE, { style: 'currency', currency: DEFAULT_CURRENCY }).format(amount);
-  }
-}
 const studioName = (p: Payload) => String(p.studio_name ?? PLATFORM_NAME);
 const absoluteUrl = (u: unknown) => (typeof u === 'string' && /^https:\/\//i.test(u) ? u : '');
 
@@ -31,56 +20,25 @@ function layout(title: string, bodyHtml: string, payload: Payload): string {
   return baseLayout(title, bodyHtml, payload, Deno.env.get('APP_URL') ?? '');
 }
 
-const policyText = (p: Payload) => (p.cancellation_policy ? `\n\nCancellation policy: ${p.cancellation_policy}` : '');
+/** Has the studio switched this email off (Settings > Emails)? A test email always goes. */
+export function switchedOff(kind: string, p: Payload): boolean {
+  if (p.is_test || !isEmailKind(kind)) return false;
+  return (p.email_overrides as Record<string, { enabled?: boolean }> | undefined)?.[kind]?.enabled === false;
+}
 
 export function render(n: Notification): { subject: string; html: string; text: string } {
-  const p = n.payload ?? {};
+  const out = renderOne(n);
+  return n.payload?.is_test ? { ...out, subject: `[Test] ${out.subject}` } : out;   // "Send me a test" in Settings > Emails
+}
+
+function renderOne(n: Notification): { subject: string; html: string; text: string } {
+  // A test email carries only who it's for; the made-up booking, sale or gift card comes from the shared sample.
+  const p: Payload = n.payload?.is_test ? { ...samplePayload(String(n.payload?.studio_name ?? PLATFORM_NAME), n.kind), ...n.payload } : (n.payload ?? {});
   const hi = p.first_name ? `Hi ${esc(p.first_name)},` : 'Hi,';
-  const policy = p.cancellation_policy ? `<p style="font-size:13px;color:#4b5563"><strong>Cancellation policy:</strong> ${esc(p.cancellation_policy)}</p>` : '';
-  // The editable class emails (booking, waitlist, cancellations, reminder, welcome) live in emails.ts, with the studio's own wording.
-  const classEmail = renderClassEmail(n.kind, p, undefined, Deno.env.get('APP_URL') ?? '');
-  if (classEmail) return p.is_test ? { ...classEmail, subject: `[Test] ${classEmail.subject}` } : classEmail;   // "Send me a test" in Settings > Emails
+  // The editable client emails (classes, receipts, gift cards, appointments, events) live in emails.ts, with the studio's own wording.
+  const clientEmail = renderEmail(n.kind, p, undefined, Deno.env.get('APP_URL') ?? '');
+  if (clientEmail) return clientEmail;
   switch (n.kind) {
-    case 'receipt': {
-      const items = (Array.isArray(p.items) ? p.items : []) as Payload[];
-      const rows = items.map((i) => `<tr><td style="padding:4px 0">${esc(i.qty)} × ${esc(i.name)}</td><td align="right">${money(Number(i.qty) * Number(i.unit_cents), p)}</td></tr>`).join('');
-      const gst = Number(p.gst_cents ?? 0);
-      const taxName = String(p.tax_name ?? 'tax');
-      const taxId = p.abn || p.tax_id;
-      const taxLabel = String(p.tax_id_label ?? 'Tax ID');
-      return {
-        subject: `Your receipt from ${studioName(p)}`,
-        html: layout('Thanks for your purchase', `<p>${hi}</p>
-<table width="100%" style="font-size:14px;border-collapse:collapse">${rows}
-<tr><td style="border-top:1px solid #e5e7eb;padding-top:8px"><strong>Total</strong></td><td align="right" style="border-top:1px solid #e5e7eb;padding-top:8px"><strong>${money(Number(p.total_cents), p)}</strong></td></tr></table>
-${gst ? `<p style="font-size:13px">Total includes ${esc(taxName)} of ${money(gst, p)}</p>` : ''}
-<p style="font-size:12px;color:#6b7280">${esc(studioName(p))}${taxId ? ` · ${esc(taxLabel)} ${esc(taxId)}` : ''}<br>Receipt ${esc(String(p.sale_id ?? '').slice(0, 8))}</p>`, p),
-        text: `${hi}\n\n${items.map((i) => `${i.qty} x ${i.name}  ${money(Number(i.qty) * Number(i.unit_cents), p)}`).join('\n')}\nTotal ${money(Number(p.total_cents), p)}${gst ? `\nTotal includes ${taxName} of ${money(gst, p)}` : ''}\n${studioName(p)}${taxId ? ` ${taxLabel} ${taxId}` : ''}`,
-      };
-    }
-    case 'gift_card': {
-      // To the person receiving the card. Everything (name, colours, address) comes from the studio, never hard-coded.
-      const studio = String(p.studio_name ?? 'the studio');
-      const amount = money(Number(p.amount_cents ?? 0), p);
-      const who = p.recipient_name ? `Hi ${esc(p.recipient_name)},` : 'Hi,';
-      const from = p.from_name ? String(p.from_name) : '';
-      const t = theme(p);
-      const expires = p.expires_at ? new Date(String(p.expires_at)).toLocaleDateString(String(p.locale ?? DEFAULT_LOCALE), { day: 'numeric', month: 'long', year: 'numeric', timeZone: String(p.timezone ?? 'UTC') }) : '';
-      const msg = p.message ? `<div style="border-left:3px solid ${t.primary};padding:4px 0 4px 14px;margin:14px 0;font-style:italic">${esc(p.message).replace(/\n/g, '<br>')}</div>` : '';
-      return {
-        subject: from ? `${from} sent you a ${studio} gift card` : `You've been sent a ${studio} gift card`,
-        html: layout('You’ve been given a gift card', `<p>${who}</p>
-<p>${from ? `${esc(from)} has sent you` : 'You’ve been sent'} a gift card for <strong>${esc(studio)}</strong>.</p>${msg}
-<div style="background:${t.soft};border-radius:12px;padding:18px 16px;margin:14px 0;text-align:center">
-<div style="font-size:13px">Gift card value</div>
-<div style="font-family:Georgia,serif;font-size:32px;line-height:1.2">${amount}</div>
-<div style="font-size:13px;margin-top:10px">Your code</div>
-<div style="font-family:Menlo,Consolas,monospace;font-size:20px;letter-spacing:2px"><strong>${esc(p.code)}</strong></div></div>
-<p style="font-size:13px">Use it online or show this code at the front desk to book classes or pick up something from the shop.${expires ? ` Valid until ${esc(expires)}.` : ''}</p>`,
-          p),
-        text: `${who.replace(/<[^>]*>/g, '')}\n\n${from ? `${from} has sent you` : "You've been sent"} a gift card for ${studio}.\n\n${p.message ? `"${p.message}"\n\n` : ''}Value: ${amount}\nCode: ${p.code}\n\nUse it online or show the code at the front desk.${expires ? ` Valid until ${expires}.` : ''}`,
-      };
-    }
     case 'cover_requested':
     case 'cover_claimed':
     case 'cover_approved':
@@ -105,83 +63,8 @@ ${gst ? `<p style="font-size:13px">Total includes ${esc(taxName)} of ${money(gst
       }[n.kind]!;
       return { subject: m.subject, html: layout(m.title, `<p>${p.to_name ? `Hi ${esc(p.to_name)},` : 'Hi,'}</p>${m.body}`, p), text: m.text };
     }
-    case 'appointment_confirmed':
-    case 'appointment_cancelled':
-    case 'appointment_reminder':
-    case 'appointment_moved':
-    case 'event_registered':
-    case 'event_cancelled':
-    case 'event_reminder':
-    case 'waitlist_offer':
-      return renderAppointments(n.kind, p, hi, policy);
     default:
       return { subject: `A message from ${studioName(p)}`, html: layout('Hello', `<p>${hi}</p>`, p), text: hi };
-  }
-}
-
-/** Appointments, workshops, courses and events (appointments_outbox). Everything shown comes from the row and the studio. */
-function renderAppointments(kind: string, p: Payload, hi: string, policy: string): { subject: string; html: string; text: string } {
-  const isEvent = kind.startsWith('event_') || kind === 'waitlist_offer';
-  const title = String(p.title ?? (isEvent ? 'your event' : 'your session'));
-  const what = isEvent ? (p.event_kind === 'course' ? 'course' : p.event_kind === 'workshop' ? 'workshop' : 'event') : 'session';
-  const count = Number(p.sessions ?? 1);
-  const who = p.staff ? ` with ${esc(p.staff)}` : '';
-  const people = Number(p.people ?? 1) > 1 ? ` · ${esc(p.people)} people` : '';
-  const where = p.location ? `<br>${esc(p.location)}` : '';
-  const more = isEvent && count > 1 ? `<br>${count} sessions, starting ${esc(p.when)}` : '';
-  const box = `<div style="background:${theme(p).soft};border-radius:12px;padding:14px 16px;margin:12px 0"><strong>${esc(title)}</strong><br>${esc(p.when)}${who}${people}${where}${more}</div>`;
-  const textBox = `${title}\n${p.when}${p.staff ? ` with ${p.staff}` : ''}${p.location ? `\n${p.location}` : ''}${isEvent && count > 1 ? `\n${count} sessions, starting ${p.when}` : ''}`;
-  const note = p.note ? `<p style="font-size:13px">Your note: ${esc(p.note)}</p>` : '';
-  const txt = (body: string) => `${hi.replace(/<[^>]*>/g, '')}\n\n${body}\n\n${textBox}${policyText(p)}`;
-  switch (kind) {
-    case 'appointment_confirmed':
-    case 'event_registered': {
-      const paid = Number(p.amount_cents ?? 0) > 0 ? ` You paid ${money(Number(p.amount_cents), p)}.` : '';
-      return {
-        subject: `You're booked: ${title}, ${p.when}`,
-        html: layout(isEvent ? 'You’re in' : 'You’re booked in', `<p>${hi}</p><p>Your ${what} is confirmed.${esc(paid)}</p>${box}${note}${policy}`, p),
-        text: txt(`Your ${what} is confirmed.${paid}`),
-      };
-    }
-    case 'appointment_moved': {
-      const was = p.previous_when ? `${p.previous_when}${p.previous_staff && p.previous_staff !== p.staff ? ` with ${p.previous_staff}` : ''}` : '';
-      return {
-        subject: `Moved: ${title}, ${p.when}`,
-        html: layout('Your session has moved', `<p>${hi}</p><p>Your ${what} has been moved to a new time. Nothing else changes: it’s still paid for.</p>${box}${was ? `<p style="font-size:13px;color:#4b5563">It was ${esc(was)}.</p>` : ''}${note}${policy}`, p),
-        text: txt(`Your ${what} has been moved to a new time. Nothing else changes: it's still paid for.${was ? ` It was ${was}.` : ''}`),
-      };
-    }
-    case 'waitlist_offer': {
-      const paid = Number(p.amount_cents ?? 0) > 0;
-      const how = paid ? `To take it, open the app and pay ${money(Number(p.amount_cents), p)} before then.` : 'To take it, open the app and save your spot before then.';
-      const until = `It’s held for you until ${esc(p.claim_by)}. After that it goes to the next person in line.`;
-      return {
-        subject: `A place opened up: ${title}`,
-        html: layout('A place has opened up', `<p>${hi}</p><p>Good news, a place has opened up in the ${what} you were waiting for.</p>${box}<p>${until}</p><p>${esc(how)}</p>${policy}`, p),
-        text: txt(`Good news, a place has opened up in the ${what} you were waiting for. It's held for you until ${p.claim_by}. After that it goes to the next person in line. ${how}`),
-      };
-    }
-    case 'appointment_reminder':
-    case 'event_reminder':
-      return {
-        subject: `See you soon: ${title}, ${p.when}`,
-        html: layout('See you soon', `<p>${hi}</p><p>Just a reminder about your ${what}.</p>${box}${note}<p style="font-size:13px;color:#4b5563">Can’t make it? Please cancel in the app as early as you can.</p>${policy}`, p),
-        text: txt(`Just a reminder about your ${what}. Can't make it? Please cancel in the app as early as you can.`),
-      };
-    default: { // appointment_cancelled, event_cancelled
-      const byStudio = Boolean(p.cancelled_by_studio);
-      const outcome = byStudio
-        ? `We’re sorry, we’ve had to cancel this ${what}${p.reason ? ` (${esc(p.reason)})` : ''}.${p.refund_due ? ' We’ll refund what you paid.' : ''}`
-        : p.late ? `Your ${what} has been cancelled. It was inside the cancellation window, so the credit or payment isn’t returned.`
-        : p.credit_returned ? `Your ${what} has been cancelled and your credit is back on your pack.`
-        : p.refund_due ? `Your ${what} has been cancelled. We’ll refund what you paid.`
-        : `Your ${what} has been cancelled.`;
-      return {
-        subject: `Cancelled: ${title}, ${p.when}`,
-        html: layout('Cancelled', `<p>${hi}</p><p>${outcome}</p>${box}`, p),
-        text: txt(outcome.replace(/&[a-z#0-9]+;/g, '')),
-      };
-    }
   }
 }
 
@@ -223,6 +106,10 @@ async function drainNotifications(admin: Db, opts: { id?: string; limit?: number
       // Send as the notification's own studio: name, colours, logo, address, currency, timezone, tax labels and reply-to.
       const st = n.studio_id ? await loadStudio(admin, cache, n.studio_id) : null;
       const out = st ? { ...n, payload: { ...n.payload, ...studioPayload(st), cta_url: n.payload?.cta_url ?? studioLink(st.slug, 'client') } } : n;
+      if (switchedOff(n.kind, out.payload ?? {})) {   // the studio turned this email off after it was queued: close it without sending
+        must(await admin.rpc('finish_notification', { p_id: n.id, p_error: null }));
+        continue;
+      }
       await sendViaResend(n.to_email, render(out), st ? { fromName: st.name, replyTo: st.email || undefined } : {});
       must(await admin.rpc('finish_notification', { p_id: n.id, p_error: null }));
       sent++;
@@ -292,7 +179,12 @@ async function drainOne(admin: Db, rows: OutboxRow[], finish: string, prep: (r: 
     try {
       if (!r.to_email) throw new Error('No email address');
       const st = await loadStudio(admin, cache, r.studio_id);
-      await sendViaResend(r.to_email, render(prep(r, st)), { fromName: st.name, replyTo: st.email || undefined });
+      const msg = prep(r, st);
+      if (switchedOff(msg.kind, msg.payload)) {   // switched off in Settings > Emails: close the row without sending
+        must(await admin.rpc(finish, { p_id: r.id, p_error: null }));
+        continue;
+      }
+      await sendViaResend(r.to_email, render(msg), { fromName: st.name, replyTo: st.email || undefined });
       must(await admin.rpc(finish, { p_id: r.id, p_error: null }));
       sent++;
     } catch (e) {

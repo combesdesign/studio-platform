@@ -45,6 +45,22 @@ select test.eq(jsonb_array_length(public.list_email_templates()), 1, '...and the
 select test.eq(public.send_test_email('class_cancelled') ->> 'to', 'libby@example.test', 'a test goes to the signed-in staff member');
 select test.admin();
 select test.ok((select (payload ->> 'is_test')::boolean from public.notifications where kind = 'class_cancelled' and to_email = 'libby@example.test'), 'the test is queued as a test');
+-- the rest of the client emails are editable the same way (2600)
+select test.login('libby');
+select test.eq(public.save_email_template('receipt', '{"subject":"Thanks {first_name}"}') ->> 'subject', 'Thanks {first_name}', 'receipts can be reworded');
+select test.eq(public.save_email_template('event_reminder', '{"enabled":false}') ->> 'enabled', 'false', 'event reminders can be switched off');
+select test.eq(public.save_email_template('gift_card', '{"intro":"A gift"}') ->> 'intro', 'A gift', 'gift cards can be reworded');
+select test.eq(public.send_test_email('appointment_moved') ->> 'to', 'libby@example.test', 'a test appointment email goes to staff');
+select test.eq(public.send_test_email('gift_card') ->> 'to', 'libby@example.test', '...and a test gift card');
+select test.admin();
+select test.ok((select (payload ->> 'is_test')::boolean from public.appointments_outbox where kind = 'appointment_moved' and to_email = 'libby@example.test'), 'the appointment test sits in its own outbox');
+select test.ok((select (payload ->> 'is_test')::boolean from public.notifications where kind = 'gift_card' and to_email = 'libby@example.test'), 'the gift card test sits in the notifications queue');
+select test.login('libby');
+select test.eq(jsonb_array_length(public.list_email_templates()), 4, 'three more emails have their own settings now');
+select test.eq(public.save_email_template('receipt', '{"subject":""}') ->> 'subject', null, 'receipt back to standard wording');
+select public.save_email_template('event_reminder', '{"enabled":true}'); select public.save_email_template('gift_card', '{"intro":""}');
+select test.eq(jsonb_array_length(public.list_email_templates()), 1, '...and the new rows go away when everything is standard');
+select test.throws($$select public.save_email_template('cover_requested', '{}')$$, 'NOT_FOUND', 'staff-facing emails are not in the list');
 
 -- ---------------------------------------------------------------- the switch: waitlist email is off, so none is queued
 select test.login('alice'); select public.book_class(test.id('s_early'));

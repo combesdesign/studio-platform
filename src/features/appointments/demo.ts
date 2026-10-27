@@ -7,7 +7,8 @@ import './permissions';
 import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/features';
 import { can } from '../../domain/permissions';
 import { StoreError } from '../../shared/store';
-import { addDays, studioDate } from '../../shared/format';
+import { addDays, dateTime as dateTimeLabel, studioDate } from '../../shared/format';
+import { renderEmail, type EmailPayload } from '../../domain/emails';
 import type { Client, ID, Sale, Staff } from '../../shared/types';
 import type { DemoState } from '../../data/demo/engine';
 import type {
@@ -41,7 +42,7 @@ export interface Slice {
   /** Reminders already recorded (one per session and time), so the sweep doesn't repeat them. Capped. */
   reminded?: string[];
   /** Emails the live system would send (confirmations, cancellations, waitlist offers); the demo just records them, newest last, capped. */
-  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder' | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer'; text: string }[];
+  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder' | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer'; text: string; subject?: string }[];
 }
 
 const err = (code: string, message: string) => new StoreError(code, message);
@@ -118,7 +119,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     for (const o of plan.offer) {
       const w = line.find((x) => x.id === o.id)!;
       w.status = 'offered'; w.offeredAt = now.toISOString(); w.offerExpiresAt = o.expiresAt;
-      queueEmail(w.clientId, 'waitlist_offer', `A place opened up in ${e.title}. It’s yours until ${o.expiresAt}`);
+      queueEmail(w.clientId, 'waitlist_offer', `A place opened up in ${e.title}. It’s yours until ${o.expiresAt}`, eventInfo(e, { claim_by: dateTimeLabel(o.expiresAt), amount_cents: e.priceCents }));
     }
   };
   const advanceAll = () => { for (const id of new Set(waitlist().map((w) => w.eventId))) advance(id); };
@@ -130,16 +131,16 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
     advanceAll();
     const now = ctx.now(), hours = settings().reminderHours;
     const done = (S().reminded ??= []);
-    const remind = (key: string, clientId: ID, kind: 'appointment_reminder' | 'event_reminder', text: string) => {
+    const remind = (key: string, clientId: ID, kind: 'appointment_reminder' | 'event_reminder', text: string, info: EmailPayload) => {
       if (done.includes(key)) return;
       done.push(key);
       if (done.length > 500) done.splice(0, done.length - 500);
-      queueEmail(clientId, kind, text);
+      queueEmail(clientId, kind, text, info);
     };
-    for (const a of S().appointments) if (a.status === 'booked' && reminderDue(a.startsAt, now, hours)) remind(`${a.id}@${a.startsAt}`, a.clientId, 'appointment_reminder', `Reminder: ${a.typeName} at ${a.startsAt}`);
+    for (const a of S().appointments) if (a.status === 'booked' && reminderDue(a.startsAt, now, hours)) remind(`${a.id}@${a.startsAt}`, a.clientId, 'appointment_reminder', `Reminder: ${a.typeName} at ${a.startsAt}`, apptInfo(a));
     for (const r of S().registrations) {
       const e = r.status === 'registered' ? S().events.find((x) => x.id === r.eventId) : undefined;
-      if (e && !e.cancelled) for (const s of e.sessions) if (reminderDue(s.startsAt, now, hours)) remind(`${r.id}@${s.startsAt}`, r.clientId, 'event_reminder', `Reminder: ${e.title} at ${s.startsAt}`);
+      if (e && !e.cancelled) for (const s of e.sessions) if (reminderDue(s.startsAt, now, hours)) remind(`${r.id}@${s.startsAt}`, r.clientId, 'event_reminder', `Reminder: ${e.title} at ${s.startsAt}`, eventInfo(e, { when: dateTimeLabel(s.startsAt), sessions: 1 }));
     }
   };
   const summary = (e: StudioEvent, clientId?: ID): StudioEventSummary => {
@@ -154,11 +155,33 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
   };
 
   // ------------------------------------------------------------ emails (recorded only: the live outbox sends them)
-  const queueEmail = (clientId: ID, kind: NonNullable<Slice['outbox']>[number]['kind'], text: string) => {
+  /**
+   * "Send" an email: nothing leaves the demo, but it is worded exactly as live (the studio's own wording from Settings > Emails)
+   * and skipped when the studio switched it off. `info` is what the live outbox row's payload would hold.
+   */
+  const queueEmail = (clientId: ID, kind: NonNullable<Slice['outbox']>[number]['kind'], text: string, info: EmailPayload = {}) => {
+    const off = core().emailTemplates?.[kind]?.enabled === false;
+    if (off) return;
+    const st = core().settings;
+    const c = clientOf(clientId);
+    const r = renderEmail(kind, {
+      first_name: c?.firstName ?? '', studio_name: st.name, address: st.address, cancellation_policy: st.cancellationPolicyText,
+      email_overrides: core().emailTemplates ?? {}, ...info,
+    });
     const box = (S().outbox ??= []);
-    box.push({ at: ctx.now().toISOString(), clientId, kind, text });
+    box.push({ at: ctx.now().toISOString(), clientId, kind, text, ...(r ? { subject: r.subject } : {}) });
     if (box.length > 100) box.splice(0, box.length - 100);
   };
+  /** The payload fields for an appointment's emails. */
+  const apptInfo = (a: StoredAppointment, extra: EmailPayload = {}): EmailPayload => ({
+    title: a.typeName, when: dateTimeLabel(a.startsAt), staff: staffOf(a.staffId)?.name ?? '', people: a.people, note: a.note ?? '',
+    amount_cents: a.payment.amountCents, ...extra,
+  });
+  /** ...and for a workshop, course or event. */
+  const eventInfo = (e: StudioEvent, extra: EmailPayload = {}): EmailPayload => ({
+    title: e.title, when: dateTimeLabel(eventStart(e)), staff: e.hostStaffId ? staffOf(e.hostStaffId)?.name ?? '' : '', location: e.location ?? '',
+    event_kind: e.kind, sessions: e.sessions.length, ...extra,
+  });
 
   // ------------------------------------------------------------ money
   const recordSale = (a: { clientId: ID; name: string; qty: number; unitCents: number; method: AppointmentPayMethod; staffId?: ID; note: string }): Sale => {
@@ -342,7 +365,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         ...(input.note?.trim() ? { note: input.note.trim() } : {}), ...(staffId ? { bookedByStaffId: staffId } : {}),
       };
       S().appointments.push(appt);
-      queueEmail(clientId, 'appointment_confirmed', `${type.name} confirmed`);
+      queueEmail(clientId, 'appointment_confirmed', `${type.name} confirmed`, apptInfo(appt));
       return { appointment: dec(appt), ...(sale ? { sale } : {}) };
     }),
 
@@ -371,7 +394,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
           }
         } else if (a.payment.amountCents > 0) { refundDue = true; a.refundDue = true; }
       }
-      queueEmail(a.clientId, 'appointment_cancelled', `${a.typeName} cancelled${late ? ' (late)' : ''}`);
+      queueEmail(a.clientId, 'appointment_cancelled', `${a.typeName} cancelled${late ? ' (late)' : ''}`, apptInfo(a, { late, credit_returned: creditsReturned > 0, refund_due: refundDue }));
       return { appointment: dec(a), creditsReturned, refundDue, late };
     }),
 
@@ -401,8 +424,9 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         throw err('CREDIT_EXPIRES', 'Your pack runs out before that time. Please pick an earlier one.');
       }
       // the same appointment, a new time: payment, credits and history stay as they were
+      const previous = { previous_when: dateTimeLabel(a.startsAt), previous_staff: staffOf(a.staffId)?.name ?? '' };
       a.startsAt = startsAt; a.endsAt = open.endsAt; a.staffId = staffId; a.bufferMin = type.bufferMin;
-      queueEmail(a.clientId, 'appointment_moved', `${a.typeName} moved to ${startsAt}`);
+      queueEmail(a.clientId, 'appointment_moved', `${a.typeName} moved to ${startsAt}`, apptInfo(a, previous));
       return dec(a);
     }),
 
@@ -509,7 +533,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       for (const r of S().registrations.filter((x) => x.eventId === id && x.status === 'registered')) {
         r.status = 'cancelled'; r.cancelledAt = now;
         if (r.payment.amountCents > 0) r.refundDue = true;
-        queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled by the studio`);
+        queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled by the studio`, eventInfo(e, { cancelled_by_studio: true, reason: e.cancelReason === 'Cancelled by the studio' ? '' : e.cancelReason, refund_due: r.payment.amountCents > 0 }));
       }
       advance(e.id);   // the line is let go
       return e;
@@ -540,7 +564,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       S().registrations.push(r);
       // a place taken from the waitlist (or any other way) ends their turn in line
       for (const x of inLine(e.id).filter((y) => y.clientId === clientId)) { x.status = 'claimed'; delete x.offerExpiresAt; }
-      queueEmail(clientId, 'event_registered', `${e.title} confirmed`);
+      queueEmail(clientId, 'event_registered', `${e.title} confirmed`, eventInfo(e, { amount_cents: r.payment.amountCents }));
       return { registration: decReg(r), ...(sale ? { sale } : {}) };
     }),
     cancelRegistration: (id, opts) => ctx.write(() => {
@@ -560,7 +584,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       r.status = late ? 'late_cancelled' : 'cancelled';
       const refundDue = !late && r.payment.amountCents > 0;
       if (refundDue) r.refundDue = true;
-      queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled${late ? ' (late)' : ''}`);
+      queueEmail(r.clientId, 'event_cancelled', `${e.title} cancelled${late ? ' (late)' : ''}`, eventInfo(e, { late, refund_due: refundDue }));
       advance(e.id);   // the place goes to the next person in line
       return { registration: decReg(r), refundDue, late };
     }),

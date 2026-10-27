@@ -34,12 +34,13 @@ test('the edge function copies of the shared files match the source (edit src, t
 
 // ---------------------------------------------------------------- the emails: wording, merge tags, defaults
 test('every editable email has default wording, and merge tags (single or double braces) fill in; unknown tags vanish', () => {
-  assert.deepEqual(EMAIL_DEFS.map((d) => d.kind), ['booking_confirmed', 'waitlist_joined', 'waitlist_promoted', 'booking_cancelled', 'class_cancelled', 'class_reminder', 'welcome']);
+  assert.deepEqual(EMAIL_DEFS.map((d) => d.kind), ['booking_confirmed', 'waitlist_joined', 'waitlist_promoted', 'booking_cancelled', 'class_cancelled', 'class_reminder', 'welcome',
+    'receipt', 'gift_card', 'appointment_confirmed', 'appointment_cancelled', 'appointment_moved', 'appointment_reminder', 'event_registered', 'event_cancelled', 'event_reminder', 'waitlist_offer']);
   const p = samplePayload('Snowy Pilates Club');
   assert.equal(mergeEmailText('Hi {first_name}, {{class_name}} at {class_time} with {instructor} {nope}!', emailVars(p)), 'Hi Hannah, Mat Essentials at 6:00am Tue 28 Oct with Julia !');
   for (const d of EMAIL_DEFS) {
     const r = renderClassEmail(d.kind, p)!;
-    assert.ok(r.subject && r.html.includes('Snowy Pilates Club') && r.text.startsWith('Hi Hannah,'), d.kind);
+    assert.ok(r.subject && r.html.includes('Snowy Pilates Club') && /^Hi (Hannah|Maya),/.test(r.text), d.kind);
     assert.ok(!/\{[a-z_]+\}/.test(r.subject + r.html + r.text), `${d.kind} left a tag unfilled`);
   }
   assert.equal(renderClassEmail('booking_confirmed', p)!.subject, 'You\'re booked: Mat Essentials, 6:00am Tue 28 Oct');

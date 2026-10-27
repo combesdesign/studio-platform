@@ -27,7 +27,7 @@ import { createDemoPlatform } from './platform';
 import { SNOWY_ID } from '../studios';
 import '../../features/demo';
 import { DEFAULT_BILLING_SETTINGS, gateFeatures, hasFeature } from '../../shared/plans';
-import { isEmailKind, renderClassEmail, samplePayload } from '../../domain/emails';
+import { isEmailKind, renderEmail, samplePayload } from '../../domain/emails';
 
 export { STATE_KEY, REV_KEY, AUTH_KEYS, PERSONA_EMAILS, memoryStorage, DemoDb, createDemoPlatform };
 export type { StorageLike };
@@ -1045,7 +1045,7 @@ export class DemoStore implements DataStore {
     return this.write(() => {
       const st = this.requireStaff('emails_edit');
       if (!isEmailKind(kind)) throw err('NOT_FOUND', 'We couldn’t find that email.');
-      const r = renderClassEmail(kind, { ...samplePayload(this.state.settings.name), email_overrides: this.state.emailTemplates ?? {} });
+      const r = renderEmail(kind, { ...samplePayload(this.state.settings.name, kind), email_overrides: this.state.emailTemplates ?? {} });
       if (!r) throw err('NOT_FOUND', 'We couldn’t find that email.');
       this.engine.notify(st.id, 'test_email', r.text, `[Test] ${r.subject}`);
       return { to: st.email };

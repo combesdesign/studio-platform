@@ -1,18 +1,20 @@
 /**
- * Settings > Emails (owner and manager): every email clients get about their classes, with an on/off switch, an editable subject and
+ * Settings > Emails (owner and manager): every email clients get (classes, receipts, gift cards, appointments, events), with an on/off switch, an editable subject and
  * intro paragraph (merge tags like {first_name}), a live preview in the studio's own colours and "Send me a test".
  * Defaults are the wording the app has always sent (src/domain/emails.ts); only changes are saved, per studio.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { store, useAction, useData, useToast } from '../shared/react';
 import { getBranding } from '../shared/branding';
-import { EMAIL_DEFS, EMAIL_TAGS, emailDef, renderClassEmail, samplePayload, type EmailKind } from '../domain/emails';
+import { EMAIL_DEFS, EMAIL_TAGS, emailDef, renderEmail, samplePayload, type EmailDef, type EmailKind } from '../domain/emails';
 import type { EmailTemplateRow } from '../shared/types';
 import { Icon, Loading, cx, useStudio } from './ui';
 
 function Toggle({ on, label, disabled, onChange }: { on: boolean; label: string; disabled?: boolean; onChange: (v: boolean) => void }) {
   return <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} className={cx('mk-switch', on && 'on')} onClick={() => onChange(!on)}><span /></button>;
 }
+
+const GROUPS: EmailDef['group'][] = ['Classes', 'Appointments', 'Events', 'Payments'];
 
 export function EmailsTab() {
   const rows = useData(() => store.listEmailTemplates(), []);
@@ -24,21 +26,26 @@ export function EmailsTab() {
     <div className="eml">
       <section className="card pad eml-list" aria-label="Emails">
         <h3>Client <em>emails</em></h3>
-        <p className="muted small">Everything your clients get about their classes. Pick one to change the wording or turn it off.</p>
-        <ul>
-          {EMAIL_DEFS.map((d) => {
-            const r = byKind.get(d.kind);
-            const off = r?.enabled === false;
-            return (
-              <li key={d.kind}>
-                <button type="button" className={cx('eml-item', kind === d.kind && 'on')} aria-current={kind === d.kind ? 'true' : undefined} onClick={() => setKind(d.kind)}>
-                  <span className="eml-item-t"><strong>{d.label}</strong><span className="muted small">{off ? 'Off' : r?.subject || r?.intro ? 'Your own wording' : 'Standard wording'}</span></span>
-                  <span className={cx('eml-dot', off ? 'off' : 'on')} aria-hidden="true" />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <p className="muted small">Everything your clients get from you. Pick one to change the wording or turn it off.</p>
+        {GROUPS.map((g) => (
+          <React.Fragment key={g}>
+            <h4 className="eml-group">{g}</h4>
+            <ul>
+              {EMAIL_DEFS.filter((d: EmailDef) => d.group === g).map((d) => {
+                const r = byKind.get(d.kind);
+                const off = r?.enabled === false;
+                return (
+                  <li key={d.kind}>
+                    <button type="button" className={cx('eml-item', kind === d.kind && 'on')} aria-current={kind === d.kind ? 'true' : undefined} onClick={() => setKind(d.kind)}>
+                      <span className="eml-item-t"><strong>{d.label}</strong><span className="muted small">{off ? 'Off' : r?.subject || r?.intro ? 'Your own wording' : 'Standard wording'}</span></span>
+                      <span className={cx('eml-dot', off ? 'off' : 'on')} aria-hidden="true" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </React.Fragment>
+        ))}
       </section>
       <EmailEditor key={kind} kind={kind} row={byKind.get(kind)} onSaved={rows.reload} />
     </div>
@@ -64,11 +71,11 @@ function EmailEditor({ kind, row, onSaved }: { kind: EmailKind; row: EmailTempla
     const b = getBranding();
     const c = b.colors;
     return {
-      ...samplePayload(studio.name), address: studio.address ?? '', cta_url: '#',
+      ...samplePayload(studio.name, kind), address: studio.address ?? '', cta_url: '#',
       brand: { primary: c.primary, ink: c.ink, soft: c.soft, bg: c.bg },
     };
-  }, [studio.name, studio.address]);
-  const preview = useMemo(() => renderClassEmail(kind, payload, { subject, intro }), [kind, payload, subject, intro]);
+  }, [studio.name, studio.address, kind]);
+  const preview = useMemo(() => renderEmail(kind, payload, { subject, intro }), [kind, payload, subject, intro]);
 
   const insert = (tag: string) => {
     const field = focus.current, el = field === 'subject' ? subjectRef.current : introRef.current;
@@ -121,7 +128,7 @@ function EmailEditor({ kind, row, onSaved }: { kind: EmailKind; row: EmailTempla
           <button className="btn soft" disabled={busy} onClick={test}><Icon name="mail" size={18} />Send me a test</button>
           {custom && <button className="btn ghost" disabled={busy} onClick={() => { setSubject(def.subject); setIntro(def.intro); }}>Use standard wording</button>}
         </div>
-        <p className="faint small">The heading, class details, booking note and your cancellation policy are added by the app. Test emails use a made-up booking.</p>
+        <p className="faint small">The heading, class or session details, notes and your cancellation policy are added by the app. Test emails use a made-up booking.</p>
       </section>
       <section className="card pad eml-preview" aria-label="Preview">
         <div className="eml-pv-head"><h3>Preview</h3><span className="faint small">In your studio’s colours</span></div>
