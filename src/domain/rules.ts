@@ -263,7 +263,7 @@ export function creditLabel(pass: Pick<Pass, 'kind' | 'credits'> & { noClasses?:
 
 // ---------------------------------------------------------------- roster
 
-export type RosterFlag = 'first_class' | 'no_waiver' | 'injury' | 'birthday' | 'last_credit' | 'pass_expiring';
+export type RosterFlag = 'first_class' | 'no_waiver' | 'injury' | 'health_update' | 'birthday' | 'last_credit' | 'pass_expiring';
 
 /** Does a 'YYYY-MM-DD' birthday fall in the Mon–Sun week containing `date`? */
 export function birthdayInWeek(birthday: ISODate | undefined, date: ISODate): boolean {
@@ -280,7 +280,7 @@ export function birthdayInWeek(birthday: ISODate | undefined, date: ISODate): bo
 const isLeap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
 export function rosterFlags(args: {
-  client: Pick<Client, 'waiverSignedAt' | 'injuries' | 'birthday' | 'healthForm'>;
+  client: Pick<Client, 'waiverSignedAt' | 'injuries' | 'birthday' | 'healthForm'> & Partial<Pick<Client, 'healthUpdate'>>;
   booking: Pick<Booking, 'status'>;
   session: Pick<ClassSession, 'startsAt'>;
   pass?: Pass;
@@ -288,12 +288,16 @@ export function rosterFlags(args: {
   passRemaining?: number | null;
   /** Checked-in bookings this client has in OTHER classes that started before this one. */
   priorCheckIns: number;
+  /** Start of the latest checked-in class before this one (so a health update they made since is flagged until an instructor sees them). */
+  lastCheckInAt?: ISODateTime;
 }): RosterFlag[] {
   const flags: RosterFlag[] = [];
   const { client, pass, session } = args;
   if (args.priorCheckIns === 0) flags.push('first_class');
   if (!client.waiverSignedAt) flags.push('no_waiver');
   if ((client.injuries ?? client.healthForm?.injuries ?? '').trim()) flags.push('injury');
+  const hu = client.healthUpdate;
+  if (hu && ms(hu.at) <= ms(session.startsAt) && (!args.lastCheckInAt || ms(hu.at) > ms(args.lastCheckInAt))) flags.push('health_update');
   if (birthdayInWeek(client.birthday, studioDate(session.startsAt))) flags.push('birthday');
   if (pass && isCountedPass(pass) && args.passRemaining === 0 && SPOT_STATUSES.includes(args.booking.status)) flags.push('last_credit');
   if (pass?.expiresAt) {

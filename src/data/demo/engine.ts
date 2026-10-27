@@ -10,13 +10,13 @@ import type {
   Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, Product, Sale,
   Room, ScheduleTemplate, SessionWithCounts, SpotLayout, Staff, StudioSettings,
 } from '../../shared/types';
-import { addDays, time as clockTime } from '../../shared/format';
+import { addDays, studioToUTC, time as clockTime } from '../../shared/format';
 import { directFull, directSpotsLeft } from '../../domain/capacity';
 import { demoFeatures } from './features';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
-  isCountedPass, isFamilyShareable, isIntroEligible, isPausedOn, nextBillingAfter, pickWaitlistPromotion, withinBookingWindow,
+  isCountedPass, isEditableMembership, isFamilyShareable, isIntroEligible, isPausedOn, membershipChangeCents, nextBillingAfter, passFieldsFrom, renewalDateProblem, pickWaitlistPromotion, withinBookingWindow,
   studioDay as studioDate, classUses, sessionLayout, isBookableSpot, pickSpot, clashMessage, findRoomClash, locationOfRoom, type Eligibility, type PassUse,
 } from '../../domain';
 
@@ -275,6 +275,7 @@ export class Engine {
         let guard = 0;
         while (Date.parse(p.nextBillingAt) <= t && guard++ < 520) {
           const due = p.nextBillingAt;
+          if (p.pendingChange && Date.parse(p.pendingChange.effectiveAt) <= Date.parse(due)) this.applyPending(p, due);
           if (!isPausedOn(p, studioDate(due))) {
             this.s.sales.push({
               id: this.newId('sa'), clientId: p.clientId, method: 'card_online', createdAt: due, totalCents: p.priceCents,
@@ -917,6 +918,69 @@ export class Engine {
     const end = p.nextBillingAt ? Date.parse(p.nextBillingAt) : this.now().getTime();
     this.cancelFutureBookingsOnPass(p.id, end);
     return p;
+  }
+
+  // ---------------------------------------------------------------- membership edits (owner / manager)
+  private note(p: Pass, reason: string, staffId?: ID): void {
+    (p.adjustments ??= []).push({ at: this.now().toISOString(), ...(staffId ? { staffId } : {}), delta: 0, reason });
+  }
+
+  /** Move the next billing date. Nothing is charged in between and the old date's charge doesn't happen. */
+  changeRenewalDate(passId: ID, date: ISODate, staffId?: ID): Pass {
+    const p = this.pass(passId);
+    if (!isEditableMembership(p)) throw err('INVALID', 'Only a membership that’s still billing has a renewal date.');
+    const problem = renewalDateProblem(date, studioDate(this.now()));
+    if (problem) throw err('INVALID', problem);
+    const was = p.nextBillingAt;
+    p.nextBillingAt = studioToUTC(date, '00:00');
+    if (p.pendingChange) p.pendingChange.effectiveAt = p.nextBillingAt;
+    this.note(p, `Renewal date moved${was ? ` from ${studioDate(was)}` : ''} to ${date}. No charge in between.`, staffId);
+    return p;
+  }
+
+  /** Move a client to another membership. Returns the pass; a proration is charged as a sale (or noted as a credit). */
+  changeMembership(passId: ID, change: { productId: ID; prorate?: boolean; immediately?: boolean }, staffId?: ID): Pass {
+    const p = this.pass(passId);
+    if (!isEditableMembership(p)) throw err('INVALID', 'Only a membership that’s still billing can be moved.');
+    const prod = this.product(change.productId);
+    if (prod.kind !== 'membership' || !prod.active) throw err('INVALID', 'Choose one of the studio’s current memberships.');
+    if ((prod.billingInterval ?? 'week') !== (p.billingInterval ?? 'week')) throw err('INVALID', 'That membership bills on a different schedule, so it can’t be swapped in.');
+    if (prod.id === p.productId) throw err('INVALID', 'They’re already on that membership.');
+    const was = p.name;
+    const diff = change.prorate ? membershipChangeCents(p, prod.priceCents, this.now()) : 0;
+    let line = `Moved from ${was} to ${prod.name}`;
+    if (change.immediately) {
+      Object.assign(p, passFieldsFrom(prod));
+      for (const k of ['classTypeIds', 'noClasses', 'familyShareable'] as const) if (!(k in passFieldsFrom(prod))) delete p[k];
+      delete p.pendingChange;
+      line += ', credits and allowance switched straight away';
+    } else {
+      p.pendingChange = { productId: prod.id, name: prod.name, credits: prod.credits ?? null, priceCents: prod.priceCents, effectiveAt: p.nextBillingAt ?? this.now().toISOString() };
+      line += `, credits and allowance switch from ${p.nextBillingAt ? studioDate(p.nextBillingAt) : 'the next cycle'}`;
+    }
+    if (change.prorate && diff > 0) {
+      this.s.sales.push({
+        id: this.newId('sa'), clientId: p.clientId, method: 'card_online', createdAt: this.now().toISOString(), totalCents: diff,
+        items: [{ productId: prod.id, name: `Membership change: ${was} to ${prod.name}`, qty: 1, unitCents: diff }], note: 'Prorated difference',
+      });
+      line += `; charged the $${(diff / 100).toFixed(2)} difference`;
+    } else if (change.prorate && diff < 0) line += `; $${(-diff / 100).toFixed(2)} credited to their account`;
+    else line += '; no charge or credit for the change';
+    this.note(p, line + '.', staffId);
+    return p;
+  }
+
+  /** A pending move takes effect (at a renewal, or when the next cycle starts). */
+  private applyPending(p: Pass, at: ISODateTime): void {
+    const pc = p.pendingChange;
+    if (!pc) return;
+    const prod = this.productsById.get(pc.productId);
+    if (prod) {
+      Object.assign(p, passFieldsFrom(prod));
+      for (const k of ['classTypeIds', 'noClasses', 'familyShareable'] as const) if (!(k in passFieldsFrom(prod))) delete p[k];
+    } else Object.assign(p, { productId: pc.productId, name: pc.name, credits: pc.credits, priceCents: pc.priceCents });
+    delete p.pendingChange;
+    this.note(p, `Now on ${pc.name} (from ${studioDate(at)}).`);
   }
 
   private cancelFutureBookingsOnPass(passId: ID, fromTime: number): void {

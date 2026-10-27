@@ -104,11 +104,13 @@ export interface DependantInput {
   injuries?: string | undefined;
 }
 
+export interface MembershipChange { productId: ID; prorate?: boolean; immediately?: boolean }
+
 export interface RosterEntry extends Booking {
   client: Client;
   pass?: Pass;
   /** Flags staff should see at check-in. */
-  flags: ('first_class' | 'no_waiver' | 'injury' | 'birthday' | 'last_credit' | 'pass_expiring')[];
+  flags: ('first_class' | 'no_waiver' | 'injury' | 'health_update' | 'birthday' | 'last_credit' | 'pass_expiring')[];
 }
 
 export type Unsubscribe = () => void;
@@ -303,6 +305,11 @@ export interface DataStore {
   upsertClient(c: Omit<Client, 'id' | 'createdAt'> & { id?: ID; createdAt?: ISODateTime }): Promise<Client & { pendingEmail?: string }>;
   /** Client signs waiver + health form (client app) or staff records it. */
   submitWaiver(clientId: ID, health: Omit<HealthForm, 'submittedAt'>): Promise<Client>;
+  /**
+   * The returning-client quick check ("any new injuries or health changes since last time?"). Always stamps healthCheckedAt.
+   * With `changes` and a note it also saves the note, dated, onto the client's injuries and flags the roster (healthUpdate).
+   */
+  submitHealthCheck(clientId: ID, check: { changes: boolean; note?: string }): Promise<Client>;
 
   // ------------------------------------------------------------ products, passes, sales
   listProducts(opts?: { includeInactive?: boolean; kinds?: Product['kind'][] }): Promise<Product[]>;
@@ -331,6 +338,13 @@ export interface DataStore {
   pausePass(passId: ID, from: ISODate, until: ISODate): Promise<Pass>;
   resumePass(passId: ID): Promise<Pass>;
   cancelMembership(passId: ID): Promise<Pass>;
+  /** Owner/manager: move a membership's next billing date (no proration, nothing charged in between). Live: updates the Stripe subscription. */
+  changeRenewalDate(passId: ID, date: ISODate): Promise<Pass>;
+  /**
+   * Owner/manager: move a client to a different membership. No proration by default; `prorate` charges or credits the difference now.
+   * Credits and the weekly allowance switch at the next billing date, or straight away with `immediately`. Live: updates the Stripe subscription.
+   */
+  changeMembership(passId: ID, change: MembershipChange): Promise<Pass>;
   /** Staff: add/remove credits or extend expiry, with a reason (logged). */
   adjustPass(passId: ID, change: { creditsDelta?: number; newExpiresAt?: ISODateTime | null; reason: string }): Promise<Pass>;
 

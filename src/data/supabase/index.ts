@@ -20,7 +20,7 @@ import type {
 import {
   StoreError,
   type BookResult, type BookingWithDetails, type CancelResult, type CreditSummary, type DataStore, type DependantInput, type PurchaseResult, type RestoreSessionResult, type UndoCancelResult, type VoidResult,
-  type RosterEntry, type Unsubscribe, type FeatureStores, type StudioPatch, type PlatformStore, type NewStudioInput,
+  type MembershipChange, type RosterEntry, type Unsubscribe, type FeatureStores, type StudioPatch, type PlatformStore, type NewStudioInput,
 } from '../../shared/store';
 import { liveFeatures, type LiveFeatureContext } from './features';
 import '../../features/live';
@@ -89,6 +89,9 @@ function toSettings(r: Row): StudioSettings {
     bookingWindowDays: num(r.booking_window_days, 14), defaultCapacity: num(r.default_capacity, 14),
     waiverText: str(r.waiver_text), healthQuestions: arr(r.health_questions).map(str),
     cancellationPolicyText: str(r.cancellation_policy_text), waitlistPolicyText: str(r.waitlist_policy_text),
+    longHealthFormFirstTimers: r.long_health_form_first_timers === undefined ? true : bool(r.long_health_form_first_timers),
+    quickHealthCheck: r.quick_health_check === undefined ? true : bool(r.quick_health_check),
+    quickHealthCheckDays: num(r.quick_health_check_days, 30),
   });
 }
 const SETTINGS_COLS: Record<keyof StudioSettings, string> = {
@@ -97,6 +100,7 @@ const SETTINGS_COLS: Record<keyof StudioSettings, string> = {
   lateCancelFeeCents: 'late_cancel_fee_cents', noShowFeeCents: 'no_show_fee_cents', bookingWindowDays: 'booking_window_days',
   defaultCapacity: 'default_capacity', waiverText: 'waiver_text', healthQuestions: 'health_questions',
   cancellationPolicyText: 'cancellation_policy_text', waitlistPolicyText: 'waitlist_policy_text',
+  longHealthFormFirstTimers: 'long_health_form_first_timers', quickHealthCheck: 'quick_health_check', quickHealthCheckDays: 'quick_health_check_days',
 };
 
 function toStaff(r: Row, pay?: number): Staff {
@@ -117,13 +121,16 @@ function toClient(r: Row, staffNotes?: string): Client {
         submittedAt: iso(hf.submittedAt ?? r.waiver_signed_at),
       })
     : undefined;
+  const hu = r.health_update && typeof r.health_update === 'object' ? (r.health_update as Row) : undefined;
+  const healthUpdate = hu && hu.note ? { note: str(hu.note), at: iso(hu.at) } : undefined;
   const notes = staffNotes ?? optStr(r.staff_notes);
   return clean({
     id: str(r.id), firstName: str(r.first_name), lastName: str(r.last_name), email: str(r.email), phone: optStr(r.phone),
     birthday: optDate(r.birthday), photoUrl: optStr(r.photo_url), createdAt: iso(r.created_at), staffNotes: notes || undefined,
     injuries: optStr(r.injuries),
     emergencyContactName: optStr(r.emergency_contact_name), emergencyContactPhone: optStr(r.emergency_contact_phone),
-    waiverSignedAt: optIso(r.waiver_signed_at), healthForm, marketingOptIn: bool(r.marketing_opt_in),
+    waiverSignedAt: optIso(r.waiver_signed_at), healthForm, healthCheckedAt: optIso(r.health_checked_at), healthUpdate,
+    marketingOptIn: bool(r.marketing_opt_in),
     source: optStr(r.source) as Client['source'], archived: bool(r.archived),
     guardianClientId: optStr(r.guardian_client_id), guardianName: optStr(r.guardian_name),
   });
@@ -249,6 +256,8 @@ function toPass(r: Row): Pass {
     const x = obj(a);
     return clean({ at: iso(x.at), staffId: optStr(x.staff_id), delta: num(x.delta), reason: str(x.reason) });
   }).sort((a, b) => a.at.localeCompare(b.at));
+  const pc = r.pending_change && typeof r.pending_change === 'object' ? (r.pending_change as Row) : undefined;
+  const pending = pc && pc.productId ? { productId: str(pc.productId), name: str(pc.name), credits: nullableNum(pc.credits) ?? null, priceCents: num(pc.priceCents), effectiveAt: iso(pc.effectiveAt) } : undefined;
   return clean({
     id: str(r.id), clientId: str(r.client_id), productId: str(r.product_id), kind: str(r.kind) as Pass['kind'], name: str(r.name),
     status: (str(r.status) || 'active') as PassStatus, purchasedAt: iso(r.purchased_at), activatedAt: optIso(r.activated_at),
@@ -259,6 +268,7 @@ function toPass(r: Row): Pass {
     nextBillingAt: optIso(r.next_billing_at), pausedFrom: optDate(r.paused_from), pausedUntil: optDate(r.paused_until),
     priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined, adjustments: adj.length ? adj : undefined,
     familyShareable: r.family_shareable === null || r.family_shareable === undefined ? undefined : bool(r.family_shareable),
+    pendingChange: pending,
   });
 }
 
@@ -1416,6 +1426,13 @@ class SupabaseStore implements DataStore {
     });
   }
 
+  async submitHealthCheck(clientId: ID, check: { changes: boolean; note?: string }): Promise<Client> {
+    return this.write(async () => {
+      await this.rpc('submit_health_check', { p_client_id: clientId, p_changes: check.changes, p_note: check.note ?? null });
+      return this.getClient(clientId);
+    });
+  }
+
   /** Coming-soon classes: the client (or front desk for them) registers interest. Safe to repeat. */
   async registerInterest(clientId: ID, classTypeId: ID): Promise<void> {
     await this.write(() => this.rpc('register_interest', { p_class_type_id: classTypeId, p_client_id: clientId }));
@@ -1559,6 +1576,20 @@ class SupabaseStore implements DataStore {
       const p = toPass(obj(await this.rpc('cancel_membership', { p_pass_id: passId })));
       await this.syncMembership(passId);
       return p;
+    });
+  }
+
+  /** Owner/manager membership edits go through the edit-membership function: it moves the Stripe subscription, then the database. */
+  async changeRenewalDate(passId: ID, date: ISODate): Promise<Pass> {
+    return this.write(async () => {
+      const r = await this.invoke('edit-membership', { passId, action: 'renewal_date', date });
+      return toPass(obj(r.pass));
+    });
+  }
+  async changeMembership(passId: ID, change: MembershipChange): Promise<Pass> {
+    return this.write(async () => {
+      const r = await this.invoke('edit-membership', { passId, action: 'change_plan', productId: change.productId, prorate: change.prorate === true, immediately: change.immediately === true });
+      return toPass(obj(r.pass));
     });
   }
 

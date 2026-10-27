@@ -11,10 +11,11 @@ import {
   isLateCancel, sessionState, staffRole, takePendingClass, timeRange, when,
 } from './lib';
 import { weekday } from '../shared/format';
-import { directionsPlatform, directionsUrl, effectiveLocationId, filterByLocation, hasManyLocations, spotLabel } from '../domain';
+import { directionsPlatform, directionsUrl, effectiveLocationId, filterByLocation, hasManyLocations, healthStepFor, spotLabel } from '../domain';
 import { SpotGrid, SpotKey } from '../shared/spots';
 import { readLocationPref, validLocationPref, writeLocationPref } from '../shared/locationPref';
 import { WhosComing, creditLine, fullName, useDependants, type WhoOption } from './family';
+import { YesNo } from './waiver';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -274,7 +275,7 @@ function InterestSheet({ ct, onClose }: { ct: ClassType | null; onClose: () => v
 }
 
 // ------------------------------------------------------------------ class sheet
-type Mode = 'view' | 'cancel' | 'booked' | 'waitlisted' | 'nocredits' | 'spot';
+type Mode = 'view' | 'cancel' | 'booked' | 'waitlisted' | 'nocredits' | 'spot' | 'health';
 
 /** Class detail, opened over the timetable or bookings. backLabel names that screen ("‹ Timetable"). */
 export function ClassSheet({ sessionId, onClose, nav, backLabel, where }: { sessionId: string | null; onClose: () => void; nav: Nav; backLabel: string; where: string }) {
@@ -303,7 +304,10 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   const [choice, setChoice] = useState<string | undefined>(undefined);
   const [gotSpot, setGotSpot] = useState<string | undefined>(undefined);
   // the out-of-credits, cancel and spot screens are a step inside the sheet: back returns to the details
-  useBackHandler(mode === 'nocredits' || mode === 'cancel' || mode === 'spot', () => setMode('view'));
+  useBackHandler(mode === 'nocredits' || mode === 'cancel' || mode === 'spot' || mode === 'health', () => setMode('view'));
+  // The quick health check ("any new injuries?") before confirming: No by default, Yes needs a few words.
+  const [hcYes, setHcYes] = useState(false);
+  const [hcNote, setHcNote] = useState('');
   const back = { label: backLabel, onClick: onClose };
 
   const depKey = deps.map((x) => x.id).join(',');
@@ -322,13 +326,15 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     const fam = await Promise.all(deps.map(async (dep) => ({
       dep, booking: pick(await store.listClientBookings(dep.id, { when: 'all' })), credits: await store.getCreditSummary(dep.id, id),
     })));
-    return { s, mine, credits, fam, spots };
+    // "Has attended before" for the health step: any checked-in booking at this studio (same data in demo and live)
+    const attended = bks.some((b) => b.status === 'checked_in');
+    return { s, mine, credits, fam, spots, attended };
   }, [id, cid, depKey]);
 
   if (d.error && !d.data) return <><SheetHead back={back} /><ErrorBlock error={d.error} onRetry={d.reload} /></>;
   if (!d.data) return <><SheetHead back={back} /><SheetSkeleton /></>;
 
-  const { s, mine, credits, fam, spots } = d.data;
+  const { s, mine, credits, fam, spots, attended } = d.data;
   const ct = classTypeFor(app.classTypes, s.classTypeId);
   const inst = app.staff.find((x) => x.id === s.instructorId);
   const st = sessionState(s);
@@ -362,7 +368,9 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   const spotsOn = spots.enabled && !!spots.layout;
   const justMe = sel.length === 1 && sel[0] === cid;
   const pickFirst = spotsOn && !full && st === 'open' && bookable && !booked && !waitlisted && justMe;
-  const book = async (spot?: string) => {
+  // Order: class, then the pass, then (only if needed) the waiver or the one-tap health check, then confirm.
+  const healthStep = healthStepFor({ client: app.client, settings: app.settings, attended });
+  const book = async (spot?: string, healthDone = false) => {
     if (deps.length > 0 && sel.length === 0) return;
     // a dependant's waiver has to be signed by the parent first: send them to Family, then back here
     const unsigned = fam.find((f) => sel.includes(f.dep.id) && !f.dep.waiverSignedAt);
@@ -370,6 +378,15 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     // a dependant with no usable pass: say who, and offer the shop for them (unless the class is full: the waitlist takes no credit)
     const noPass = !full && fam.find((f) => sel.includes(f.dep.id) && f.credits.length === 0);
     if (noPass) { setNeedy(noPass.dep.id); setMode('nocredits'); return; }
+    // Booking for yourself: no pass yet means the shop first (so the pass is settled before any forms), then the health step.
+    const forMe = deps.length === 0 || sel.includes(cid);
+    if (forMe && !full && credits.length === 0) { setMode('nocredits'); return; }
+    if (forMe && !healthDone && healthStep !== 'none') {
+      if (healthStep === 'full') {
+        toFlow('/waiver?then=' + encodeURIComponent(id) + (passId ? '&pass=' + encodeURIComponent(passId) : '') + (spot ? '&spot=' + encodeURIComponent(spot) : ''));
+      } else { setHcYes(false); setHcNote(''); setChoice(spot); setMode('health'); }
+      return;
+    }
     setBusy(true);
     try {
       if (deps.length > 0 && store.bookAttendees) {
@@ -480,6 +497,41 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         </div>
         <button className="btn block" onClick={needy ? () => toFlow('/passes?for=' + encodeURIComponent(id) + '&who=' + encodeURIComponent(needy)) : toShop}>See passes + memberships</button>
         <button className="btn ghost block" onClick={() => { setNeedy(null); setMode('view'); }}>Not now</button>
+      </div>
+    );
+  }
+
+  if (mode === 'health') {
+    const usingPass = credits.find((c) => c.pass.id === (passId ?? credits[0]?.pass.id))?.pass;
+    const confirmHealth = async () => {
+      setBusy(true);
+      try {
+        await store.submitHealthCheck(cid, hcYes ? { changes: true, note: hcNote.trim() } : { changes: false });
+        app.refreshAuth();
+      } catch (e) { toast(errorMessage(e)); setBusy(false); return; }
+      setBusy(false);
+      await book(choice, true);
+    };
+    return (
+      <div className="stack lg health-step">
+        <SheetHead back={{ label: className, onClick: () => setMode('view') }} onClose={onClose} />
+        <div className="center-col">
+          <div className="kicker">One quick thing</div>
+          <h2>Any new injuries or <em>health changes</em> since last time?</h2>
+          <p className="muted">{className} · {time(s.startsAt)} {dayLong(s.startsAt)}{usingPass ? ` · using ${usingPass.name}` : ''}</p>
+        </div>
+        <YesNo value={hcYes ? 'Yes' : 'No'} onChange={(v) => setHcYes(v === 'Yes')} />
+        {hcYes && (
+          <label className="field"><span>What’s changed? Your instructor will see this.</span>
+            <textarea className="textarea" rows={3} autoFocus placeholder="e.g. sore lower back, new knee niggle, now pregnant" value={hcNote} onChange={(e) => setHcNote(e.target.value)} />
+          </label>
+        )}
+        <div className="stack">
+          <button className="btn block big" disabled={busy || (hcYes && hcNote.trim().length < 2)} onClick={confirmHealth}>
+            {busy ? 'Booking…' : full ? <>Join the waitlist <Arrow /></> : <>Confirm booking <Arrow /></>}
+          </button>
+          <button className="btn ghost block" onClick={() => setMode('view')}>Back</button>
+        </div>
       </div>
     );
   }

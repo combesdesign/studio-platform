@@ -16,11 +16,12 @@ const FLAG: Record<Flag, { label: string; tone: string; icon: string }> = {
   first_class: { label: 'First class', tone: 'navy', icon: 'sparkle' },
   no_waiver: { label: 'No waiver', tone: 'danger', icon: 'doc' },
   injury: { label: 'Injury', tone: 'warn', icon: 'injury' },
+  health_update: { label: 'New health note', tone: 'warn', icon: 'injury' },
   birthday: { label: 'Birthday', tone: 'cream', icon: 'cake' },
   last_credit: { label: 'Last credit', tone: 'warn', icon: 'ticket' },
   pass_expiring: { label: 'Pass expiring', tone: 'warn', icon: 'clock' },
 };
-const FLAG_ORDER: Flag[] = ['no_waiver', 'injury', 'first_class', 'birthday', 'last_credit', 'pass_expiring'];
+const FLAG_ORDER: Flag[] = ['no_waiver', 'health_update', 'injury', 'first_class', 'birthday', 'last_credit', 'pass_expiring'];
 
 export function passLabel(e: { pass?: Pass; passId?: string; status: Booking['status'] }): string {
   const p = e.pass;
@@ -226,7 +227,10 @@ export function Roster({ id }: { id: string }) {
       <Sheet open={!!injury} onClose={() => setInjury(null)} label="Injury notes">
         {injury && <>
           <SheetHead title={<>{injury.client.firstName}'s <em>notes</em></>} onClose={() => setInjury(null)} />
-          <div className="injury-box"><Icon name="injury" size={22} /><p>{injury.client.injuries || injury.client.healthForm?.injuries || 'No details recorded.'}</p></div>
+          {injury.flags.includes('health_update') && injury.client.healthUpdate && (
+            <p className="note warn" style={{ marginBottom: 12 }}><Icon name="injury" size={20} /><span><strong>New since last visit:</strong> {injury.client.healthUpdate.note}</span></p>
+          )}
+          <div className="injury-box"><Icon name="injury" size={22} /><p style={{ whiteSpace: 'pre-line' }}>{injury.client.injuries || injury.client.healthForm?.injuries || 'No details recorded.'}</p></div>
           {injury.client.healthForm?.pregnantOrPostnatal && <p className="chip cream" style={{ marginTop: 12 }}>Pregnant or postnatal</p>}
           <div className="sh-foot"><a className="btn soft" href={`#/clients/${injury.clientId}`} onClick={(ev) => goFromSheet(ev, `#/clients/${injury.clientId}`)}>View profile</a><button className="btn" onClick={() => setInjury(null)}>Got it</button></div>
         </>}
@@ -249,7 +253,7 @@ function RosterRow({ e, s, onToggle, onOpen, onInjury, onWaiver, disabled }: { e
         <SpotChip spot={e.spot} onClick={onOpen} />
         {flags.map((f) => {
           const F = FLAG[f];
-          const click = f === 'injury' ? onInjury : f === 'no_waiver' ? onWaiver : onOpen;
+          const click = f === 'injury' || f === 'health_update' ? onInjury : f === 'no_waiver' ? onWaiver : onOpen;
           return <button key={f} className={cx('chip', 'flag', F.tone)} onClick={click}><Icon name={F.icon} size={15} />{F.label}</button>;
         })}
         <Slot name="roster.entry" props={{ entry: e, session: s }} />
@@ -326,6 +330,7 @@ function EntrySheet({ e, s, spotNames, onClose, onWaiver, onToggle }: { e: Roste
                 <div key={f} className={cx('fd', FLAG[f].tone)}><Icon name={FLAG[f].icon} size={18} />
                   <span><strong>{FLAG[f].label}</strong>
                     {f === 'injury' && <span>{e.client.injuries || e.client.healthForm?.injuries}</span>}
+                    {f === 'health_update' && <span>{e.client.healthUpdate?.note} <em>(told us {new Date(e.client.healthUpdate?.at ?? Date.now()).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' })})</em></span>}
                     {f === 'first_class' && <span>Give them a warm welcome and a quick intro to the studio.</span>}
                     {f === 'no_waiver' && <span>Ask them to sign before class.</span>}
                     {f === 'birthday' && <span>Birthday this week{e.client.birthday ? ` (${new Date(e.client.birthday + 'T00:00:00').toLocaleDateString(LOCALE, { day: 'numeric', month: 'long' })})` : ''}.</span>}

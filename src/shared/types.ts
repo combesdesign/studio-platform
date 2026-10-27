@@ -258,6 +258,12 @@ export interface StudioSettings {
   healthQuestions: string[];
   cancellationPolicyText: string;
   waitlistPolicyText: string;
+  /** Booking flow: ask first-timers the long health questionnaire (the waiver is always required). Unset = on. */
+  longHealthFormFirstTimers?: boolean;
+  /** Booking flow: ask returning clients "any new injuries or health changes?" (one tap). Unset = on. */
+  quickHealthCheck?: boolean;
+  /** ...at most once every this many days. Unset = 30. */
+  quickHealthCheckDays?: number;
 }
 
 // ---------------------------------------------------------------- people
@@ -303,6 +309,10 @@ export interface Client {
   emergencyContactPhone?: string;
   waiverSignedAt?: ISODateTime;
   healthForm?: HealthForm;
+  /** The last time they answered the quick "any new injuries?" check (or the full form). */
+  healthCheckedAt?: ISODateTime;
+  /** The latest "yes, something's changed" from the quick check. Flags the roster until they next attend. */
+  healthUpdate?: { note: string; at: ISODateTime };
   marketingOptIn: boolean;
   /** Imported from Momence etc. */
   source?: 'app' | 'staff' | 'import';
@@ -493,8 +503,10 @@ export interface Pass {
   noClasses?: boolean;
   /** Copied from the product at purchase (see Product.familyShareable). */
   familyShareable?: boolean;
-  /** Free-text history of manual adjustments by staff. */
+  /** Free-text history of manual adjustments by staff (and membership edits, with delta 0). */
   adjustments?: { at: ISODateTime; staffId?: ID; delta: number; reason: string }[];
+  /** membership: a move to another membership that takes effect at the next billing date. */
+  pendingChange?: { productId: ID; name: string; credits: number | null; priceCents: Cents; effectiveAt: ISODateTime };
 }
 
 // ---------------------------------------------------------------- bookings

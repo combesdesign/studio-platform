@@ -9,6 +9,7 @@ import { isFeatureLocked, settingsTabsAll, settingsTabsList } from '../shared/re
 import { PlanPanel, Upsell } from './billing';
 import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, replaceRoute, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
+import { healthPolicy } from '../domain';
 import { BrandingTab } from './branding';
 import { LocationsTab, useLocationsTabVisible } from './locations';
 import { PaymentsPanel } from './payments';
@@ -131,10 +132,12 @@ function PoliciesTab() {
   const n = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, [k]: Math.max(0, Number(e.target.value) || 0) });
   const c = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLInputElement>) => setD({ ...d, [k]: toCents(e.target.value) });
   const t = (k: keyof StudioSettings) => (e: React.ChangeEvent<HTMLTextAreaElement>) => setD({ ...d, [k]: e.target.value });
+  const hp = healthPolicy(d);
   const save = () => run(() => store.updateSettings({
     cancelWindowHours: d.cancelWindowHours, waitlistCutoffHours: d.waitlistCutoffHours, lateCancelFeeCents: d.lateCancelFeeCents, noShowFeeCents: d.noShowFeeCents,
     bookingWindowDays: d.bookingWindowDays, defaultCapacity: d.defaultCapacity, cancellationPolicyText: d.cancellationPolicyText, waitlistPolicyText: d.waitlistPolicyText,
     waiverText: d.waiverText, healthQuestions: d.healthQuestions.map((q) => q.trim()).filter(Boolean),
+    longHealthFormFirstTimers: hp.longFormFirstTimers, quickHealthCheck: hp.quickCheck, quickHealthCheckDays: hp.quickCheckDays,
   }), 'Policies saved');
   return (
     <div className="set-grid">
@@ -155,6 +158,20 @@ function PoliciesTab() {
         <div className="stack" style={{ marginTop: 18 }}>
           <label className="field"><span>Cancellation policy (shown to clients)</span><textarea className="textarea" rows={5} value={d.cancellationPolicyText} onChange={t('cancellationPolicyText')} /></label>
           <label className="field"><span>Waitlist policy</span><textarea className="textarea" rows={5} value={d.waitlistPolicyText} onChange={t('waitlistPolicyText')} /></label>
+        </div>
+      </section>
+      <section className="card pad span-all">
+        <h3>Health <em>questions at booking</em></h3>
+        <p className="muted small" style={{ margin: '6px 0 14px' }}>Clients choose the class and their pass first. These only appear after that, and only when they’re needed. Everyone still signs the waiver once.</p>
+        <div className="stack">
+          <label className="check"><input type="checkbox" checked={hp.longFormFirstTimers} onChange={(e) => setD({ ...d, longHealthFormFirstTimers: e.target.checked })} />
+            <span><strong>Long health form for first-timers</strong><br /><span className="muted small">New clients answer the health questions below with their waiver. Off means the waiver and emergency contact only.</span></span></label>
+          <label className="check"><input type="checkbox" checked={hp.quickCheck} onChange={(e) => setD({ ...d, quickHealthCheck: e.target.checked })} />
+            <span><strong>Quick health check for returning clients</strong><br /><span className="muted small">One tap: “Any new injuries or health changes since last time?” A yes is saved to their notes with the date and flagged on the roster.</span></span></label>
+          {hp.quickCheck && (
+            <label className="field" style={{ maxWidth: 260 }}><span>Ask at most once every (days)</span>
+              <input className="input" type="number" min={1} max={365} value={hp.quickCheckDays} onChange={(e) => setD({ ...d, quickHealthCheckDays: Math.min(365, Math.max(1, Math.round(Number(e.target.value)) || 30)) })} /></label>
+          )}
         </div>
       </section>
       <section className="card pad span-all">

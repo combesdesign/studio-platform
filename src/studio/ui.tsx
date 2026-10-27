@@ -39,6 +39,7 @@ const PERM_MAP = {
   allRosters: 'roster_all', // any class's roster (instructors: own classes only)
   staffNotes: 'client_staff_notes',
   adjustPasses: 'passes_manage',
+  editMembership: 'membership_edit', // renewal date + move to another membership (owner, manager)
   editClients: 'clients_edit', // add / edit clients (walk-ins create a client)
   waiver: 'waiver_record',
   salesView: 'sales_view', // a client's purchase history

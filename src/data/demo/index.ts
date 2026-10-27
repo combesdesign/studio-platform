@@ -8,7 +8,7 @@
  */
 import { StoreError } from '../../shared/store';
 import type {
-  BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
+  BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, MembershipChange, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
   AuthUser, BillingInfo, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, Plan,
@@ -17,7 +17,7 @@ import type {
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
 import {
   FINANCIAL_SETTINGS_KEYS, buildReport, can, clientsCsv, comparePassPriority, computePassStatus, creditLabel, isIntroEligible,
-  isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, validateLayout, cleanLayout, type FeatureAction, type StaffAction,
+  appendHealthNote, isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, validateLayout, cleanLayout, type FeatureAction, type StaffAction,
 } from '../../domain';
 import type { Actor, DemoState, Engine } from './engine';
 import { PERSONA_EMAILS } from './seed';
@@ -526,6 +526,9 @@ export class DemoStore implements DataStore {
         const v = patch[k];
         if (v !== undefined && !(typeof v === 'number' && v >= 0 && Number.isFinite(v))) throw err('INVALID', `${k} must be zero or more.`);
       }
+      if (patch.quickHealthCheckDays !== undefined && !(Number.isInteger(patch.quickHealthCheckDays) && patch.quickHealthCheckDays >= 1 && patch.quickHealthCheckDays <= 365)) {
+        throw err('INVALID', 'The health check can repeat every 1 to 365 days.');
+      }
       Object.assign(this.state.settings, patch);
       const studio = this.studioRec;
       for (const [k, sk] of MIRROR) if (k in patch) (studio as unknown as Record<string, unknown>)[sk] = this.state.settings[k];
@@ -851,7 +854,9 @@ export class DemoStore implements DataStore {
         const priorCheckIns = this.state.bookings.filter((x) => x.clientId === b.clientId && x.status === 'checked_in' && x.sessionId !== sessionId
           && Date.parse(this.engine.findSession(x.sessionId)?.startsAt ?? s.startsAt) < startT).length;
         const passRemaining = pass ? remainingCredits(pass, this.engine.passUses(pass.id), date) : null;
-        const flags = rosterFlags({ client, booking: b, session: s, ...(pass ? { pass } : {}), passRemaining, priorCheckIns });
+        const lastCheckInAt = this.state.bookings.filter((x) => x.clientId === b.clientId && x.status === 'checked_in' && x.sessionId !== sessionId)
+          .map((x) => this.engine.findSession(x.sessionId)?.startsAt ?? '').filter((t) => t && Date.parse(t) < startT).sort().pop();
+        const flags = rosterFlags({ client, booking: b, session: s, ...(pass ? { pass } : {}), passRemaining, priorCheckIns, ...(lastCheckInAt ? { lastCheckInAt } : {}) });
         return { ...b, client: this.redactClient(client), ...(pass ? { pass } : {}), flags, _name: `${client.firstName} ${client.lastName}` };
       });
       out.sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
@@ -977,6 +982,22 @@ export class DemoStore implements DataStore {
       c.waiverSignedAt = at;
       c.healthForm = { ...health, answers: { ...(health.answers ?? {}) }, submittedAt: at };
       if (health.injuries?.trim()) c.injuries = health.injuries.trim();
+      return this.redactClient(c);
+    });
+  }
+
+  async submitHealthCheck(clientId: ID, check: { changes: boolean; note?: string }): Promise<Client> {
+    return this.write(() => {
+      this.requireSelfOrStaff(clientId, 'waiver_record');
+      const c = this.engine.client(clientId);
+      const note = (check.note ?? '').trim();
+      if (check.changes && !note) throw err('INVALID', 'Tell us a little about what’s changed.');
+      const now = this.now();
+      c.healthCheckedAt = now.toISOString();
+      if (check.changes) {
+        c.injuries = appendHealthNote(c.injuries, note, now);
+        c.healthUpdate = { note, at: now.toISOString() };
+      }
       return this.redactClient(c);
     });
   }
@@ -1166,6 +1187,12 @@ export class DemoStore implements DataStore {
   }
   async cancelMembership(passId: ID): Promise<Pass> {
     return this.write(() => { this.requirePassOwnerOrStaff(passId); return this.engine.cancelMembership(passId); });
+  }
+  async changeRenewalDate(passId: ID, date: ISODate): Promise<Pass> {
+    return this.write(() => { const st = this.requireStaff('membership_edit'); return this.engine.changeRenewalDate(passId, date, st.id); });
+  }
+  async changeMembership(passId: ID, change: MembershipChange): Promise<Pass> {
+    return this.write(() => { const st = this.requireStaff('membership_edit'); return this.engine.changeMembership(passId, change, st.id); });
   }
   async adjustPass(passId: ID, change: { creditsDelta?: number; newExpiresAt?: ISODateTime | null; reason: string }): Promise<Pass> {
     return this.write(() => { const st = this.requireStaff('passes_manage'); return this.engine.adjust(passId, change, st.id); });

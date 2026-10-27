@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { store, useToast, errorMessage, leaveSheets, useBackHandler } from '../shared/react';
 import { BackPill, Flower, Icon, useApp } from './ui';
 import { backOut, dateShortNoDay, flowFrom, queryOf, saveClient, swapFlow } from './lib';
+import { healthPolicy } from '../domain';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 type YN = 'Yes' | 'No' | '';
@@ -19,6 +20,9 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   const toast = useToast();
   const q = queryOf(path);
   const then = q.get('then') || undefined;
+  // the pass (and spot) they picked before the waiver, so the booking at the end uses them
+  const passId = q.get('pass') || undefined;
+  const spot = q.get('spot') || undefined;
   const edit = q.get('edit') === '1' || !!app.client.waiverSignedAt && !then;
   const c = app.client;
   const qs = app.settings.healthQuestions ?? [];
@@ -40,11 +44,15 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   const [busy, setBusy] = useState(false);
   const fullName = `${c.firstName} ${c.lastName}`.trim();
 
-  const steps = ['About you', 'Your health', 'Waiver'];
+  // First-timers get the long health questions unless the studio has turned that off (Settings > Policies). The waiver is always needed.
+  // Updating from Profile (already signed, or edit=1) always shows them.
+  const skipHealth = !healthPolicy(app.settings).longFormFirstTimers && !edit && !c.waiverSignedAt;
+  const steps = skipHealth ? ['About you', 'Waiver'] : ['About you', 'Your health', 'Waiver'];
+  const stepName = steps[step];
   const okAbout = about.emergencyContactName.trim().length > 1 && about.emergencyContactPhone.trim().length >= 6;
   const okHealth = qs.every((x) => answers[x]?.yn) && preg !== '';
   const okSign = agree && sig.trim().length >= 2;
-  const canNext = [okAbout, okHealth, okSign][step];
+  const canNext = stepName === 'About you' ? okAbout : stepName === 'Your health' ? okHealth : okSign;
 
   // Back goes one step at a time, then out to where the waiver was opened from (the class, or Profile).
   // Each step after the first has its own history entry, so the phone back button does the same.
@@ -69,13 +77,13 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
         injuries: injuries.trim() || undefined,
       });
       const out: Record<string, string> = {};
-      qs.forEach((x) => { const a = answers[x]!; out[x] = a.yn === 'Yes' ? (a.detail.trim() ? `Yes: ${a.detail.trim()}` : 'Yes') : 'No'; });
-      await store.submitWaiver(c.id, { answers: out, injuries: injuries.trim() || undefined, pregnantOrPostnatal: preg === 'Yes' });
+      if (!skipHealth) qs.forEach((x) => { const a = answers[x]!; out[x] = a.yn === 'Yes' ? (a.detail.trim() ? `Yes: ${a.detail.trim()}` : 'Yes') : 'No'; });
+      await store.submitWaiver(c.id, { answers: out, ...(injuries.trim() ? { injuries: injuries.trim() } : {}), ...(skipHealth ? {} : { pregnantOrPostnatal: preg === 'Yes' }) });
       app.refreshAuth();
       // Step off the step entries first (quietly), then leave the flow.
       if (then) {
         try {
-          const r = await store.bookClass(c.id, then);
+          const r = await store.bookClass(c.id, then, { ...(passId ? { passId } : {}), ...(spot ? { spot } : {}) });
           toast(r.outcome === 'booked' ? 'All signed – and you’re booked in' : 'All signed – you’re on the waitlist');
           leaveSheets(leaveFlow, { quiet: true });
         } catch (e: any) {
@@ -103,7 +111,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
       </div>
 
       <div className="flow-body" key={step}>
-        {step === 0 && (
+        {stepName === 'About you' && (
           <>
             <div className="kicker">{then ? 'Before your first class' : edit ? 'Update your details' : 'Health + waiver'}</div>
             <h1>A little about <em>you</em></h1>
@@ -120,7 +128,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
           </>
         )}
 
-        {step === 1 && (
+        {stepName === 'Your health' && (
           <>
             <div className="kicker">Health check</div>
             <h1>How’s your <em>body</em> feeling?</h1>
@@ -150,7 +158,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
           </>
         )}
 
-        {step === 2 && (
+        {stepName === 'Waiver' && (
           <>
             <div className="kicker">Last step</div>
             <h1>The <em>fine print</em></h1>
@@ -182,7 +190,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   );
 }
 
-function YesNo({ value, onChange }: { value: YN; onChange: (v: YN) => void }) {
+export function YesNo({ value, onChange }: { value: YN; onChange: (v: YN) => void }) {
   return (
     <div className="yn" role="radiogroup">
       {(['No', 'Yes'] as YN[]).map((v) => (

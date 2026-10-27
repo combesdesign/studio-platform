@@ -237,7 +237,7 @@ export function ClientProfile({ id }: { id: string }) {
           <section className="card pad">
             <div className="sec-head"><h3>Health &amp; <em>waiver</em></h3>{can('waiver') && <button className="linkish" onClick={() => setSheet('waiver')}>{c.waiverSignedAt ? 'Update' : 'Record'}</button>}</div>
             <p className="small muted">{c.waiverSignedAt ? `Waiver signed ${dayShort(c.waiverSignedAt)} ${new Date(c.waiverSignedAt).getFullYear()}` : 'No waiver yet. They must sign before booking in the app.'}</p>
-            {injuries && <div className="injury-box" style={{ marginTop: 12 }}><Icon name="injury" size={20} /><p>{injuries}</p></div>}
+            {injuries && <div className="injury-box" style={{ marginTop: 12 }}><Icon name="injury" size={20} /><p style={{ whiteSpace: "pre-line" }}>{injuries}</p></div>}
             {c.healthForm && Object.keys(c.healthForm.answers).length > 0 && (
               <dl className="dl qa">
                 {Object.entries(c.healthForm.answers).map(([q, a]) => <React.Fragment key={q}><dt>{q}</dt><dd>{a || <span className="faint">No answer</span>}</dd></React.Fragment>)}

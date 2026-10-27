@@ -193,6 +193,7 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
    supabase functions deploy billing-portal
    supabase functions deploy refund-payment
    supabase functions deploy invite-user
+   supabase functions deploy edit-membership
    supabase functions deploy support-assist
    supabase functions deploy stripe-webhook --no-verify-jwt
    supabase functions deploy send-email --no-verify-jwt
