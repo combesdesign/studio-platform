@@ -40,7 +40,7 @@ Every feature built from here lands in both.
   - [x] buffer times
   - [x] client booking and cancelling with the studio's policy windows, studio calendar, confirmation and reminder emails
 - [x] Workshops, courses (multi-session) and events with their own pricing, capacity and sign-up (demo payment, live through Stripe Checkout)
-- [ ] Spot or mat selection (optional, per class): not started. It needs its own table and RPCs (a spot per booking), so it isn't cheap through `client.class` / `roster.entry` alone. See NOTES.md › appointments.
+- [x] Spot or mat selection (optional, per class type, off by default): room spot layouts, "Let clients pick a spot", client picker with "Pick for me", roster map and moving spots. See NOTES.md > spots.
 
 ### B2 Marketing and messaging
 - [x] Email campaigns, using segments built from client filters
