@@ -8,7 +8,7 @@ import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/fe
 import type { DemoState } from '../../data/demo/engine';
 import { can } from '../../domain/permissions';
 import type { ID, ISODateTime, Studio } from '../../shared/types';
-import { HAPPY_NPS, PROMPT_DAYS, byNewest, cleanGoogleUrl, cleanReview } from './calc';
+import { DEFAULT_ASK_EVERY, HAPPY_NPS, PROMPT_DAYS, byNewest, cleanAskEvery, cleanGoogleUrl, cleanReview } from './calc';
 import type { ReviewEntry, ReviewPrompt, ReviewsSettings, ReviewsStore } from './types';
 
 interface Entry extends ReviewEntry { clientId: ID }
@@ -18,7 +18,9 @@ type Full = Required<Slice>;
 function norm(raw: Slice): Full {
   raw.entries ??= [];
   raw.dismissed ??= [];
-  raw.settings ??= { googleReviewUrl: '' };
+  raw.settings ??= { googleReviewUrl: '', googleAskEnabled: false, googleAskEvery: DEFAULT_ASK_EVERY };
+  raw.settings.googleAskEnabled ??= false;
+  raw.settings.googleAskEvery ??= DEFAULT_ASK_EVERY;
   return raw as Full;
 }
 
@@ -102,6 +104,14 @@ function create(ctx: DemoFeatureContext): ReviewsStore {
       if (patch.googleReviewUrl !== undefined) {
         try { s.settings.googleReviewUrl = cleanGoogleUrl(patch.googleReviewUrl); } catch (e) { fail(ctx, e); }
       }
+      if (patch.googleAskEvery !== undefined) {
+        try { s.settings.googleAskEvery = cleanAskEvery(patch.googleAskEvery); } catch (e) { fail(ctx, e); }
+      }
+      if (patch.googleAskEnabled !== undefined) {
+        if (patch.googleAskEnabled && !s.settings.googleReviewUrl) throw ctx.error('INVALID', 'Add your Google review link first.');
+        s.settings.googleAskEnabled = patch.googleAskEnabled;
+      }
+      if (!s.settings.googleReviewUrl) s.settings.googleAskEnabled = false;   // no link, no ask
       return { ...s.settings };
     }),
   };
@@ -125,7 +135,7 @@ const COMMENTS: Record<'snowy' | 'harbour', Record<'hi' | 'mid' | 'lo', string[]
 
 function seedSlice(studio: Studio, state: DemoState, now: Date, newId: (p: string) => ID): Full {
   const key = studio.slug === 'harbour' ? 'harbour' : 'snowy';
-  const out: Full = { entries: [], dismissed: [], settings: { googleReviewUrl: '' } };
+  const out: Full = { entries: [], dismissed: [], settings: { googleReviewUrl: '', googleAskEnabled: false, googleAskEvery: DEFAULT_ASK_EVERY } };
   const nowMs = now.getTime();
   const sessionById = new Map(state.sessions.map((x) => [x.id, x]));
   // every client's most recent finished checked-in class is left for the "How was…?" card

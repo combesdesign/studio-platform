@@ -222,10 +222,10 @@ export function buildSms(body: string, vars: Record<string, string> = {}, opts: 
 // ------------------------------------------------------------------ automations
 
 /** An automation's copy as email blocks: heading, paragraphs, a button to the app. */
-export function automationBlocks(a: { heading: string; body: string; buttonLabel: string }): RenderBlock[] {
+export function automationBlocks(a: { heading: string; body: string; buttonLabel: string; key?: string }): RenderBlock[] {
   const out: RenderBlock[] = [];
   if (a.heading.trim()) out.push({ type: 'heading', text: a.heading });
   if (a.body.trim()) out.push({ type: 'text', text: a.body });
-  if (a.buttonLabel.trim()) out.push({ type: 'button', label: a.buttonLabel, url: '{{app_url}}' });
+  if (a.buttonLabel.trim()) out.push({ type: 'button', label: a.buttonLabel, url: a.key === 'review_ask' ? '{{review_url}}' : '{{app_url}}' });
   return out;
 }

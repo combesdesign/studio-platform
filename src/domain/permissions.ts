@@ -18,6 +18,7 @@ export type StaffAction =
   | 'pos_refund'
   | 'passes_manage' // pause/resume/cancel/adjust any client pass
   | 'membership_edit' // change a membership's renewal date or move it to another membership (owner, manager)
+  | 'emails_edit' // the wording and on/off of the emails clients get (Settings > Emails; owner, manager)
   | 'reports' // attendance reports
   | 'reports_revenue'
   | 'reports_pay' // instructor pay in reports, pay rates visible
@@ -27,7 +28,7 @@ export type StaffAction =
 
 const ALL: StaffAction[] = [
   'settings', 'settings_financial', 'staff', 'staff_pay', 'products', 'schedule', 'roster_all', 'roster_own', 'clients_view',
-  'clients_edit', 'client_staff_notes', 'waiver_record', 'pos', 'pos_refund', 'passes_manage', 'membership_edit', 'reports', 'reports_revenue',
+  'clients_edit', 'client_staff_notes', 'waiver_record', 'pos', 'pos_refund', 'passes_manage', 'membership_edit', 'emails_edit', 'reports', 'reports_revenue',
   'reports_pay', 'export_sales', 'export_clients', 'sales_view',
 ];
 

@@ -10,9 +10,10 @@ import type {
   Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, Product, Sale,
   Room, ScheduleTemplate, SessionWithCounts, SpotLayout, Staff, StudioSettings,
 } from '../../shared/types';
-import { addDays, studioToUTC, time as clockTime } from '../../shared/format';
+import { addDays, dateTime as dateTimeLabel, studioToUTC, time as clockTime } from '../../shared/format';
 import { directFull, directSpotsLeft } from '../../domain/capacity';
 import { demoFeatures } from './features';
+import { renderClassEmail, type EmailKind, type EmailPayload } from '../../domain/emails';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
@@ -25,8 +26,10 @@ export const STATE_VERSION = 1;
 export interface OutboxMessage {
   at: ISODateTime;
   clientId: ID;
-  kind: 'waitlist_promoted' | 'class_cancelled' | 'booking_moved' | 'class_restored';
+  kind: EmailKind | 'booking_moved' | 'class_restored' | 'test_email';
   text: string;
+  /** The subject the email would carry (the studio's own wording if it changed it). */
+  subject?: string;
 }
 
 export interface DemoState {
@@ -55,6 +58,8 @@ export interface DemoState {
   sessionCancelledAt?: Record<ID, ISODateTime>;
   /** Notifications the live app would send (email/push). Demo only, newest last. */
   outbox: OutboxMessage[];
+  /** The studio's own wording and on/off for the client emails (Settings > Emails), by email kind. Missing = all on, default wording. */
+  emailTemplates?: Record<string, { enabled: boolean; subject: string | null; intro: string | null }>;
   /** "Register interest" for coming-soon class types (one row per client + class type). Staff can see it. */
   interest?: { clientId: ID; classTypeId: ID; at: ISODateTime }[];
   /** Client persona emails for the demo sign-in list, in order: brand new, member, pack, intro. */
@@ -402,9 +407,7 @@ export class Engine {
       delete b.waitlistPosition;
       // return credit happened above using the pre-change status; refresh pass status now the booking no longer counts
       if (b.passId) { const p = this.passesById.get(b.passId); if (p) p.status = computePassStatus(p, this.now()); }
-      this.notify(b.clientId, 'class_cancelled', wasBooked
-        ? `Sorry, your class on ${studioDate(s.startsAt)} has been cancelled${reason ? ` (${reason})` : ''}. Your credit has been returned.`
-        : `The class on ${studioDate(s.startsAt)} you were waitlisted for has been cancelled.`);
+      this.email('class_cancelled', b.clientId, s, { cancel_reason: reason === 'Cancelled by the studio' ? '' : reason, was_booked: wasBooked });
     }
     this.syncSpots(id);
   }
@@ -518,6 +521,7 @@ export class Engine {
       const booking: Booking = { ...base, status: 'waitlisted', waitlistPosition: maxPos + 1 };
       this.addBooking(booking);
       this.renumberWaitlist(sessionId);
+      this.email('waitlist_joined', clientId, session);
       return { booking, outcome: 'waitlisted' };
     }
 
@@ -539,6 +543,7 @@ export class Engine {
     const booking: Booking = { ...base, ...(pass ? { passId: pass.id } : {}), ...(o.spot !== undefined ? { spot: o.spot } : {}) };
     this.addBooking(booking);
     this.syncSpots(sessionId);
+    this.email('booking_confirmed', clientId, session);
     return pass ? { booking, outcome: 'booked', pass } : { booking, outcome: 'booked' };
   }
 
@@ -560,6 +565,7 @@ export class Engine {
     if (out.creditReturned) this.returnCredit(b);
     else if (b.passId) { const p = this.passesById.get(b.passId); if (p) p.status = computePassStatus(p, now); }
     if (out.lateCancel && this.s.settings.lateCancelFeeCents > 0) this.feeSale(b.clientId, 'Late cancellation fee', this.s.settings.lateCancelFeeCents, b.id);
+    if (!staff) this.email('booking_cancelled', b.clientId, session, { late: out.lateCancel, credit_returned: out.creditReturned });
     const promoted = this.promote(session.id);
     this.syncSpots(session.id);
     return { booking: b, creditReturned: out.creditReturned, lateCancel: out.lateCancel, ...(promoted[0] ? { promoted: promoted[0] } : {}) };
@@ -596,7 +602,7 @@ export class Engine {
       pick.promotedFromWaitlistAt = now.toISOString();
       delete pick.waitlistPosition;
       out.push(pick);
-      this.notify(pick.clientId, 'waitlist_promoted', `Good news — a spot opened up and you're booked in for class on ${studioDate(s.startsAt)}.`);
+      this.email('waitlist_promoted', pick.clientId, s);
     }
     this.renumberWaitlist(sessionId);
     if (out.length) this.syncSpots(sessionId);   // promoted people get a spot (near their family)
@@ -1050,9 +1056,36 @@ export class Engine {
     if (bookingId) (this.s.penaltyFees ??= {})[bookingId] = id;
   }
 
-  notify(clientId: ID, kind: OutboxMessage['kind'], text: string): void {
-    this.s.outbox.push({ at: this.now().toISOString(), clientId, kind, text });
+  notify(clientId: ID, kind: OutboxMessage['kind'], text: string, subject?: string): void {
+    this.s.outbox.push({ at: this.now().toISOString(), clientId, kind, text, ...(subject ? { subject } : {}) });
     if (this.s.outbox.length > 200) this.s.outbox.splice(0, this.s.outbox.length - 200);
+  }
+
+  /** What an email for this client and class would say, using the studio's own wording (Settings > Emails). */
+  emailPayload(clientId: ID, session?: ClassSession, extra: EmailPayload = {}): EmailPayload {
+    const c = this.client(clientId);
+    const st = this.s.settings;
+    const ct = session ? this.s.classTypes.find((x) => x.id === session.classTypeId) : undefined;
+    return {
+      first_name: c.firstName, studio_name: st.name, address: st.address, cancellation_policy: st.cancellationPolicyText, waitlist_policy: st.waitlistPolicyText,
+      ...(session ? { class_name: ct?.name ?? 'Class', when: dateTimeLabel(session.startsAt), instructor: this.s.staff.find((x) => x.id === session.instructorId)?.name ?? '', booking_note: ct?.bookingNote ?? '' } : {}),
+      email_overrides: this.s.emailTemplates ?? {}, ...extra,
+    };
+  }
+
+  /**
+   * "Send" one of the editable client emails. Same wording as live (src/domain/emails.ts): skipped when the studio turned that email
+   * off or the client has no email address (a dependant). Returns whether it was queued.
+   */
+  email(kind: EmailKind, clientId: ID, session?: ClassSession, extra: EmailPayload = {}): boolean {
+    if (this.s.emailTemplates?.[kind]?.enabled === false) return false;
+    if (session && Date.parse(session.startsAt) < this.now().getTime()) return false;   // nothing goes out for a class that has started (also keeps the seeded history quiet)
+    const c = this.client(clientId);
+    if (!c.email?.trim()) return false;
+    const r = renderClassEmail(kind, this.emailPayload(clientId, session, extra));
+    if (!r) return false;
+    this.notify(clientId, kind, r.text, r.subject);
+    return true;
   }
 }
 

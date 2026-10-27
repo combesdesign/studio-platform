@@ -604,3 +604,11 @@ export interface StudioReport {
   /** Busiest slots, e.g. 'Mon 6:00am'. */
   topSlots: { label: string; avgAttendees: number }[];
 }
+
+/** A studio's own wording for one client-facing email (Settings > Emails). Null subject or intro = the default wording. */
+export interface EmailTemplateRow {
+  kind: string;
+  enabled: boolean;
+  subject: string | null;
+  intro: string | null;
+}

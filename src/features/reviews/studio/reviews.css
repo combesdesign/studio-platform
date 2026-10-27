@@ -21,3 +21,7 @@
 .rv-comments p { margin: 6px 0 0; line-height: 1.45; }
 .rv-chead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 14px; }
 @media (max-width: 520px) { .rv-rows li { grid-template-columns: minmax(0, 1fr) 38px 30px; } .rv-rows li .rv-rating { display: none; } }
+.rv-ask { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.rv-ask-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.rv-ask-row p { margin: 6px 0 0; max-width: 60ch; }
+.rv-every { width: 72px; min-height: 44px; text-align: center; display: inline-block; margin: 0 4px; }

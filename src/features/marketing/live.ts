@@ -82,6 +82,11 @@ function create(ctx: LiveFeatureContext): MarketingStore {
     listThreads: () => ctx.read(() => rpc<InboxThread[]>('marketing_list_threads')),
     getThread: (clientId) => ctx.read(() => rpc<InboxThreadDetail>('marketing_get_thread', { p_client_id: clientId })),
     sendStaffMessage: (clientId, body) => ctx.write(() => rpc<InboxMessage>('marketing_send_staff_message', { p_client_id: clientId, p_body: body })),
+    sendText: (clientId, body) => ctx.write(async () => {
+      const m = await rpc<InboxMessage>('marketing_send_text', { p_client_id: clientId, p_body: body });
+      void kick();
+      return m;
+    }),
     markThreadRead: (clientId) => ctx.write(async () => { await ctx.rpc('marketing_mark_thread_read', { p_client_id: clientId }); }),
     inboxUnreadCount: () => ctx.read(async () => Number(await ctx.rpc('marketing_inbox_unread'))),
 

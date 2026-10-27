@@ -2,6 +2,7 @@
 import { type Db, must } from './db.ts';
 import { drainMarketing } from './marketing.ts';
 import { env } from './http.ts';
+import { escapeHtml as esc, layout as baseLayout, renderClassEmail, theme } from './emails.ts';
 
 // deno-lint-ignore no-explicit-any
 type Payload = Record<string, any>;
@@ -10,17 +11,9 @@ export interface Notification { id: string; kind: string; to_email: string | nul
 // Every email is sent as its own studio (name, colours, logo, address, currency, timezone, policy text). These are only the
 // neutral platform defaults for a studio with no branding yet (same values as PLATFORM_BRANDING in src/shared/branding.ts).
 const PLATFORM_NAME = 'Studio Platform';
-const DEFAULT_THEME = { primary: '#2F3B4C', ink: '#1A212C', soft: '#EEF0F3', bg: '#F7F7F4' };
 const DEFAULT_CURRENCY = 'AUD';
 const DEFAULT_LOCALE = 'en-AU';
-const HEX = /^#[0-9a-f]{3,8}$/i;
-function theme(p: Payload): typeof DEFAULT_THEME {
-  const b = (p.brand ?? {}) as Record<string, unknown>;
-  const pick = (k: keyof typeof DEFAULT_THEME) => (typeof b[k] === 'string' && HEX.test(b[k] as string) ? (b[k] as string) : DEFAULT_THEME[k]);
-  return { primary: pick('primary'), ink: pick('ink'), soft: pick('soft'), bg: pick('bg') };
-}
 
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 /** Money in the studio's own currency and locale (falls back to the platform default if either is unusable). */
 function money(cents: number, p: Payload = {}): string {
   const amount = (Number.isFinite(cents) ? cents : 0) / 100;
@@ -33,61 +26,21 @@ function money(cents: number, p: Payload = {}): string {
 const studioName = (p: Payload) => String(p.studio_name ?? PLATFORM_NAME);
 const absoluteUrl = (u: unknown) => (typeof u === 'string' && /^https:\/\//i.test(u) ? u : '');
 
+/** The shared shell (src/domain/emails.ts); the button goes to APP_URL unless the payload says otherwise. */
 function layout(title: string, bodyHtml: string, payload: Payload): string {
-  const { primary: NAVY, ink: INK, bg: BG } = theme(payload);
-  const appUrl = payload.cta_url === null ? '' : String(payload.cta_url ?? Deno.env.get('APP_URL') ?? '');
-  const ctaLabel = String(payload.cta_label ?? 'Open the app');
-  const studio = esc(studioName(payload));
-  const logo = absoluteUrl(payload.logo_url);
-  const header = logo ? `<img src="${esc(logo)}" alt="${studio}" height="36" style="display:block;border:0;height:36px;width:auto">` : studio;
-  return `<!doctype html><html><body style="margin:0;background:${BG};font-family:Helvetica,Arial,sans-serif;color:${INK}">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BG};padding:24px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:16px;padding:28px">
-<tr><td style="font-family:Georgia,serif;font-size:13px;letter-spacing:2px;text-transform:uppercase;color:${NAVY}">${header}</td></tr>
-<tr><td style="padding-top:12px;font-family:Georgia,serif;font-size:26px;line-height:1.2;color:${INK}">${esc(title)}</td></tr>
-<tr><td style="padding-top:16px;font-size:15px;line-height:1.6">${bodyHtml}</td></tr>
-${appUrl ? `<tr><td style="padding-top:20px"><a href="${esc(appUrl)}" style="display:inline-block;background:${NAVY};color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-size:15px">${esc(ctaLabel)}</a></td></tr>` : ''}
-${payload.address ? `<tr><td style="padding-top:24px;font-size:12px;color:#6b7280">${esc(payload.address)}</td></tr>` : ''}
-</table></td></tr></table></body></html>`;
+  return baseLayout(title, bodyHtml, payload, Deno.env.get('APP_URL') ?? '');
 }
 
 const policyText = (p: Payload) => (p.cancellation_policy ? `\n\nCancellation policy: ${p.cancellation_policy}` : '');
-
-function classBox(p: Payload): string {
-  return `<div style="background:${theme(p).soft};border-radius:12px;padding:14px 16px;margin:12px 0">
-<strong>${esc(p.class_name)}</strong><br>${esc(p.when)}${p.instructor ? ` with ${esc(p.instructor)}` : ''}</div>`;
-}
 
 export function render(n: Notification): { subject: string; html: string; text: string } {
   const p = n.payload ?? {};
   const hi = p.first_name ? `Hi ${esc(p.first_name)},` : 'Hi,';
   const policy = p.cancellation_policy ? `<p style="font-size:13px;color:#4b5563"><strong>Cancellation policy:</strong> ${esc(p.cancellation_policy)}</p>` : '';
-  const note = p.booking_note ? `<p style="font-size:13px">${esc(p.booking_note)}</p>` : '';
+  // The editable class emails (booking, waitlist, cancellations, reminder, welcome) live in emails.ts, with the studio's own wording.
+  const classEmail = renderClassEmail(n.kind, p, undefined, Deno.env.get('APP_URL') ?? '');
+  if (classEmail) return p.is_test ? { ...classEmail, subject: `[Test] ${classEmail.subject}` } : classEmail;   // "Send me a test" in Settings > Emails
   switch (n.kind) {
-    case 'booking_confirmed':
-      return {
-        subject: `You're booked: ${p.class_name}, ${p.when}`,
-        html: layout('You’re booked in', `<p>${hi}</p><p>See you on the mat.</p>${classBox(p)}${note}${policy}`, p),
-        text: `${hi}\n\nYou're booked into ${p.class_name}, ${p.when}${p.instructor ? ` with ${p.instructor}` : ''}.${p.booking_note ? `\n\n${p.booking_note}` : ''}${policyText(p)}`,
-      };
-    case 'waitlist_promoted':
-      return {
-        subject: `A spot opened up: ${p.class_name}, ${p.when}`,
-        html: layout('You’re off the waitlist', `<p>${hi}</p><p>Good news, a spot opened up and we’ve booked you in. A credit has been used from your pass.</p>${classBox(p)}${note}${policy}`, p),
-        text: `${hi}\n\nA spot opened up and you're now booked into ${p.class_name}, ${p.when}. A credit has been used from your pass.${policyText(p)}`,
-      };
-    case 'class_cancelled':
-      return {
-        subject: `Class cancelled: ${p.class_name}, ${p.when}`,
-        html: layout('Class cancelled', `<p>${hi}</p><p>Sorry, we’ve had to cancel this class${p.cancel_reason ? ` (${esc(p.cancel_reason)})` : ''}. Any credit you used is back on your pass.</p>${classBox(p)}<p>Jump into the app to book another time.</p>`, p),
-        text: `${hi}\n\nSorry, we've had to cancel ${p.class_name}, ${p.when}${p.cancel_reason ? ` (${p.cancel_reason})` : ''}. Any credit you used is back on your pass.`,
-      };
-    case 'class_reminder':
-      return {
-        subject: `See you soon: ${p.class_name} at ${String(p.when ?? '').split(' ')[0]}`,
-        html: layout('See you soon', `<p>${hi}</p><p>Just a reminder about your class today.</p>${classBox(p)}${note}<p style="font-size:13px;color:#4b5563">Can’t make it? Please cancel in the app so someone on the waitlist can take your spot.</p>${policy}`, p),
-        text: `${hi}\n\nReminder: ${p.class_name}, ${p.when}. Can't make it? Please cancel in the app so someone else can take your spot.${policyText(p)}`,
-      };
     case 'receipt': {
       const items = (Array.isArray(p.items) ? p.items : []) as Payload[];
       const rows = items.map((i) => `<tr><td style="padding:4px 0">${esc(i.qty)} × ${esc(i.name)}</td><td align="right">${money(Number(i.qty) * Number(i.unit_cents), p)}</td></tr>`).join('');
@@ -291,6 +244,8 @@ async function drainNotifications(admin: Db, opts: { id?: string; limit?: number
 interface StudioInfo {
   slug: string; name: string; email: string; address: string; currency: string; locale: string; timezone: string; brand: Record<string, string>;
   logoUrl: string; taxId: string; taxIdLabel: string; taxName: string;
+  /** The studio's own wording for the class emails (Settings > Emails), by email kind. */
+  emailOverrides: Record<string, { enabled: boolean; subject: string | null; intro: string | null }>;
 }
 interface OutboxRow { id: string; kind: string; studio_id: string; to_email: string | null; payload: Payload; to_staff_id?: string }
 
@@ -312,8 +267,10 @@ async function loadStudio(admin: Db, cache: Map<string, StudioInfo>, id: string)
     slug: r.slug, name: r.name, email: r.email ?? '', address: r.address ?? '', currency: r.currency, locale: r.locale, timezone: r.timezone,
     brand: { primary: c.primary, ink: c.ink, soft: c.soft, bg: c.bg },
     logoUrl: absoluteUrl(r.branding?.logoUrl) || absoluteUrl(r.branding?.iconUrl),
-    taxId: r.tax_id ?? '', taxIdLabel: r.tax_id_label ?? '', taxName: r.tax_name ?? '',
+    taxId: r.tax_id ?? '', taxIdLabel: r.tax_id_label ?? '', taxName: r.tax_name ?? '', emailOverrides: {},
   };
+  const ov = (must(await admin.from('email_templates').select('kind, enabled, subject, intro').eq('studio_id', id)) ?? []) as { kind: string; enabled: boolean; subject: string | null; intro: string | null }[];
+  for (const o of ov) info.emailOverrides[o.kind] = { enabled: o.enabled, subject: o.subject, intro: o.intro };
   cache.set(id, info);
   return info;
 }
@@ -322,7 +279,7 @@ async function loadStudio(admin: Db, cache: Map<string, StudioInfo>, id: string)
 function studioPayload(st: StudioInfo): Payload {
   const o: Payload = {
     studio_name: st.name, address: st.address, brand: st.brand, currency: st.currency, locale: st.locale, timezone: st.timezone,
-    logo_url: st.logoUrl, tax_id: st.taxId, tax_id_label: st.taxIdLabel, tax_name: st.taxName,
+    logo_url: st.logoUrl, tax_id: st.taxId, tax_id_label: st.taxIdLabel, tax_name: st.taxName, email_overrides: st.emailOverrides,
   };
   for (const k of Object.keys(o)) if (o[k] === '' || o[k] === undefined) delete o[k];
   return o;

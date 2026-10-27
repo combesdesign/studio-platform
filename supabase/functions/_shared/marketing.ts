@@ -135,7 +135,8 @@ async function deliver(job: Job): Promise<{ providerId?: string; links?: (string
   if (!job.to) throw new Error(job.channel === 'sms' ? 'No mobile number' : 'No email address');
   const vars = varsFor(job);
   if (job.channel === 'sms') {
-    const body = buildSms(job.campaign?.body ?? job.automation?.body ?? '', vars, { marketing: job.kind === 'marketing' });
+    // A one-off text from staff (source 'inbox') goes out exactly as written; campaigns and automations merge their tags and add the opt-out line.
+    const body = job.source === 'inbox' ? String(job.payload?.body ?? '') : buildSms(job.campaign?.body ?? job.automation?.body ?? '', vars, { marketing: job.kind === 'marketing' });
     return { providerId: await sendSms(job.to, body, job.settings.smsSender) };
   }
   const m = buildEmail(job, vars);

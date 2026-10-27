@@ -172,6 +172,28 @@ export const AUTOMATION_CATALOG: AutomationDef[] = [
       buttonLabel: 'Open the app',
     },
   },
+  {
+    key: 'intro_checkin', name: 'Intro offer check-in', order: 9, kind: 'marketing',
+    description: 'A friendly check-in partway through the intro offer, with what to book next.',
+    delay: { unit: 'days', before: 'Sends', after: 'days into the intro offer (7 is the middle of a 14 day offer)', min: 1, max: 13, default: 7 },
+    tags: [{ tag: 'ends_on', label: 'End date', example: 'Fri 24 Oct' }],
+    defaults: {
+      channel: 'email', subject: 'How are you finding it, {{first_name}}?', heading: 'How’s it *going*?',
+      body: 'Hi {{first_name}}, you’re about halfway through your intro offer, so we wanted to check in. How are you finding it?\n\nIf you’ve found a class or a time you love, here’s what to book next: another session this week keeps the momentum going, and your offer runs until {{ends_on}}. Not sure what suits you? Reply in Messages and we’ll point you to the right class.',
+      buttonLabel: 'Book your next class',
+    },
+  },
+  {
+    key: 'review_ask', name: 'Google review ask', order: 10, kind: 'marketing',
+    description: 'After every few classes, a friendly ask for a Google review. Turn it on in Settings › Reviews.',
+    delay: { unit: 'days', before: 'Sends', after: 'days after the class (0 = a few hours after)', min: 0, max: 14, default: 0 },
+    tags: [{ tag: 'class_count', label: 'Classes so far', example: '5' }, { tag: 'review_url', label: 'Google review link', example: 'https://g.page/r/…/review' }],
+    defaults: {
+      channel: 'email', subject: 'Would you leave us a Google review?', heading: 'A small *favour*',
+      body: 'Hi {{first_name}}, you’ve been to {{class_count}} classes at {{studio_name}} now, which is so good to see.\n\nIf you’re enjoying it, a quick Google review helps other people find us and means the world to a small studio. It takes about a minute.',
+      buttonLabel: 'Leave a Google review',
+    },
+  },
 ];
 
 export const automationDef = (k: AutomationKey): AutomationDef => AUTOMATION_CATALOG.find((d) => d.key === k) ?? AUTOMATION_CATALOG[0]!;
@@ -180,6 +202,11 @@ export const automationDef = (k: AutomationKey): AutomationDef => AUTOMATION_CAT
 export function defaultAutomations(): Automation[] {
   return AUTOMATION_CATALOG.map((d) => ({ key: d.key, enabled: true, delay: d.delay.default, ...d.defaults }));
 }
+
+/** A class counts as done this long after it starts when the review ask is timed (the live check uses the class end + 3 hours; classes run about an hour). */
+export const REVIEW_ASK_AFTER_START_HOURS = 4;
+/** The review ask never goes to the same person more than once in this many days. */
+export const REVIEW_ASK_GAP_DAYS = 60;
 
 /** Catch-up window: if the scheduler missed a day, people who qualified within this many days are still sent to (once). */
 export const GRACE_DAYS = 7;

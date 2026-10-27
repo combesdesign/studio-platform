@@ -73,7 +73,9 @@ export interface AudienceMember {
   /** Active packs and drop-ins that still have credits. */
   packs: { id: ID; name: string; remaining: number; expiresAt?: ISODateTime }[];
   /** The intro offer, if they hold a current one. */
-  intro?: { id: ID; name: string; endsAt?: ISODateTime };
+  intro?: { id: ID; name: string; startsAt?: ISODateTime; endsAt?: ISODateTime };
+  /** When each class they were checked in to started, oldest first (the review ask counts these). */
+  visitAts?: ISODateTime[];
   tags: string[];
 }
 
@@ -184,7 +186,9 @@ export type AutomationKey =
   | 'winback'
   | 'birthday'
   | 'after_first_class'
-  | 'paused_ending';
+  | 'paused_ending'
+  | 'intro_checkin'
+  | 'review_ask';
 
 export interface Automation {
   key: AutomationKey;
@@ -242,6 +246,8 @@ export interface InboxMessage {
   id: ID;
   threadId: ID;
   from: 'client' | 'staff';
+  /** 'sms' = a one-off text from staff (Send a text). Missing = a message in the app. */
+  channel?: 'app' | 'sms';
   staffName?: string;
   body: string;
   at: ISODateTime;
@@ -355,6 +361,11 @@ export interface MarketingStore {
   getThread(clientId: ID): Promise<InboxThreadDetail>;
   /** Staff message to a client (starts the thread if there isn't one). */
   sendStaffMessage(clientId: ID, body: string): Promise<InboxMessage>;
+  /**
+   * One-off text to a client's mobile (owner, manager, front desk). Goes through the marketing SMS provider (Twilio, or the logging stub
+   * until it is set up) and is logged in the client's message history. Throws NO_PHONE if they have no number.
+   */
+  sendText(clientId: ID, body: string): Promise<InboxMessage>;
   markThreadRead(clientId: ID): Promise<void>;
   inboxUnreadCount(): Promise<number>;
 

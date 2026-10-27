@@ -37,6 +37,13 @@ function create(ctx: DemoFeatureContext): MarketingStore {
     for (const d of defaultAutomations()) if (!sl.automations.some((a) => a.key === d.key)) sl.automations.push(d);
     return sl;
   };
+  /** The Google review ask from Settings > Reviews (its slice lives beside this one), or null while it is off. */
+  const reviewAsk = (): { every: number; url: string } | null => {
+    const r = (ctx.core().state.features?.reviews as { settings?: { googleReviewUrl?: string; googleAskEnabled?: boolean; googleAskEvery?: number } } | undefined)?.settings;
+    return r?.googleAskEnabled && r.googleReviewUrl ? { every: r.googleAskEvery ?? 5, url: r.googleReviewUrl } : null;
+  };
+  const reviewLog = () => S().log.filter((l) => l.source === 'automation' && l.refId === 'review_ask' && l.status === 'sent' && l.sentAt)
+    .map((l) => ({ clientId: l.clientId, at: l.sentAt!, ...(l.clickedAt ? { clickedAt: l.clickedAt } : {}) }));
   const members = () => audienceOf(ctx.core().state, ctx.now(), S().tags);
   const clientOf = (id: ID) => {
     const c = ctx.core().state.clients.find((x) => x.id === id);
@@ -270,7 +277,7 @@ function create(ctx: DemoFeatureContext): MarketingStore {
       ctx.requireStaff(dryRun ? 'marketing.view' : 'marketing.manage');
       const sl = S(), now = ctx.now();
       const sentKeys = new Set(sl.log.map((l) => l.dedupeKey).filter((k): k is string => !!k));
-      const plan = automationCandidates(sl.automations, members(), { now, studioName: ctx.studio().name, appUrl: appUrl(), sentKeys });
+      const plan = automationCandidates(sl.automations, members(), { now, studioName: ctx.studio().name, appUrl: appUrl(), sentKeys, review: reviewAsk(), reviewLog: reviewLog() });
       if (!dryRun) {
         plan.items.forEach((it, i) => {
           const h = hash(it.dedupeKey);
@@ -304,6 +311,21 @@ function create(ctx: DemoFeatureContext): MarketingStore {
       const staff = ctx.requireStaff('marketing.inbox'); clientOf(clientId);
       const m = addMessage(clientId, 'staff', cleanBody(body, err), staff.name);
       threadFor(clientId)!.staffUnread = 0; // replying means they've read it
+      return m;
+    }),
+    sendText: (clientId, body) => ctx.write((): InboxMessage => {
+      const staff = ctx.requireStaff('marketing.inbox');
+      const c = clientOf(clientId);
+      if (!(c.phone ?? '').trim()) throw err('NO_PHONE', `${c.firstName} doesn’t have a mobile number saved.`);
+      const text = (body ?? '').replace(/\r\n/g, '\n').trim();
+      if (!text) throw err('INVALID', 'Write a message first.');
+      if (text.length > 480) throw err('INVALID', 'Texts can be up to 480 characters (3 texts).');
+      // Demo: nothing leaves the browser. Live queues it for the SMS provider (Twilio, or the logging stub); either way it lands in their history.
+      const m = addMessage(clientId, 'staff', text, staff.name);
+      m.channel = 'sms';
+      const t = threadFor(clientId)!;
+      t.staffUnread = 0;
+      t.clientUnread = Math.max(0, t.clientUnread - 1); // a text isn't an unread message in their app
       return m;
     }),
     markThreadRead: (clientId) => ctx.write(() => {

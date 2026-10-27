@@ -12,7 +12,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import type {
-  AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
+  AuthUser, Booking, EmailTemplateRow, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
   Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus,
   BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan, Location, Room, SessionSpots, SpotKind, SpotLayout,
@@ -1431,6 +1431,23 @@ class SupabaseStore implements DataStore {
       await this.rpc('submit_health_check', { p_client_id: clientId, p_changes: check.changes, p_note: check.note ?? null });
       return this.getClient(clientId);
     });
+  }
+
+  // ------------------------------------------------------------------ client emails (Settings > Emails)
+
+  async listEmailTemplates(): Promise<EmailTemplateRow[]> {
+    return arr(await this.rpc('list_email_templates')).map(obj).map((x) => ({ kind: str(x.kind), enabled: x.enabled !== false, subject: optStr(x.subject) ?? null, intro: optStr(x.intro) ?? null }));
+  }
+
+  async saveEmailTemplate(kind: string, patch: { enabled?: boolean; subject?: string | null; intro?: string | null }): Promise<EmailTemplateRow> {
+    return this.write(async () => {
+      const x = obj(await this.rpc('save_email_template', { p_kind: kind, p_patch: patch }));
+      return { kind: str(x.kind), enabled: x.enabled !== false, subject: optStr(x.subject) ?? null, intro: optStr(x.intro) ?? null };
+    });
+  }
+
+  async sendTestEmail(kind: string): Promise<{ to: string }> {
+    return this.write(async () => ({ to: str(obj(await this.rpc('send_test_email', { p_kind: kind })).to) }));
   }
 
   /** Coming-soon classes: the client (or front desk for them) registers interest. Safe to repeat. */

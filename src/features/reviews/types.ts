@@ -45,6 +45,10 @@ export interface ReviewSubmitResult {
 export interface ReviewsSettings {
   /** "Ask happy clients (9 to 10) to leave a Google review": the link to send them to. Empty = off. */
   googleReviewUrl: string;
+  /** "Ask for a Google review every N classes": email the link after a client's Nth, 2Nth ... check-in. Needs the link above. Off by default. */
+  googleAskEnabled: boolean;
+  /** N: classes between asks (1 to 100, default 5). Never more than once every 60 days, and not again once they've clicked. */
+  googleAskEvery: number;
 }
 
 export interface ReviewsStore {

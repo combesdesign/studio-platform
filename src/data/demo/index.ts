@@ -11,7 +11,7 @@ import type {
   BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, MembershipChange, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
-  AuthUser, BillingInfo, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, Plan,
+  AuthUser, BillingInfo, EmailTemplateRow, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, Plan,
   Product, ReportRange, Room, Sale, ScheduleTemplate, SessionSpots, SessionWithCounts, SpotLayout, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
@@ -27,6 +27,7 @@ import { createDemoPlatform } from './platform';
 import { SNOWY_ID } from '../studios';
 import '../../features/demo';
 import { DEFAULT_BILLING_SETTINGS, gateFeatures, hasFeature } from '../../shared/plans';
+import { isEmailKind, renderClassEmail, samplePayload } from '../../domain/emails';
 
 export { STATE_KEY, REV_KEY, AUTH_KEYS, PERSONA_EMAILS, memoryStorage, DemoDb, createDemoPlatform };
 export type { StorageLike };
@@ -303,6 +304,8 @@ export class DemoStore implements DataStore {
         marketingOptIn: !!input.marketingOptIn, source: 'app', ...(input.phone?.trim() ? { phone: input.phone.trim() } : {}),
       };
       this.engine.addClient(c);
+      // The Welcome automation in Marketing owns the welcome email when it is on and they opted in; otherwise the studio's "Welcome to the studio" email goes.
+      if (!this.welcomeAutomationCovers(c)) this.engine.email('welcome', c.id);
       const u: AuthUser = { kind: 'client', clientId: c.id, email, name: `${firstName} ${lastName}`.trim() };
       this.writeAuth(u);
       return u;
@@ -999,6 +1002,53 @@ export class DemoStore implements DataStore {
         c.healthUpdate = { note, at: now.toISOString() };
       }
       return this.redactClient(c);
+    });
+  }
+
+  // ---------------------------------------------------------------- client emails (Settings > Emails)
+  /** True when Marketing's Welcome automation will send this person a welcome email (it is on, by email, and they said yes to news and offers). */
+  private welcomeAutomationCovers(c: Client): boolean {
+    const m = this.state.features?.marketing as { automations?: { key: string; enabled: boolean; channel: string }[] } | undefined;
+    const a = m?.automations?.find((x) => x.key === 'welcome');
+    return !!a && a.enabled && a.channel === 'email' && c.marketingOptIn;
+  }
+
+  async listEmailTemplates(): Promise<EmailTemplateRow[]> {
+    return this.read(() => {
+      this.requireStaff('emails_edit');
+      return Object.entries(this.state.emailTemplates ?? {}).map(([kind, v]) => ({ kind, ...v }));
+    });
+  }
+
+  async saveEmailTemplate(kind: string, patch: { enabled?: boolean; subject?: string | null; intro?: string | null }): Promise<EmailTemplateRow> {
+    return this.write(() => {
+      this.requireStaff('emails_edit');
+      if (!isEmailKind(kind)) throw err('NOT_FOUND', 'We couldn’t find that email.');
+      const clean = (v: string | null | undefined, max: number, what: string): string | null => {
+        const t = (v ?? '').replace(/\r\n/g, '\n').trim();
+        if (t.length > max) throw err('INVALID', `The ${what} is a bit long. Keep it under ${max} characters.`);
+        return t || null;
+      };
+      const cur = (this.state.emailTemplates ??= {})[kind] ?? { enabled: true, subject: null, intro: null };
+      const next = {
+        enabled: patch.enabled ?? cur.enabled,
+        subject: patch.subject === undefined ? cur.subject : clean(patch.subject, 150, 'subject'),
+        intro: patch.intro === undefined ? cur.intro : clean(patch.intro, 1500, 'intro'),
+      };
+      if (next.enabled && next.subject === null && next.intro === null) delete this.state.emailTemplates![kind];
+      else this.state.emailTemplates![kind] = next;
+      return { kind, ...next };
+    });
+  }
+
+  async sendTestEmail(kind: string): Promise<{ to: string }> {
+    return this.write(() => {
+      const st = this.requireStaff('emails_edit');
+      if (!isEmailKind(kind)) throw err('NOT_FOUND', 'We couldn’t find that email.');
+      const r = renderClassEmail(kind, { ...samplePayload(this.state.settings.name), email_overrides: this.state.emailTemplates ?? {} });
+      if (!r) throw err('NOT_FOUND', 'We couldn’t find that email.');
+      this.engine.notify(st.id, 'test_email', r.text, `[Test] ${r.subject}`);
+      return { to: st.email };
     });
   }
 

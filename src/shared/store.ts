@@ -18,7 +18,7 @@ import type {
   BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Room,
   Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionSpots, SessionWithCounts, SpotLayout, Staff,
-  StudioReport, StudioSettings, ReportRange, HealthForm,
+  StudioReport, StudioSettings, ReportRange, HealthForm, EmailTemplateRow,
 } from './types';
 
 export class StoreError extends Error {
@@ -310,6 +310,14 @@ export interface DataStore {
    * With `changes` and a note it also saves the note, dated, onto the client's injuries and flags the roster (healthUpdate).
    */
   submitHealthCheck(clientId: ID, check: { changes: boolean; note?: string }): Promise<Client>;
+
+  // ------------------------------------------------------------ client emails (Settings > Emails; owner and manager)
+  /** The studio's saved changes to the client emails. A kind not listed here is on, with the default wording (src/domain/emails.ts). */
+  listEmailTemplates(): Promise<EmailTemplateRow[]>;
+  /** Turn an email on or off and/or change its subject and intro. A blank or null subject/intro goes back to the default wording. */
+  saveEmailTemplate(kind: string, patch: { enabled?: boolean; subject?: string | null; intro?: string | null }): Promise<EmailTemplateRow>;
+  /** Send the signed-in staff member a copy of that email (made-up booking, ignores the on/off switch). Resolves with the address it went to. */
+  sendTestEmail(kind: string): Promise<{ to: string }>;
 
   // ------------------------------------------------------------ products, passes, sales
   listProducts(opts?: { includeInactive?: boolean; kinds?: Product['kind'][] }): Promise<Product[]>;

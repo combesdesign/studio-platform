@@ -7,7 +7,7 @@
 import { DAY_MS, computePassStatus, isPausedOn } from '../../domain';
 import { addDays, dayShort, studioDate } from '../../shared/format';
 import type { Client, ID, Pass } from '../../shared/types';
-import { GRACE_DAYS, PACK_LOW_CREDITS, automationDef } from './catalog';
+import { GRACE_DAYS, PACK_LOW_CREDITS, REVIEW_ASK_AFTER_START_HOURS, REVIEW_ASK_GAP_DAYS, automationDef } from './catalog';
 import { automationBlocks, buildSms, mergeTags } from './render';
 import type {
   Automation, AutomationCandidate, AutomationKey, AudienceMember, Channel, SegmentFilter, SegmentRule,
@@ -53,9 +53,13 @@ export function buildAudience(s: AudienceSnapshot): AudienceMember[] {
     };
     if (c.phone) member.phone = c.phone;
     if (c.birthday) member.birthday = c.birthday;
-    if (v.length) { member.firstVisitAt = v[0]!; member.lastVisitAt = v[v.length - 1]!; }
+    if (v.length) { member.firstVisitAt = v[0]!; member.lastVisitAt = v[v.length - 1]!; member.visitAts = [...v]; }
     if (paused.length) member.pausedUntil = paused.map((p) => p.pausedUntil!).sort().pop()!;
-    if (intro) member.intro = { id: intro.id, name: intro.name, ...(intro.expiresAt ? { endsAt: intro.expiresAt } : {}) };
+    if (intro) {
+      // The offer counts from the first booking: activatedAt, or 14 days (its length) back from the end.
+      const startsAt = intro.activatedAt ?? (intro.expiresAt ? new Date(ms(intro.expiresAt) - 14 * DAY_MS).toISOString() : undefined);
+      member.intro = { id: intro.id, name: intro.name, ...(startsAt ? { startsAt } : {}), ...(intro.expiresAt ? { endsAt: intro.expiresAt } : {}) };
+    }
     return member;
   });
 }
@@ -108,6 +112,10 @@ export interface AutomationContext {
   appUrl: string;
   /** Sent-log keys already used. Matching candidates are left out. */
   sentKeys: ReadonlySet<string>;
+  /** The studio's Google review ask (Settings › Reviews). Null or missing = off, so nobody qualifies for it. */
+  review?: { every: number; url: string } | null;
+  /** Earlier review asks (when they went and whether the link was clicked), for the 60 day gap and the stop-after-click rule. */
+  reviewLog?: { clientId: ID; at: string; clickedAt?: string }[];
 }
 
 interface Hit { reason: string; key: string; vars: Record<string, string> }
@@ -117,7 +125,7 @@ const inWindow = (at: number, delayDays: number, now: Date) => at + delayDays * 
 const plural = (n: number, w: string, many = `${w}s`) => `${n} ${n === 1 ? w : many}`;
 
 /** Does this client qualify for this automation right now? Returns why, plus the sent-log key and extra merge values. */
-export function automationHit(key: AutomationKey, delay: number, m: AudienceMember, now: Date): Hit | null {
+export function automationHit(key: AutomationKey, delay: number, m: AudienceMember, now: Date, extra: Pick<AutomationContext, 'review' | 'reviewLog'> = {}): Hit | null {
   const today = studioDate(now);
   switch (key) {
     case 'welcome':
@@ -154,6 +162,24 @@ export function automationHit(key: AutomationKey, delay: number, m: AudienceMemb
       return m.firstVisitAt && inWindow(ms(m.firstVisitAt), delay, now)
         ? { reason: `First class ${dayShort(m.firstVisitAt)}`, key: `after_first_class:${m.clientId}`, vars: {} }
         : null;
+    case 'intro_checkin': {
+      // N days after the offer started counting (its first booking), while it is still running.
+      const start = m.intro?.startsAt ? ms(m.intro.startsAt) : null, end = m.intro?.endsAt ? ms(m.intro.endsAt) : null;
+      if (start === null || end === null || end <= now.getTime() || !inWindow(start, delay, now)) return null;
+      return { reason: `About ${plural(delay, 'day')} into their intro offer`, key: `intro_checkin:${m.clientId}:${m.intro!.id}`, vars: { ends_on: dayShort(m.intro!.endsAt!) } };
+    }
+    case 'review_ask': {
+      // After their Nth, 2Nth ... class, once the class is done; the latest milestone in its window; never twice in 60 days; never after a click.
+      const rv = extra.review, visits = m.visitAts ?? [];
+      if (!rv || rv.every < 1 || !rv.url) return null;
+      const past = extra.reviewLog ?? [];
+      if (past.some((x) => x.clickedAt || ms(x.at) > now.getTime() - REVIEW_ASK_GAP_DAYS * DAY_MS)) return null;
+      for (let n = Math.floor(visits.length / rv.every) * rv.every; n >= rv.every; n -= rv.every) {
+        const done = ms(visits[n - 1]!) + REVIEW_ASK_AFTER_START_HOURS * 3_600_000;
+        if (inWindow(done, delay, now)) return { reason: `Class number ${n}`, key: `review_ask:${m.clientId}:${n}`, vars: { class_count: String(n), review_url: rv.url } };
+      }
+      return null;
+    }
     case 'paused_ending': {
       if (!m.pausedUntil) return null;
       if (!(addDays(today, delay) >= m.pausedUntil && today <= m.pausedUntil)) return null;
@@ -174,14 +200,14 @@ export function automationCandidates(automations: Automation[], members: Audienc
     if (!a.enabled) continue;
     const def = automationDef(a.key);
     for (const m of members) {
-      const hit = automationHit(a.key, a.delay, m, ctx.now);
+      const hit = automationHit(a.key, a.delay, m, ctx.now, { review: ctx.review ?? null, reviewLog: a.key === 'review_ask' ? (ctx.reviewLog ?? []).filter((x) => x.clientId === m.clientId) : [] });
       if (!hit || ctx.sentKeys.has(hit.key) || seen.has(hit.key)) continue;
       const clientName = `${m.firstName} ${m.lastName}`.trim();
       const r = reachable(m, a.channel, def.kind === 'marketing');
       if (!r.ok) { skipped.push({ key: a.key, clientName, why: r.why }); continue; }
       seen.add(hit.key);
       const vars: Record<string, string> = { first_name: m.firstName, last_name: m.lastName, studio_name: ctx.studioName, app_url: ctx.appUrl, ...hit.vars };
-      const blocks = automationBlocks(a);
+      const blocks = automationBlocks(a);   // a.key lets the review ask's button go to the Google link
       const preview = a.channel === 'sms'
         ? buildSms(a.body, vars, { marketing: def.kind === 'marketing' })
         : mergeTags(blocks.filter((b) => b.type === 'text').map((b) => b.text).join(' '), vars).replace(/\s+/g, ' ').trim();

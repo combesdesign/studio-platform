@@ -60,3 +60,11 @@ export function overall(entries: ReviewEntry[]): { count: number; avg: number | 
 
 /** Roster-friendly name for the comments list: first name only. */
 export const byNewest = (a: ReviewEntry, b: ReviewEntry) => Date.parse(b.createdAt) - Date.parse(a.createdAt);
+
+/** Default and limits for "Ask for a Google review every N classes". */
+export const DEFAULT_ASK_EVERY = 5;
+export function cleanAskEvery(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1 || n > 100) throw new Error('INVALID: Ask every 1 to 100 classes.');
+  return n;
+}
