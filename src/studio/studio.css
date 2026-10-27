@@ -1022,3 +1022,17 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .rs-map-head h3 { margin: 0; font-family: var(--display); font-size: 22px; font-weight: 400; }
 .rs-map-note { display: flex; align-items: center; gap: 8px; margin: 0; }
 .chip.flag.spot-chip { background: var(--primary); color: #fff; font-weight: 500; }
+
+/* ---- edit membership sheet (renewal date + move to a different membership) */
+.pass-pending { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--primary-600, var(--primary)); }
+.em-opt { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); cursor: pointer; font: inherit; }
+.em-opt + .em-opt { margin-top: 8px; }
+.em-opt.on { border-color: var(--primary); background: var(--soft, #f4f6fb); box-shadow: 0 0 0 1px var(--primary) inset; }
+.em-radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); display: inline-block; }
+.em-opt.on .em-radio { border-color: var(--primary); background: radial-gradient(circle, var(--primary) 0 45%, transparent 50%); }
+.em-t { display: grid; gap: 2px; }
+.em-t span { color: var(--muted); font-size: 14px; }
+.em-price { font-weight: 600; white-space: nowrap; }
+.em-price span { font-weight: 400; color: var(--muted); font-size: 14px; }
+.em-sum { font-size: 17px; line-height: 1.5; }
+.em-list { display: grid; gap: 10px; padding-left: 20px; line-height: 1.5; }

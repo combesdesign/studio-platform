@@ -588,3 +588,28 @@ Spot (mat / reformer) selection (ROADMAP B1). Optional and off by default: Snowy
 - **Tests**: `tests/spots.test.ts` (layout rules, picking, clash, auto-assign on waitlist promotion, cancel freeing the spot, family, more people than spots, who can change what and when, toggling later, Harbour and Snowy), `supabase/tests/spots_flow.sql` (same cases in SQL plus layout CHECKs, RLS and studio isolation), `supabase/tests/live_store.test.mjs` now maps `spot`, `spotPicking`, Playwright `tests/spots-explore.mjs` -> `screenshots/spots/`.
 - **Also fixed**: `src/studio/settings.tsx` had the product sheet's "Online only" checkbox (which uses `kind`) inside the class type sheet, so opening a class type threw `kind is not defined`. It is back in the product sheet.
 - **Gaps**: no spot on appointments or events; booking with family can't choose the parent's spot (they are seated together automatically); undoing a cancel or no-show gives the nearest free spot, not necessarily the old one; changing a layout leaves existing bookings in spots that no longer exist (the roster still shows them); no live (browser against Supabase) run, only SQL and live-store checks; no push or email mentions the spot; the timetable doesn't show how many spots are free by position.
+
+## libby feedback (27 Oct)
+Libby (Snowy's owner) tried the demo. Two asks: a lighter booking flow, and owners being able to edit memberships.
+
+**Booking flow (client app).** Order is now class, then pass, then the health step only if needed, then confirm.
+- The class sheet already preselects the best pass ("Best fit"). Tapping Book with no usable pass goes to the shop first, so the pass is settled before any forms. The pass (and spot) chosen before a waiver is carried through it (`/waiver?then=&pass=&spot=`), so the booking at the end uses it. Before, the pass choice was lost.
+- First-timers (no waiver): the full waiver; the long health questions only if "Long health form for first-timers" is on. Off means About you + Waiver only.
+- Anyone who has attended (a checked-in booking, the same data in demo and live): one in-sheet step, "Any new injuries or health changes since last time?", No by default, then Confirm booking. Yes needs a few words and saves a dated line ("27 Oct 2026: sore left knee") onto `injuries`, sets `healthUpdate`, and the roster shows a "New health note" flag until they're next checked in. Skipped entirely if they answered within N days (the waiver counts as an answer).
+- A returning member with a valid pass books in 2 taps (class, Book) when no check is due, 3 when it is.
+- Settings > Policies > "Health questions at booking": long form on/off, quick check on/off, every N days (default 30). Per studio. `StudioSettings.longHealthFormFirstTimers / quickHealthCheck / quickHealthCheckDays` are optional in the type; `healthPolicy()` supplies the defaults, so existing demo state needs no storage bump.
+- Code: `src/domain/health.ts` (`healthStepFor`, `healthPolicy`, notes), `store.submitHealthCheck`, `src/client/timetable.tsx` (health mode in the class sheet), `src/client/waiver.tsx`, roster flag in `rosterFlags` / `get_roster`.
+
+**Edit memberships (studio app, client profile > membership > Edit).** Owner and manager only (`membership_edit`).
+- Renewal date: after today, within 60 days. Live: new `edit-membership` edge function sets the Stripe subscription's `trial_end` to Sydney midnight with `proration_behavior: none`. Stripe won't take a future `billing_cycle_anchor` on an update (only `now` or `unchanged`), so `trial_end` is the standard way to move the next charge. The database then follows Stripe's `trial_end` via `edit_membership_date()`.
+- Different membership: swaps the subscription item's price (a saved `stripe_price_id` on the platform account, otherwise `price_data`, the same as checkout). `proration_behavior: none` by default, `always_invoice` when "Charge or credit the difference" is picked. Credits and the weekly allowance switch at the next billing date (`passes.pending_change`, applied by a trigger when a renewal moves `next_billing_at`), or right away if chosen. Plain-English confirm step before anything is saved.
+- Connect mode: every Stripe call carries the studio's connected account (`payAs`). A membership with no subscription (taken at the desk) only changes the database.
+- Audit: a `pass_adjustments` history row (delta 0) on both sides, plus `audit_log` rows (`membership_renewal_date`, `membership_change`) in live. Demo has no audit table, so the pass history is its audit.
+- Migration `supabase/migrations/2400_health_check_membership_edit.sql` (settings columns, `clients.health_checked_at / health_update`, `passes.pending_change`, `submit_health_check`, `edit_membership_date`, `change_membership`, the roster flag). Deploy `edit-membership` (added to docs/GO-LIVE.md); it uses the normal login check.
+- Tests: `tests/libby-feedback.test.ts` (demo), `supabase/tests/health_membership_edit.sql`, edge-function tests with a fake Stripe in `supabase/tests/functions.test.mjs`, Playwright pass `tests/libby-explore.mjs` (screenshots in `screenshots/libby-feedback/`).
+
+**Gaps / notes.**
+- Proration shown in the confirm is an estimate (unused part of the period at the price difference); Stripe works out the real amount on its invoice. The history line uses the same estimate.
+- A pending move shows on the pass card ("Moves to ... on ..."). The client app doesn't show it yet.
+- Only run against Snowy in the browser pass (as asked); Harbour wasn't re-run.
+- Dependants: the health step applies to the signed-in client only. Dependants' waivers still go through Family.

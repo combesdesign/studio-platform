@@ -6,7 +6,7 @@ import type { Client, Pass, Sale } from '../shared/types';
 import type { BookingWithDetails, CreditSummary } from '../shared/store';
 import { Avatar, BackLink, Empty, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dayShort, fullName, replaceRoute, toCents, toDollars, useStudio } from './ui';
 import { BookClientSheet, NewClientSheet, WaiverSheet } from './book';
-import { computePassStatus, isPassCurrent } from '../domain';
+import { computePassStatus, isPassCurrent, membershipChangeCents, renewalDateProblem } from '../domain';
 import { VoidSaleSheet, canVoidSale, wasVoided } from './undo';
 
 // ------------------------------------------------------------------ list
@@ -82,7 +82,7 @@ export function ClientProfile({ id }: { id: string }) {
   }, [id]);
   const sales = useData(() => (can('salesView') ? store.listSales({ from: '2000-01-01', to: addDays(today, 1), clientId: id }) : Promise.resolve([] as Sale[])), [id, today]);
   const [sheet, setSheet] = useState<null | 'edit' | 'book' | 'waiver' | 'dependant'>(null);
-  const [passSheet, setPassSheet] = useState<{ kind: 'adjust' | 'pause' | 'cancel'; pass: Pass } | null>(null);
+  const [passSheet, setPassSheet] = useState<{ kind: 'adjust' | 'pause' | 'cancel' | 'edit'; pass: Pass } | null>(null);
   const [refund, setRefund] = useState<Sale | null>(null);
   const [voiding, setVoiding] = useState<Sale | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
@@ -256,6 +256,7 @@ export function ClientProfile({ id }: { id: string }) {
       {passSheet?.kind === 'adjust' && <AdjustSheet p={passSheet.pass} onClose={() => setPassSheet(null)} />}
       {passSheet?.kind === 'pause' && <PauseSheet p={passSheet.pass} onClose={() => setPassSheet(null)} />}
       {passSheet?.kind === 'cancel' && <CancelMembershipSheet p={passSheet.pass} onClose={() => setPassSheet(null)} />}
+      {passSheet?.kind === 'edit' && <EditMembershipSheet p={passes.find((x) => x.id === passSheet.pass.id) ?? passSheet.pass} name={c.firstName} onClose={() => setPassSheet(null)} />}
       {refund && <RefundSheet s={refund} onClose={() => setRefund(null)} />}
       {voiding && <VoidSaleSheet sale={voiding} clientName={c.firstName} onClose={() => setVoiding(null)} />}
     </div>
@@ -266,7 +267,7 @@ export const METHOD_LABEL: Record<string, string> = { card_online: 'Card (online
 const PASS_STATUS: Record<string, string> = { active: 'Active', paused: 'Paused', expired: 'Expired', cancelled: 'Cancelled', used_up: 'Used up' };
 const KIND_LABEL: Record<string, string> = { membership: 'Membership', pack: 'Class pack', intro: 'Intro offer', dropin: 'Drop-in' };
 
-function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; onAction: (k: 'adjust' | 'pause' | 'cancel') => void }) {
+function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; onAction: (k: 'adjust' | 'pause' | 'cancel' | 'edit') => void }) {
   const { can } = useStudio();
   const toast = useToast();
   const { run } = useAction();
@@ -292,6 +293,9 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
         {p.activatedAt ? (p.expiresAt ? <>Expires {dayShort(p.expiresAt)} {new Date(p.expiresAt).getFullYear()}</> : 'No expiry') : 'Starts on first booking'}
         {p.nextBillingAt && p.kind === 'membership' && st !== 'cancelled' && <> · Next billing {dayShort(p.nextBillingAt)}</>}
       </div>
+      {p.pendingChange && p.kind === 'membership' && st !== 'cancelled' && (
+        <div className="pass-meta pass-pending"><Icon name="sparkle" size={14} /> Moves to <strong>{p.pendingChange.name}</strong> on {dayShort(p.pendingChange.effectiveAt)}</div>
+      )}
       {p.adjustments && p.adjustments.length > 0 && (
         <details className="adj"><summary>{p.adjustments.length} adjustment{p.adjustments.length > 1 ? 's' : ''}</summary>
           {p.adjustments.map((a, i) => <div key={i} className="small muted">{dayShort(a.at)}: {a.delta > 0 ? '+' : ''}{a.delta ? `${a.delta} credit${Math.abs(a.delta) === 1 ? '' : 's'}, ` : ''}{a.reason}</div>)}
@@ -302,6 +306,7 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
           {p.kind !== 'membership' && <button className="btn sm soft" onClick={() => onAction('adjust')}>Adjust</button>}
           {p.kind === 'membership' && st === 'active' && !pauseBooked && <button className="btn sm soft" onClick={() => onAction('pause')}><Icon name="pause" size={16} />Pause</button>}
           {p.kind === 'membership' && (st === 'paused' || pauseBooked) && <button className="btn sm soft" onClick={resume}><Icon name="play" size={16} />{st === 'paused' ? 'Resume' : 'Cancel pause'}</button>}
+          {p.kind === 'membership' && can('editMembership') && (st === 'active' || st === 'paused') && <button className="btn sm soft" onClick={() => onAction('edit')}><Icon name="edit" size={16} />Edit</button>}
           {p.kind === 'membership' && <button className="btn sm ghost danger-text" onClick={() => onAction('cancel')}>Cancel</button>}
         </div>
       )}
@@ -465,6 +470,104 @@ function CancelMembershipSheet({ p, onClose }: { p: Pass; onClose: () => void })
       <SheetHead title={<>Cancel <em>membership</em>?</>} sub={p.name} onClose={onClose} />
       <p className="muted">Billing stops. {p.nextBillingAt ? `They can keep booking until ${dayShort(p.nextBillingAt)}, the end of the period they've paid for.` : 'They can keep booking until the end of the period they’ve paid for.'}</p>
       <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Keep membership</button><button className="btn danger-solid" onClick={go} disabled={busy}>Cancel membership</button></div>
+    </Sheet>
+  );
+}
+
+/** Owner / manager: change when a membership next bills, or move the client to a different membership. Both end in a plain-English confirm. */
+function EditMembershipSheet({ p, name, onClose }: { p: Pass; name: string; onClose: () => void }) {
+  const { busy, run } = useAction();
+  const products = useData(() => store.listProducts({ kinds: ['membership'] }), []);
+  const today = studioDate();
+  const [tab, setTab] = useState<'date' | 'plan'>('date');
+  const [step, setStep] = useState<'edit' | 'confirm'>('edit');
+  const cur = p.nextBillingAt ? studioDate(p.nextBillingAt) : '';
+  const [date, setDate] = useState(cur && cur > today ? cur : addDays(today, 7));
+  const options = (products.data ?? []).filter((x) => x.kind === 'membership' && x.active && !x.noClasses === !p.noClasses && (x.billingInterval ?? 'week') === (p.billingInterval ?? 'week') && x.id !== p.productId);
+  const [pick, setPick] = useState('');
+  const [prorate, setProrate] = useState(false);
+  const [now, setNow] = useState(false);
+  const target = options.find((x) => x.id === pick);
+  const per = p.billingInterval === 'month' ? 'month' : 'week';
+  const allowance = (c: number | null | undefined) => (c == null ? 'unlimited classes' : `${c} class${c === 1 ? '' : 'es'} a ${per}`);
+  const diff = target ? membershipChangeCents(p, target.priceCents, new Date()) : 0;
+  const problem = renewalDateProblem(date, today);
+  const dateOk = !problem && date !== cur;
+  const fmt = (d: string) => dayShort(d + 'T12:00:00+10:00');
+  const when = p.nextBillingAt ? dayShort(p.nextBillingAt) : 'the next cycle';
+
+  const confirmDate = async () => { if (await run(() => store.changeRenewalDate(p.id, date), `Renewal moved to ${fmt(date)}`)) onClose(); };
+  const confirmPlan = async () => {
+    if (!target) return;
+    if (await run(() => store.changeMembership(p.id, { productId: target.id, prorate, immediately: now }), `${name} is moving to ${target.name}`)) onClose();
+  };
+  const back = step === 'confirm' ? { label: 'Edit membership', onClick: () => setStep('edit') } : undefined;
+
+  return (
+    <Sheet open onClose={onClose} label="Edit membership">
+      <SheetHead title={<>Edit <em>membership</em></>} sub={`${name}: ${p.name}${p.nextBillingAt ? `, next billing ${dayShort(p.nextBillingAt)}` : ''}`} {...(back ? { back } : {})} onClose={onClose} />
+      {step === 'edit' && (
+        <div className="stack lg">
+          <Seg value={tab} onChange={setTab} options={[{ value: 'date', label: 'Renewal date' }, { value: 'plan', label: 'Different membership' }]} />
+          {tab === 'date' && (
+            <>
+              <label className="field"><span>Next billing date</span>
+                <input className="input" type="date" value={date} min={addDays(today, 1)} max={addDays(today, 60)} onChange={(e) => setDate(e.target.value)} /></label>
+              <p className="muted small">Weekly billing carries on from the new date. Nothing is charged or credited for the days in between.</p>
+              {problem && <p className="note warn"><Icon name="info" size={18} /><span>{problem}</span></p>}
+            </>
+          )}
+          {tab === 'plan' && (
+            <>
+              {products.loading && !products.data ? <Loading /> : options.length === 0 ? <p className="muted">There are no other memberships to move them to.</p> : (
+                <div className="list" role="radiogroup" aria-label="Move to">
+                  {options.map((x) => (
+                    <button key={x.id} type="button" role="radio" aria-checked={pick === x.id} className={cx('em-opt', pick === x.id && 'on')} onClick={() => setPick(x.id)}>
+                      <span className="em-radio" />
+                      <span className="em-t"><strong>{x.name}</strong><span>{allowance(x.credits)}</span></span>
+                      <span className="em-price">{money(x.priceCents)}<span>/{per}</span></span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {target && (
+                <div className="stack">
+                  <div className="field"><span>Price change</span>
+                    <Seg value={prorate ? 'diff' : 'none'} onChange={(v) => setProrate(v === 'diff')} options={[{ value: 'none', label: 'No charge or credit' }, { value: 'diff', label: 'Charge or credit the difference' }]} />
+                  </div>
+                  <div className="field"><span>Credits and weekly allowance</span>
+                    <Seg value={now ? 'now' : 'next'} onChange={(v) => setNow(v === 'now')} options={[{ value: 'next', label: `From the next cycle` }, { value: 'now', label: 'Right away' }]} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {step === 'confirm' && tab === 'date' && (
+        <div className="stack lg">
+          <p className="em-sum">{name} will be charged next on <strong>{fmt(date)}</strong>{cur ? <>, instead of {fmt(cur)}</> : null}. Nothing is charged or credited in between, and weekly billing carries on from {fmt(date)}.</p>
+          <p className="muted small">Their payment details stay as they are. This is saved in the membership history.</p>
+        </div>
+      )}
+      {step === 'confirm' && tab === 'plan' && target && (
+        <div className="stack lg">
+          <p className="em-sum">Move {name} from <strong>{p.name}</strong> ({money(p.priceCents)}/{per}) to <strong>{target.name}</strong> ({money(target.priceCents)}/{per}).</p>
+          <ul className="em-list">
+            <li>Their price changes to {money(target.priceCents)} from their next bill{p.nextBillingAt ? ` on ${dayShort(p.nextBillingAt)}` : ''}.</li>
+            <li>{now ? <>Their allowance changes right away, from {allowance(p.credits)} to {allowance(target.credits)}.</> : <>They keep {allowance(p.credits)} until {when}, then it changes to {allowance(target.credits)}.</>}</li>
+            <li>{!prorate ? 'We won’t charge or credit anything for the change.' : diff > 0 ? <>We’ll charge the difference for the rest of this {per} (about {money(diff)}) now.</> : diff < 0 ? <>We’ll credit the difference for the rest of this {per} (about {money(-diff)}) to their account.</> : 'There’s nothing left of this period to charge or credit.'}</li>
+          </ul>
+          <p className="muted small">This is saved in the membership history.</p>
+        </div>
+      )}
+      <div className="sh-foot">
+        {step === 'edit'
+          ? <><button className="btn ghost" onClick={onClose}>Cancel</button>
+              <button className="btn" disabled={tab === 'date' ? !dateOk : !target} onClick={() => setStep('confirm')}>Review change</button></>
+          : <><button className="btn ghost" onClick={() => setStep('edit')}>Back</button>
+              <button className="btn" disabled={busy} onClick={tab === 'date' ? confirmDate : confirmPlan}>{busy ? 'Saving…' : tab === 'date' ? 'Move renewal date' : `Move to ${target?.name ?? ''}`}</button></>}
+      </div>
     </Sheet>
   );
 }

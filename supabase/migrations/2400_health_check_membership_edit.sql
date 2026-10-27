@@ -20,6 +20,15 @@ alter table public.clients add column health_checked_at timestamptz;
 alter table public.clients add column health_update jsonb;
 alter table public.passes add column pending_change jsonb;
 
+-- A throwaway helper (0010 dropped its copy): rewrite part of an existing function, failing loudly if the text isn't found.
+create function app.patch_function(p_fn regprocedure, p_from text, p_to text) returns void
+language plpgsql as $$
+declare d text := pg_get_functiondef(p_fn);
+begin
+  if position(p_from in d) = 0 then raise exception 'patch_function: text not found in %', p_fn::text; end if;
+  execute replace(d, p_from, p_to);
+end $$;
+
 -- Clients can't write these themselves (submit_health_check does): same rule as the waiver and health form.
 select app.patch_function('app.guard_client()'::regprocedure,
   $q$new.health_form := old.health_form;$q$,
@@ -64,6 +73,8 @@ select app.patch_function('app.get_roster_impl(uuid)'::regprocedure,
                                         where ob.client_id = c.id and ob.status = 'checked_in'
                                           and os.starts_at < s.starts_at and os.starts_at > (c.health_update ->> 'at')::timestamptz)
                   then 'health_update' end,$q$);
+
+drop function app.patch_function(regprocedure, text, text);
 
 -- ----------------------------------------------------------------------------- membership edits
 create or replace function app.membership_for_edit(p_pass_id uuid) returns public.passes

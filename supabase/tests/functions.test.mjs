@@ -967,6 +967,146 @@ await t('stripe-webhook (Connect): account.updated keeps the studio\'s flags in 
   } finally { connectEnv(false); }
 });
 
+// ---------------------------------------------------------------- edit-membership (Libby's feedback, 27 Oct): renewal date + move membership
+{
+  const LIBBY_U = id('libby'), MIA_U = id('mia');
+  const sydToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Sydney' }).format(new Date());
+  const plus = (days) => new Date(Date.parse(`${sydToday()}T00:00:00Z`) + days * 86400e3).toISOString().slice(0, 10);
+  let sub; let editPass;
+  const stripeCallsSince = (n) => calls.slice(n).filter((c) => c.host === 'api.stripe.com');
+  const arrange = (subId, passFields = '') => {
+    sql(`delete from public.passes where stripe_subscription_id = '${subId}'`);
+    sql(`insert into public.passes (client_id, product_id, kind, name, status, credits, billing_interval, price_cents, stripe_subscription_id, next_billing_at, activated_at)
+         values ('${CARA}', '${P_WEEK2}', 'membership', '2 classes per week', 'active', 2, 'week', 4000, '${subId}', now() + interval '4 days', now() - interval '3 days')`);
+    editPass = sql(`select id from public.passes where stripe_subscription_id = '${subId}'`);
+    const now = Math.floor(Date.now() / 1000);
+    sub = { id: subId, status: 'active', items: { data: [{ id: `si_${subId}`, price: { unit_amount: 4000 } }] }, current_period_start: now - 3 * 86400, current_period_end: now + 4 * 86400 };
+    stripeObjects[`subscriptions/${subId}`] = (body) => { const f = form(body || ''); return { ...sub, ...(f.trial_end ? { trial_end: Number(f.trial_end) } : {}) }; };
+    return editPass;
+  };
+  const edit = async (who, body, studioId = 'snowy') => post(await load('edit-membership'), { studioId, passId: editPass, ...body }, who ? { Authorization: `Bearer ${who}` } : {});
+
+  await t('edit-membership: renewal date = trial_end at Sydney midnight with proration none; DB follows Stripe; history + audit', async () => {
+    arrange('sub_edit_1');
+    const date = plus(10);
+    const n = calls.length;
+    const res = await edit(LIBBY_U, { action: 'renewal_date', date });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+    const f = form(lastStripe('subscriptions/sub_edit_1').body);
+    assert.equal(Number(f.trial_end), H.sydneyMidnightUnix(date));
+    assert.equal(f.proration_behavior, 'none');
+    assert.equal(f.billing_cycle_anchor, undefined, 'a future anchor isn\'t allowed on update; trial_end is how Stripe moves the next charge');
+    assert.equal(stripeCallsSince(n).filter((c) => c.method === 'POST').length, 1, 'one change, nothing else');
+    assert.equal(sql(`select (next_billing_at = to_timestamp(${H.sydneyMidnightUnix(date)}))::text from public.passes where id = '${editPass}'`), 'true');
+    assert.equal(sql(`select count(*) from public.pass_adjustments where pass_id = '${editPass}' and delta = 0 and reason like 'Renewal date moved%to ${date}%'`), '1');
+    assert.equal(sql(`select count(*) from public.audit_log where action = 'membership_renewal_date' and entity_id = '${editPass}' and actor_staff_id = '${id('libby_staff')}'`), '1');
+    assert.equal((await res.json()).pass.id, editPass);
+    // a manager can too
+    assert.equal((await edit(MIA_U, { action: 'renewal_date', date: plus(12) })).status, 200);
+  });
+
+  await t('edit-membership: renewal date must be after today and within 60 days; bad dates never reach Stripe', async () => {
+    arrange('sub_edit_2');
+    const n = calls.length;
+    for (const date of [sydToday(), plus(-3), plus(61), '2026-13-40', 'soon', '']) {
+      const r = await edit(LIBBY_U, { action: 'renewal_date', date });
+      assert.equal(r.status, 400, `date "${date}"`);
+      assert.equal((await r.json()).code, 'INVALID');
+    }
+    assert.equal(stripeCallsSince(n).length, 0, 'no Stripe calls');
+    assert.equal((await edit(LIBBY_U, { action: 'something_else' })).status, 400);
+  });
+
+  await t('edit-membership: owner or manager only (front desk, instructors, clients, signed-out are refused); other studios can\'t reach it', async () => {
+    arrange('sub_edit_3');
+    const n = calls.length;
+    const body = { action: 'renewal_date', date: plus(8) };
+    assert.equal((await edit(FRAN_USER, body)).status, 403, 'front desk');
+    assert.equal((await edit(JULIA_USER, body)).status, 403, 'instructor');
+    assert.equal((await edit(CARA_USER, body)).status, 403, 'the client themself');
+    assert.equal((await edit(null, body)).status, 401, 'signed out');
+    const other = await edit(LIBBY_U, body, 'harbourc');
+    assert.ok(other.status >= 400 && other.status < 500, `another studio: ${other.status}`);
+    assert.equal(stripeCallsSince(n).length, 0, 'no Stripe calls for any of those');
+    assert.equal(sql(`select (next_billing_at > now() + interval '3 days' and next_billing_at < now() + interval '5 days')::text from public.passes where id = '${editPass}'`), 'true', 'untouched');
+  });
+
+  await t('edit-membership: move membership, default = new price with proration none, allowance from the next cycle', async () => {
+    arrange('sub_edit_4');
+    sql(`update public.products set stripe_price_id = null where id = '${id('p_unlimited')}'`);
+    const price = Number(sql(`select price_cents from public.products where id = '${id('p_unlimited')}'`));
+    const n = calls.length;
+    const res = await edit(LIBBY_U, { action: 'change_plan', productId: id('p_unlimited') });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+    const f = form(lastStripe('subscriptions/sub_edit_4').body);
+    assert.equal(f['items[0][id]'], 'si_sub_edit_4');
+    assert.equal(f['items[0][price_data][unit_amount]'], String(price));
+    assert.equal(f['items[0][price_data][currency]'], 'aud');
+    assert.equal(f['items[0][price_data][recurring][interval]'], 'week');
+    assert.equal(f.proration_behavior, 'none');
+    assert.equal(f['metadata[product_id]'], id('p_unlimited'));
+    assert.equal(stripeCallsSince(n).filter((c) => c.method === 'POST').length, 1);
+    assert.equal(sql(`select name || ' ' || credits || ' ' || (pending_change ->> 'name') from public.passes where id = '${editPass}'`), '2 classes per week 2 Unlimited', 'still on the old allowance until the next cycle');
+    assert.equal(sql(`select count(*) from public.pass_adjustments where pass_id = '${editPass}' and reason like 'Moved from 2 classes per week to Unlimited, credits and allowance switch from %no charge or credit%'`), '1');
+    assert.equal(sql(`select count(*) from public.audit_log where action = 'membership_change' and entity_id = '${editPass}'`), '1');
+  });
+
+  await t('edit-membership: prorate = always_invoice (charge or credit the difference now); immediately = allowance switches now; a saved Stripe price is used on the platform account', async () => {
+    arrange('sub_edit_5');
+    sql(`update public.products set stripe_price_id = 'price_unl' where id = '${id('p_unlimited')}'`);
+    const res = await edit(LIBBY_U, { action: 'change_plan', productId: id('p_unlimited'), prorate: true, immediately: true });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+    const f = form(lastStripe('subscriptions/sub_edit_5').body);
+    assert.equal(f.proration_behavior, 'always_invoice');
+    assert.equal(f['items[0][price]'], 'price_unl'); assert.equal(f['items[0][price_data][unit_amount]'], undefined);
+    assert.equal(sql(`select name || ' ' || coalesce(credits::text, 'unlimited') || ' ' || coalesce(pending_change::text, 'none') from public.passes where id = '${editPass}'`), 'Unlimited unlimited none');
+    assert.equal(sql(`select count(*) from public.pass_adjustments where pass_id = '${editPass}' and reason like '%switched straight away; charged the $%difference.'`), '1');
+    sql(`update public.products set stripe_price_id = null where id = '${id('p_unlimited')}'`);
+  });
+
+  await t('edit-membership: bad moves (a pack, an inactive or other-interval product, the same membership) never reach Stripe', async () => {
+    arrange('sub_edit_6');
+    const n = calls.length;
+    assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: P_PACK4 })).status, 400, 'not a membership');
+    assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: P_WEEK2 })).status, 400, 'the one they are on');
+    assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: '00000000-0000-4000-8000-00000000dead' })).status, 400, 'unknown product');
+    sql(`update public.products set active = false where id = '${id('p_week1')}'`);
+    assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: id('p_week1') })).status, 400, 'inactive');
+    sql(`update public.products set active = true where id = '${id('p_week1')}'`);
+    sql(`update public.products set billing_interval = 'month' where id = '${id('p_week1')}'`);
+    assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: id('p_week1') })).status, 400, 'bills monthly, they bill weekly');
+    sql(`update public.products set billing_interval = 'week' where id = '${id('p_week1')}'`);
+    sql(`update public.passes set status = 'cancelled' where id = '${editPass}'`);
+    assert.equal((await edit(LIBBY_U, { action: 'renewal_date', date: plus(8) })).status, 400, 'a cancelled membership has nothing to edit');
+    assert.equal(stripeCallsSince(n).filter((c) => c.method === 'POST').length, 0, 'nothing was changed in Stripe');
+  });
+
+  await t('edit-membership: a membership taken at the desk (no subscription) only changes the database', async () => {
+    arrange('sub_edit_7');
+    sql(`update public.passes set stripe_subscription_id = null where id = '${editPass}'`);
+    const n = calls.length;
+    assert.equal((await edit(LIBBY_U, { action: 'renewal_date', date: plus(9) })).status, 200);
+    assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: id('p_unlimited'), immediately: true })).status, 200);
+    assert.equal(stripeCallsSince(n).length, 0);
+    assert.equal(sql(`select name from public.passes where id = '${editPass}'`), 'Unlimited');
+  });
+
+  await t('edit-membership: Connect mode sends every Stripe call on the studio\'s connected account, with the price itself (not a platform price id)', async () => {
+    arrange('sub_edit_8');
+    sql(`update public.products set stripe_price_id = 'price_platform_only' where id = '${id('p_unlimited')}'`);
+    connectEnv(true);
+    try {
+      const n = calls.length;
+      assert.equal((await edit(LIBBY_U, { action: 'renewal_date', date: plus(9) })).status, 200);
+      assert.equal((await edit(LIBBY_U, { action: 'change_plan', productId: id('p_unlimited') })).status, 200);
+      const stripeCalls = stripeCallsSince(n);
+      assert.ok(stripeCalls.length >= 4 && stripeCalls.every((c) => c.headers['Stripe-Account'] === 'acct_SNOWY1'), 'GETs and POSTs all carry the connected account');
+      const f = form(lastStripe('subscriptions/sub_edit_8').body);
+      assert.equal(f['items[0][price]'], undefined); assert.ok(f['items[0][price_data][unit_amount]']);
+    } finally { connectEnv(false); sql(`update public.products set stripe_price_id = null where id = '${id('p_unlimited')}'`); }
+  });
+}
+
 await t('single-account mode is unchanged: the plain webhook secret works, and account events are ignored', async () => {
   const w = await load('stripe-webhook');
   const { raw, header } = signed({ id: 'evt_single_acct', type: 'account.updated', account: 'acct_HARBOUR1', data: { object: { id: 'acct_HARBOUR1', charges_enabled: true } } });

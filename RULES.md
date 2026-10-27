@@ -40,7 +40,10 @@ These are Snowy Pilates Club's real policies, taken from snowypilatesclub.com. W
 - A client can only hold one booking per class, whether booked or waitlisted.
 - Classes can't be booked once they've started. Staff can still add people up to the end of class.
 - No eligible credit means the error `NO_CREDITS`. The UI then offers the shop.
-- A client must sign the waiver and health form before their first booking (error `WAIVER_REQUIRED`). Staff bookings skip this check but flag `no_waiver` on the roster.
+- A client must sign the waiver before their first booking (error `WAIVER_REQUIRED`). Staff bookings skip this check but flag `no_waiver` on the roster.
+- Order in the app: choose the class, then the pass (the best one is already selected, or buy one), then the health step only if it's needed, then confirm.
+  - First-timers (no waiver yet): waiver, plus the long health questions when "Long health form for first-timers" is on **(default on)**.
+  - Anyone who has attended before (a checked-in booking): "Any new injuries or health changes since last time?" One tap, No by default; a Yes saves a dated note to their injuries and flags `health_update` on the roster until they're next checked in. Asked at most once every `quickHealthCheckDays` **(default 30)**, and only when "Quick health check for returning clients" is on **(default on)**. The waiver or any earlier check counts as the last check.
 
 ## Waitlist
 - When a class is full, clients join the waitlist. No credit is taken.
@@ -71,6 +74,9 @@ These are Snowy Pilates Club's real policies, taken from snowypilatesclub.com. W
 - Pause: from/until dates. No billing, no booking while paused. **(default)** minimum 1 week.
 - Cancel: stops future billing. The membership stays usable until `nextBillingAt`.
 - Billing in demo mode: `nextBillingAt = activatedAt + 7 days` (weekly). In live mode, Stripe subscriptions handle billing.
+- Owner and manager can edit a membership from the client's profile (every change is written to the pass history, and to the audit log in live):
+  - Move the renewal date: after today, within 60 days. Nothing is charged or credited in between; weekly billing carries on from the new date.
+  - Move to a different membership (same billing interval): no proration by default, or charge/credit the difference now. Credits and the weekly allowance switch at the next billing date, or straight away if chosen. Cancelled or expired memberships can't be edited.
 
 ## Staff permissions
 - Grace P is set up as **front desk** (she also teaches Mums + Bubs). Any staff member can be the instructor on a class, whatever their role.

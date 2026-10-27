@@ -181,13 +181,13 @@ const sample = (table) => {
 const cover = [
   ['StudioSettings', () => mod.mappers.toSettings(sample('studio_settings'))],
   ['Staff', () => mod.mappers.toStaff(sample('staff'), 5000)],
-  ['Client', () => mod.mappers.toClient({ ...sample('clients'), source: 'app' }, 'notes'), ['guardianName']],
+  ['Client', () => mod.mappers.toClient({ ...sample('clients'), source: 'app', health_update: { note: 'sore knee', at: '2026-10-19T08:00:00+11:00' } }, 'notes'), ['guardianName']],
   ['ClassType', () => mod.mappers.toClassType(sample('class_types'))],
   ['ScheduleTemplate', () => mod.mappers.toTemplate(sample('schedule_templates'))],
   ['SessionWithCounts', () => mod.mappers.toSession(sample('sessions_with_counts'))],
   ['Product', () => mod.mappers.toProduct({ ...sample('products'), kind: 'retail' }), ['credits', 'validityDays']],
   ['Product', () => mod.mappers.toProduct({ ...sample('products'), kind: 'pack' }), ['stock']],
-  ['Pass', () => mod.mappers.toPass({ ...sample('passes'), adjustments: [{ at: '2026-10-19T08:00:00Z', staff_id: 's', delta: 1, reason: 'r' }] })],
+  ['Pass', () => mod.mappers.toPass({ ...sample('passes'), pending_change: { productId: 'p', name: 'n', credits: 3, priceCents: 5500, effectiveAt: '2026-10-26T08:00:00+11:00' }, adjustments: [{ at: '2026-10-19T08:00:00Z', staff_id: 's', delta: 1, reason: 'r' }] })],
   ['Booking', () => mod.mappers.toBooking(sample('bookings'))],
   ['Sale', () => mod.mappers.toSale({ ...sample('sales'), items: [{ product_id: 'p', name: 'n', qty: 1, unit_cents: 100 }] })],
 ];
