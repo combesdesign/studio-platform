@@ -15,9 +15,10 @@ import { LocationsTab, useLocationsTabVisible } from './locations';
 import { PaymentsPanel } from './payments';
 import { isSingleStudio } from '../shared/boot';
 import { SingleRoomLayoutCard } from './spots';
+import { EmailsTab } from './emails';
 
 const TABS: { key: string; label: string; perm?: Perm | string; order: number }[] = [
-  { key: 'studio', label: 'Studio', order: 10 }, { key: 'branding', label: 'Branding', order: 15 }, { key: 'policies', label: 'Policies', order: 20 },
+  { key: 'studio', label: 'Studio', order: 10 }, { key: 'branding', label: 'Branding', order: 15 }, { key: 'policies', label: 'Policies', order: 20 }, { key: 'emails', label: 'Emails', perm: 'editEmails', order: 25 },
   { key: 'classes', label: 'Class types', order: 30 }, { key: 'products', label: 'Products & pricing', perm: 'products', order: 40 },
   { key: 'staff', label: 'Staff', perm: 'staff', order: 50 },
   // Stripe Connect: each studio on the platform is paid into its own Stripe account. The single-studio Snowy build never shows this.
@@ -51,6 +52,7 @@ export function Settings({ tab = 'studio' }: { tab?: string }) {
       </nav>
       {cur === 'studio' && <StudioTab />}
       {cur === 'policies' && <PoliciesTab />}
+      {cur === 'emails' && <EmailsTab />}
       {cur === 'classes' && <ClassTypesTab />}
       {cur === 'products' && <ProductsTab />}
       {cur === 'staff' && <StaffTab />}

@@ -47,16 +47,16 @@ on conflict (id) do update set name = excluded.name, description = excluded.desc
 insert into public.products (id, kind, name, description, price_cents, active, highlight, sort_order,
   credits, validity_days, billing_interval, new_clients_only, stock) values
   -- memberships: weekly, credits per Mon-Sun week, starts from first booking
-  ('9a0d0000-0000-4000-8000-000000000001', 'membership', '1 Class Per Week Membership', 'A perfect option if you want to add Pilates to your current routine. 1 class credit each week, billed weekly.', 2200, true, null, 10, 1, null, 'week', false, null),
-  ('9a0d0000-0000-4000-8000-000000000002', 'membership', '2 Classes Per Week Membership', '2 class credits each week, billed weekly.', 4000, true, 'Recommended', 20, 2, null, 'week', false, null),
-  ('9a0d0000-0000-4000-8000-000000000003', 'membership', '3 Classes Per Week Membership', '3 class credits each week, billed weekly.', 5500, true, null, 30, 3, null, 'week', false, null),
-  ('9a0d0000-0000-4000-8000-000000000004', 'membership', 'Unlimited Membership', 'Come as often as you like, billed weekly.', 6900, true, null, 40, null, null, 'week', false, null),
+  ('9a0d0000-0000-4000-8000-000000000001', 'membership', '1 class per week', 'A perfect option if you want to add Pilates to your current routine. 1 class credit each week, billed weekly.', 2200, true, null, 10, 1, null, 'week', false, null),
+  ('9a0d0000-0000-4000-8000-000000000002', 'membership', '2 classes per week', '2 class credits each week, billed weekly.', 4000, true, 'Recommended', 20, 2, null, 'week', false, null),
+  ('9a0d0000-0000-4000-8000-000000000003', 'membership', '3 classes per week', '3 class credits each week, billed weekly.', 5500, true, null, 30, 3, null, 'week', false, null),
+  ('9a0d0000-0000-4000-8000-000000000004', 'membership', 'Unlimited', 'Come as often as you like, billed weekly.', 6900, true, null, 40, null, null, 'week', false, null),
   -- packs: expiry clock starts at first booking
   ('9a0d0000-0000-4000-8000-000000000011', 'dropin', 'Single class', '1 class credit. Expires 61 days after you first use it.', 3000, true, null, 50, 1, 61, null, false, null),
   ('9a0d0000-0000-4000-8000-000000000012', 'pack', '4 class pack', '4 class credits. Expires 2 months after your first booking.', 10000, true, null, 60, 4, 61, null, false, null),
   ('9a0d0000-0000-4000-8000-000000000013', 'pack', '8 class pack', '8 class credits. Expires 4 months after your first booking.', 19000, true, null, 70, 8, 122, null, false, null),
   -- intro offer: new clients only, once
-  ('9a0d0000-0000-4000-8000-000000000021', 'intro', 'Intro offer, 2 weeks unlimited', '2 weeks of unlimited classes from your first booking. New clients only.', 4900, true, 'New clients', 0, null, 14, null, true, null),
+  ('9a0d0000-0000-4000-8000-000000000021', 'intro', 'Intro offer: 2 weeks unlimited', '2 weeks of unlimited classes from your first booking. New clients only.', 4900, true, 'New clients', 0, null, 14, null, true, null),
   -- retail (sample)
   ('9a0d0000-0000-4000-8000-000000000031', 'retail', 'Grip socks', 'Non-slip Pilates socks.', 2000, true, null, 100, null, null, null, false, null),
   ('9a0d0000-0000-4000-8000-000000000032', 'retail', 'Water bottle', 'Snowy Pilates Club bottle.', 1500, true, null, 110, null, null, null, false, null)

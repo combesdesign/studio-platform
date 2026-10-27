@@ -116,6 +116,8 @@ export interface AutomationContext {
   review?: { every: number; url: string } | null;
   /** Earlier review asks (when they went and whether the link was clicked), for the 60 day gap and the stop-after-click rule. */
   reviewLog?: { clientId: ID; at: string; clickedAt?: string }[];
+  /** Clients who already got the studio's own welcome email (Settings › Emails): the Welcome automation leaves them out so nobody gets two. */
+  welcomed?: ReadonlySet<ID>;
 }
 
 interface Hit { reason: string; key: string; vars: Record<string, string> }
@@ -200,6 +202,7 @@ export function automationCandidates(automations: Automation[], members: Audienc
     if (!a.enabled) continue;
     const def = automationDef(a.key);
     for (const m of members) {
+      if (a.key === 'welcome' && ctx.welcomed?.has(m.clientId)) continue;
       const hit = automationHit(a.key, a.delay, m, ctx.now, { review: ctx.review ?? null, reviewLog: a.key === 'review_ask' ? (ctx.reviewLog ?? []).filter((x) => x.clientId === m.clientId) : [] });
       if (!hit || ctx.sentKeys.has(hit.key) || seen.has(hit.key)) continue;
       const clientName = `${m.firstName} ${m.lastName}`.trim();

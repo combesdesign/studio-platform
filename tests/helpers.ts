@@ -2,8 +2,8 @@
 import type { DataStore } from '../src/shared/store';
 import type { AuthUser, ClassSession, Client, ID } from '../src/shared/types';
 import { studioToUTC } from '../src/shared/format';
-import { createDemoStore, memoryStorage } from '../src/data/demo';
-import { STATE_VERSION, type DemoState } from '../src/data/demo/engine';
+import { createDemoStore, memoryStorage, STATE_KEY } from '../src/data/demo';
+import { STATE_VERSION, type DemoState, type OutboxMessage } from '../src/data/demo/engine';
 import { CLASS_TYPES, PRODUCTS, STAFF, defaultSettings } from '../src/data/demo/fixtures';
 
 export const at = (date: string, hhmm: string) => new Date(studioToUTC(date, hhmm));
@@ -39,17 +39,21 @@ export interface Harness {
   store: DataStore;
   setNow(d: Date): void;
   as(u: AuthUser): Promise<void>;
+  /** What the demo has "emailed" so far (the studio's outbox), oldest first. */
+  outbox(): OutboxMessage[];
   /** Buy a product for a client as the owner (cash). */
   give(clientId: ID, productId: ID): Promise<ID>;
 }
 
 export async function harness(state: DemoState, now: Date): Promise<Harness> {
   let t = now;
-  const store = createDemoStore({ sampleBilling: false, now: () => t, latencyMs: 0, storage: memoryStorage(), initialState: state, app: 'studio' });
+  const storage = memoryStorage();
+  const store = createDemoStore({ sampleBilling: false, now: () => t, latencyMs: 0, storage, initialState: state, app: 'studio' });
   const h: Harness = {
     store,
     setNow: (d) => { t = d; },
     as: async (u) => { await store.demoSignInAs!(u); },
+    outbox: () => (JSON.parse(storage.getItem(STATE_KEY)!).data[store.studioId].outbox ?? []) as OutboxMessage[],
     give: async (clientId, productId) => {
       await store.demoSignInAs!(OWNER);
       const r = await store.purchase({ clientId, productId, method: 'cash' });

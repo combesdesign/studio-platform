@@ -89,7 +89,7 @@ function Bubble({ m }: { m: InboxMessage }) {
   return (
     <div className={cx('mk-bubble', m.from === 'staff' ? 'mine' : 'theirs')}>
       <p>{m.body}</p>
-      <span className="faint">{m.from === 'staff' && m.staffName ? `${m.staffName} · ` : ''}{dayTime(m.at)}</span>
+      <span className="faint">{m.channel === 'sms' ? 'Text · ' : ''}{m.from === 'staff' && m.staffName ? `${m.staffName} · ` : ''}{dayTime(m.at)}</span>
     </div>
   );
 }

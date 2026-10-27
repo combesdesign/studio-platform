@@ -40,6 +40,7 @@ const PERM_MAP = {
   staffNotes: 'client_staff_notes',
   adjustPasses: 'passes_manage',
   editMembership: 'membership_edit', // renewal date + move to another membership (owner, manager)
+  editEmails: 'emails_edit', // Settings > Emails: wording and on/off of client emails (owner, manager)
   editClients: 'clients_edit', // add / edit clients (walk-ins create a client)
   waiver: 'waiver_record',
   salesView: 'sales_view', // a client's purchase history

@@ -1036,3 +1036,30 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .em-price span { font-weight: 400; color: var(--muted); font-size: 14px; }
 .em-sum { font-size: 17px; line-height: 1.5; }
 .em-list { display: grid; gap: 10px; padding-left: 20px; line-height: 1.5; }
+
+/* Settings > Emails */
+.eml { display: grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.eml-list ul { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 4px; }
+.eml-item { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; padding: 8px 12px; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--ink); cursor: pointer; font: inherit; }
+.eml-item:hover { background: var(--soft); }
+.eml-item.on { background: var(--soft); border-color: var(--primary); }
+.eml-item-t { display: grid; gap: 2px; min-width: 0; }
+.eml-item-t strong { font-weight: 500; }
+.eml-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.eml-dot.on { background: var(--primary); }
+.eml-dot.off { background: var(--line); }
+.eml-edit { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+@media (min-width: 1180px) { .eml-edit { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.eml-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.eml-head h3 { margin: 0 0 4px; }
+.eml-head p { margin: 0; max-width: 52ch; }
+.eml-on { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+.eml-off { background: var(--highlight); border-radius: 12px; padding: 10px 14px; margin: 0 0 14px; }
+.eml-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.eml-tags .chip { min-height: 36px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 14px; }
+.eml-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 10px; }
+.eml-pv-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.eml-pv-head h3 { margin: 0; }
+.eml-subject { display: grid; gap: 2px; margin: 10px 0 12px; }
+.eml-frame { width: 100%; height: 560px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+@media (max-width: 900px) { .eml { grid-template-columns: minmax(0, 1fr); } .eml-frame { height: 480px; } }

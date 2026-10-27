@@ -26,7 +26,7 @@ grant all on mk to authenticated, service_role;
 select test.studio('snowy');
 select test.login('libby');
 select test.eq(jsonb_array_length(public.marketing_list_segments()), 7, 'first visit: the starter segments are created');
-select test.eq(jsonb_array_length(public.marketing_list_automations()), 8, 'first visit: all eight automations, on');
+select test.eq(jsonb_array_length(public.marketing_list_automations()), 10, 'first visit: all ten automations, on');
 select test.ok((select bool_and((a ->> 'enabled')::boolean) from jsonb_array_elements(public.marketing_list_automations()) a), 'automations start on');
 
 select test.login('fran');

@@ -145,3 +145,6 @@
 .mk-later { padding-top: 4px; }
 .mk-later-l { font-size: 14.5px; color: var(--muted); min-width: 72px; }
 .mk-later .input { flex: 0 1 240px; }
+.mk-count { margin: 0; color: var(--muted); }
+.mk-count.over { color: var(--ink); }
+.mk-text-none { margin: 8px 0 18px; }

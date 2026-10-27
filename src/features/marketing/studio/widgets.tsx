@@ -1,8 +1,9 @@
 /** Marketing pieces that sit inside core studio screens: the Today widget and the client profile card. */
 import React, { useState } from 'react';
-import { useAction, useData } from '../../../shared/react';
+import { Sheet, useAction, useData, useToast } from '../../../shared/react';
 import type { Client } from '../../../shared/types';
-import { Icon, useStudio } from '../../../studio/ui';
+import { Icon, SheetHead, useStudio } from '../../../studio/ui';
+import { smsInfo } from '../render';
 import { ago, marketing, needMarketing } from '../api';
 import { useInboxLive } from './inbox';
 
@@ -30,6 +31,55 @@ export function InboxWidget() {
 /** Client profile › header button. */
 export function MessageButton({ client }: { client: Client }) {
   return <a className="btn soft" href={`#/marketing/inbox/${client.id}`}><Icon name="mail" size={18} />Message</a>;
+}
+
+/** Client profile › header button: one-off text to this client (owner, manager, front desk). */
+export function SendTextButton({ client }: { client: Client }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="btn soft" onClick={() => setOpen(true)}><Icon name="phone" size={18} />Send a text</button>
+      <Sheet open={open} onClose={() => setOpen(false)} label="Send a text">
+        {open && <SendTextSheet client={client} onClose={() => setOpen(false)} />}
+      </Sheet>
+    </>
+  );
+}
+
+function SendTextSheet({ client, onClose }: { client: Client; onClose: () => void }) {
+  const [text, setText] = useState('');
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const hasPhone = !!(client.phone ?? '').trim();
+  const info = smsInfo(text);
+  const over = info.length > 160;
+  const send = async () => {
+    const m = await run(() => needMarketing().sendText(client.id, text));
+    if (m) { toast(`Text sent to ${client.firstName}`); onClose(); }
+  };
+  return (
+    <>
+      <SheetHead title={<>Text <em>{client.firstName}</em></>} sub={hasPhone ? `To ${client.phone}. It’s saved in their message history.` : undefined} onClose={onClose} />
+      {!hasPhone ? (
+        <p className="muted mk-text-none">{client.firstName} doesn’t have a mobile number saved yet. Add one on their profile (Edit) and then you can text them.</p>
+      ) : (
+        <div className="mk-form">
+          <label className="field">
+            <span>Message</span>
+            <textarea className="textarea" rows={5} value={text} autoFocus maxLength={480} placeholder={`Hi ${client.firstName}, `} onChange={(e) => setText(e.target.value)} />
+          </label>
+          <p className={'mk-count small' + (over ? ' over' : '')} aria-live="polite">
+            <strong>{info.length}</strong>/160{over ? ` · goes as ${info.segments} texts` : ''}
+          </p>
+          <p className="faint small">Standard text rates apply for the studio. For something longer or for a lot of people, use a campaign.</p>
+        </div>
+      )}
+      <div className="sh-foot">
+        <button className="btn ghost" onClick={onClose}>{hasPhone ? 'Cancel' : 'Close'}</button>
+        {hasPhone && <button className="btn" disabled={busy || !text.trim()} onClick={send}>Send text</button>}
+      </div>
+    </>
+  );
 }
 
 /** Client profile › card: tags you can put on a client (used by audiences), and whether they take marketing. */

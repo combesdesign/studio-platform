@@ -205,6 +205,16 @@ select app.patch_function('public.marketing_run_automations(boolean)'::regproced
 select app.patch_function('public.marketing_save_automation(jsonb)'::regprocedure,
   $q$('paused_ending', 1, 14)) d(k, lo, hi)$q$, $q$('paused_ending', 1, 14), ('intro_checkin', 1, 13), ('review_ask', 0, 14)) d(k, lo, hi)$q$);
 
+-- The welcome automation skips anyone who already got the studio's own "Welcome to the studio" email (so nobody gets two).
+select app.patch_function('app.marketing_automation_hits(uuid, timestamptz)'::regprocedure,
+  $q$         and p_now < f.joined_at + make_interval(days => a.delay_days + v_grace);
+
+    elsif a.key = 'intro_ending' then$q$,
+  $q$         and p_now < f.joined_at + make_interval(days => a.delay_days + v_grace)
+         and not (a.key = 'welcome' and exists (select 1 from public.notifications n where n.client_id = f.client_id and n.kind = 'welcome'));
+
+    elsif a.key = 'intro_ending' then$q$);
+
 -- Who qualifies. intro_checkin: N days after their intro offer started counting (its expiry minus its length), while it is still running.
 -- review_ask: after a client's Nth, 2Nth ... check-in (class ended 3 hours ago), if the studio switched it on in Settings > Reviews, at most
 -- once every 60 days, and never again once they've clicked the link.

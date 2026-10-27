@@ -277,7 +277,8 @@ function create(ctx: DemoFeatureContext): MarketingStore {
       ctx.requireStaff(dryRun ? 'marketing.view' : 'marketing.manage');
       const sl = S(), now = ctx.now();
       const sentKeys = new Set(sl.log.map((l) => l.dedupeKey).filter((k): k is string => !!k));
-      const plan = automationCandidates(sl.automations, members(), { now, studioName: ctx.studio().name, appUrl: appUrl(), sentKeys, review: reviewAsk(), reviewLog: reviewLog() });
+      const plan = automationCandidates(sl.automations, members(), { now, studioName: ctx.studio().name, appUrl: appUrl(), sentKeys, review: reviewAsk(), reviewLog: reviewLog(),
+        welcomed: new Set(ctx.core().state.outbox.filter((o) => o.kind === 'welcome').map((o) => o.clientId)) });
       if (!dryRun) {
         plan.items.forEach((it, i) => {
           const h = hash(it.dedupeKey);
