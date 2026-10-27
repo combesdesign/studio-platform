@@ -18,6 +18,8 @@ grant execute on function test.studio(text), test.count(text) to anon, authentic
 select test.admin();
 update public.clients set marketing_opt_in = true where id in (test.id('alice_client'), test.id('bob_client'));
 update public.clients set marketing_opt_in = true, email = '' where id = test.id('cara_client');
+-- (The fixtures' sign-ups predate marketing and got the transactional welcome; the Welcome automation skips anyone who already had one.)
+delete from public.notifications where kind = 'welcome';
 update public.clients set birthday = '1990-10-19' where id = test.id('bob_client');
 create temp table mk (k text primary key, v text);
 grant all on mk to authenticated, service_role;

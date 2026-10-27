@@ -430,6 +430,28 @@ await t('send-email: queued booking and receipt emails go out as their own studi
   for (const m of mails) assert.ok(!SNOWY.test(m.html + m.text + m.subject + m.from), `no Snowy in the email to ${m.to[0]}`);
 });
 
+await t('send-email: the studio\'s own subject and intro are used, new emails go out, and a test email is marked [Test]', async () => {
+  const harbour = sql(`select id from public.studios where slug = 'harbour-fn'`);
+  sql(`insert into public.email_templates (studio_id, kind, subject, intro) values ('${harbour}', 'waitlist_joined', 'On the list for {class_name}', 'Hi {first_name}, we will tell you the moment a spot opens at {studio_name}.')`);
+  const queue = (kind, to, extra) => sql(`insert into public.notifications (studio_id, kind, to_email, payload) values ('${harbour}', '${kind}', '${to}',
+    '{"first_name":"Al","class_name":"Reformer Flow","when":"6:00pm Wed 21 Oct"${extra}}')`);
+  queue('waitlist_joined', 'wl@example.test', ',"waitlist_position":2');
+  queue('booking_cancelled', 'bc@example.test', ',"late":true');
+  queue('welcome', 'wm@example.test', '');
+  queue('class_cancelled', 'tt@example.test', ',"is_test":true');
+  const h = await load('send-email');
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  const j = await (await post(h, { flush: true }, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  assert.ok(j.failed === 0, JSON.stringify(j));
+  const mails = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  const by = (to) => mails.find((m) => m.to[0] === to);
+  assert.equal(by('wl@example.test').subject, 'On the list for Reformer Flow');
+  assert.ok(by('wl@example.test').html.includes('we will tell you the moment a spot opens at Harbour Reformer Co.'), 'custom intro with merge tags');
+  assert.ok(by('bc@example.test').subject.length > 0 && /cancel/i.test(by('bc@example.test').html) && /credit/i.test(by('bc@example.test').html), 'late-cancel wording');
+  assert.ok(by('wm@example.test').html.includes('Harbour Reformer Co.'), 'welcome email is sent');
+  assert.ok(by('tt@example.test').subject.startsWith('[Test] '), 'a test email is marked');
+});
+
 await t('send-email: cover request emails reach the eligible staff, with the studio look', async () => {
   const row = (kind, to) => `insert into public.payroll_outbox (studio_id, kind, to_staff_id, to_email, payload) select '${SNOWY_ID}', '${kind}', id, email,
     jsonb_build_object('class_name', 'Mat Essentials', 'when', '6:00am Thu 22 Oct', 'requested_by', 'Grace', 'claimed_by', 'Julia', 'reason', 'Sick kid') from public.staff where email = '${to}'`;
