@@ -9,7 +9,7 @@ import { Slot } from '../shared/slots';
 import { Accent, Arrow, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
 import { Marquee } from '../shared/brand';
 import { fullName, useDependants } from './family';
-import { isFamilyShareable } from '../domain';
+import { isFamilyShareable, pendingMove } from '../domain';
 import { backOut, daysLeft, dateOnlyShort, dateShortNoDay, expiryLabel, flowFrom, perClass, productWhat, queryOf, validityWords, when } from './lib';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
@@ -183,6 +183,7 @@ function PassCard({ p, summary, shared }: { p: Pass; summary?: CreditSummary; sh
   const tone = p.kind === 'intro' ? 'cream' : isMember ? 'navy' : 'white';
   const dl = daysLeft(p.expiresAt);
   const label = passLabel(p, summary);
+  const move = pendingMove(p);   // staff scheduled a different membership from the next cycle
   // A pause can be booked ahead: status stays 'active' until pausedFrom.
   const pauseBooked = p.status !== 'paused' && !!p.pausedUntil && p.pausedUntil >= studioDate();
   const resume = async () => {
@@ -210,6 +211,9 @@ function PassCard({ p, summary, shared }: { p: Pass; summary?: CreditSummary; sh
           {isMember && <span>{money(p.priceCents)}/{p.billingInterval === 'month' ? 'month' : 'week'}</span>}
         </div>
       </div>
+      {move && (
+        <div className="note cream pass-move"><Icon name="calendar" size={18} /><div>Changing to <strong>{move.name}</strong> from {dateShortNoDay(move.effectiveAt)}</div></div>
+      )}
       {isMember && p.status !== 'cancelled' && (
         <div className="pass-actions">
           {p.status === 'paused' || pauseBooked ? (

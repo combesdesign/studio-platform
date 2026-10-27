@@ -66,6 +66,12 @@ export function isEditableMembership(p: Pick<Pass, 'kind' | 'status'>): boolean 
   return p.kind === 'membership' && p.status !== 'cancelled' && p.status !== 'expired';
 }
 
+/** The membership move staff have booked for the next cycle, while it still waits: what it changes to and when. Nothing for other passes or ended memberships. */
+export function pendingMove(p: Pick<Pass, 'kind' | 'status' | 'pendingChange'>): { name: string; effectiveAt: ISODateTime } | undefined {
+  if (p.kind !== 'membership' || !p.pendingChange || p.status === 'cancelled' || p.status === 'expired') return undefined;
+  return { name: p.pendingChange.name, effectiveAt: p.pendingChange.effectiveAt };
+}
+
 /** A new renewal date must be after today and no more than 60 days out. Returns an error message, or null when fine. */
 export function renewalDateProblem(date: ISODate, today: ISODate, maxDays = 60): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + 'T00:00:00Z'))) return 'Choose a valid date.';

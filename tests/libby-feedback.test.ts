@@ -1,7 +1,7 @@
 // Libby's feedback (27 Oct): the health step before confirming a booking, and owner/manager membership edits (demo store).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { healthNoteLine, healthPolicy, healthStepFor, membershipChangeCents, renewalDateProblem } from '../src/domain';
+import { healthNoteLine, healthPolicy, healthStepFor, membershipChangeCents, pendingMove, renewalDateProblem } from '../src/domain';
 import { at, asClient, baseState, harness, JULIA, mkClient, mkSession, OWNER, rejects } from './helpers';
 
 const NOW = at('2026-10-27', '08:00'); // Tuesday
@@ -123,6 +123,13 @@ test('move membership: no proration by default, allowance switches at the next b
   assert.equal(p.pendingChange?.productId, 'pr_m3');
   assert.equal(p.pendingChange?.effectiveAt, before.nextBillingAt);
   assert.equal(await sales(), n0, 'no proration: nothing charged');
+  // the client's own Passes screen can tell them: "Changing to X from <date>"
+  await h.as(asClient('back'));
+  const mine = (await h.store.listPasses('back')).find((x) => x.id === id)!;
+  assert.deepEqual(pendingMove(mine), { name: '3 Classes Per Week Membership', effectiveAt: before.nextBillingAt });
+  assert.equal(pendingMove({ ...mine, status: 'cancelled' }), undefined, 'an ending membership is not changing');
+  assert.equal(pendingMove({ ...mine, kind: 'pack' }), undefined);
+  await h.as(OWNER);
   assert.match(p.adjustments!.at(-1)!.reason, /Moved from 2 Classes Per Week Membership to 3 Classes Per Week Membership, credits and allowance switch from .*no charge or credit/);
   // the next billing day passes: new plan, new price, charged at the new price
   h.setNow(new Date(Date.parse(before.nextBillingAt!) + 3600_000));
