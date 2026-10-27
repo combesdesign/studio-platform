@@ -17,14 +17,13 @@
    3. Get Snowy launch-ready.
    4. Park the rest of B5 (on-demand video, kiosk, family accounts, etc.) until a second studio is actually interested.
 
-## State as of 27 Oct 2026
-- **Everything is merged on master** (all 4 feature branches done). Master passes tsc, `npm test` (144), build and the full SQL suite.
-- Built since 20 Oct: commerce, payroll, marketing, appointments/workshops, kiosk, reviews, ClassPass/Gympass hooks (held spots enforced), Xero export, domains, desktop web layout + deep links, online video classes (`ondemand`), support (Help button, help centre, reply-by promise, AI quick answers, admin inbox, status banner, urgent alert email), undo for common mistakes, bank-debit NOT done (Pete: keep Stripe as is).
-- Website (`/home/claude/snowy-pilates-club`): timetable strip on local branch `feat/timetable-strip`, NOT pushed (goes live on push). Times are from demo data, check with Libby.
-- **Open (ROADMAP):** spot/mat selection, family accounts, multi-location/rooms, Stripe Terminal, onboarding service, Phase C (Capacitor, real accounts, Momence import, security review). Gaps per feature are in NOTES.md.
-- **Platform backlog:** Stripe Connect per studio (only Snowy can take cards), platform billing.
-- **GitHub push still 403**: Pete must give the Claude GitHub App access to combesdesign/studio-platform (from his laptop).
-- **Waiting on Pete/Libby:** Momence export; Supabase/Stripe/Resend/Anthropic/Twilio accounts in Libby's name; billing from sign-up vs first class; Apple/Google dev accounts.
+## State as of 27 Oct 2026 (afternoon), paused by Pete
+- Master is pushed to GitHub (combesdesign/studio-platform). All features merged: everything in ROADMAP phases A/B except Stripe Terminal; plus support, undo, family, locations, spots, Stripe Connect, platform billing/plan gating, web push, Libby's feedback rounds 1 and 2, Momence import for her real export format.
+- **Paused mid-job:** "small gaps" batch. Done (WIP commit 0c94624 on master): editable receipt/gift card/appointment/event emails; staff can move an appointment. NOT done yet: health check for dependants, room picker for appointments/events, client sees pending membership move. Run checks (tsc, npm test, build, run.sh) first, since the WIP wasn't verified.
+- Libby's real Momence exports are in /home/claude/libby-data (NOT in git, real client data). Tidy-up report sent to Pete.
+- Next after the gaps: refresh the demo artifact (STUDIO_SLUG=snowy build, landing page in scratchpad spc-demo), independent security review, Capacitor builds, real accounts + Stripe test run.
+- Selling later: name, pricing (draft only), switching-guide PDF. Libby's feature rundown PDF was sent 27 Oct.
+- Website: timetable strip on branch feat/timetable-strip (pushed, not merged; times from demo data, check with Libby).
 
 **Demo.** The clickable demo is published as an Artifact. Pete has the link. It was built from master before the platform work. Republished 26 Oct from a `STUDIO_SLUG=snowy` build (before online classes/support/marketing/appointments); republish again when convenient.
 
