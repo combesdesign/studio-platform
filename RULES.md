@@ -13,18 +13,19 @@ These are Snowy Pilates Club's real policies, taken from snowypilatesclub.com. W
 ## Products (prices include GST)
 
 **Memberships.** Billed weekly by direct debit. They activate from the first booking and give credits per week (Monday–Sunday, studio time). Unused weekly credits don't roll over.
-- 1 class per week: $22/week (1 credit a week)
-- 2 classes per week: $40/week (2 credits a week). **Recommended**
-- 3 classes per week: $55/week (3 credits a week)
-- Unlimited: $69/week (unlimited)
+- 1 Class Per Week Membership: $22/week (1 credit a week)
+- 2 Classes Per Week Membership: $40/week (2 credits a week). **Recommended**
+- 3 Classes Per Week Membership: $55/week (3 credits a week)
+- Unlimited Membership: $69/week (unlimited)
+- Online membership: on-demand videos only, no studio classes (kept as is; see the on-demand notes).
 
 **Packs.** The expiry clock starts at the first booking, not at purchase.
-- Single class credit: $30. 1 credit. **(default)** expires 61 days from first use.
-- 4 class pack: $100. 4 credits, expires 2 months (61 days) from first use.
-- 8 class pack: $190. 8 credits, expires 4 months (122 days) from first use.
+- Single class: $30. 1 credit, expires 61 days from first use. **(default)** (Libby's price list gives no expiry for this one; kept as it was.)
+- 4 class pack: $100. 4 credits, expires after 2 months (61 days) from first use.
+- 8 class pack: $190. 8 credits, expires after 4 months (122 days) from first use.
 
 **Intro offer.**
-- $49 for 2 weeks (14 days) of unlimited classes, from the first booking.
+- Intro offer, 2 weeks unlimited: $49. Single use, expires after 14 days (from the first booking).
 - New clients only: someone who has never held any class pass.
 - One per client.
 

@@ -118,22 +118,22 @@ test('move membership: no proration by default, allowance switches at the next b
   const sales = async () => (await h.store.listSales({ from: '2026-10-01', to: '2027-01-31', clientId: 'back' })).length;
   const n0 = await sales();
   let p = await h.store.changeMembership(id, { productId: 'pr_m3' });
-  assert.equal(p.name, '2 classes per week', 'still the old plan until the next cycle');
+  assert.equal(p.name, '2 Classes Per Week Membership', 'still the old plan until the next cycle');
   assert.equal(p.credits, 2);
   assert.equal(p.pendingChange?.productId, 'pr_m3');
   assert.equal(p.pendingChange?.effectiveAt, before.nextBillingAt);
   assert.equal(await sales(), n0, 'no proration: nothing charged');
-  assert.match(p.adjustments!.at(-1)!.reason, /Moved from 2 classes per week to 3 classes per week, credits and allowance switch from .*no charge or credit/);
+  assert.match(p.adjustments!.at(-1)!.reason, /Moved from 2 Classes Per Week Membership to 3 Classes Per Week Membership, credits and allowance switch from .*no charge or credit/);
   // the next billing day passes: new plan, new price, charged at the new price
   h.setNow(new Date(Date.parse(before.nextBillingAt!) + 3600_000));
   p = (await h.store.listPasses('back')).find((x) => x.id === id)!;
-  assert.equal(p.name, '3 classes per week');
+  assert.equal(p.name, '3 Classes Per Week Membership');
   assert.equal(p.credits, 3);
   assert.equal(p.priceCents, 5500);
   assert.equal(p.pendingChange, undefined);
   const renewal = (await h.store.listSales({ from: '2026-10-01', to: '2027-01-31', clientId: 'back' })).find((s) => s.note === 'Weekly membership direct debit' && s.totalCents === 5500);
   assert.ok(renewal, 'the renewal is charged at the new price');
-  assert.match(p.adjustments!.at(-1)!.reason, /^Now on 3 classes per week/);
+  assert.match(p.adjustments!.at(-1)!.reason, /^Now on 3 Classes Per Week Membership/);
 });
 
 test('move membership: immediately switches credits now; prorate charges the difference (or notes a credit); bad moves are refused', async () => {
@@ -145,7 +145,7 @@ test('move membership: immediately switches credits now; prorate charges the dif
   const diff = Math.round((5500 - 4000) * Math.min(left, 7 * DAY) / (7 * DAY));
   assert.equal(membershipChangeCents(p0, 5500, NOW), diff);
   const p = await h.store.changeMembership(id, { productId: 'pr_m3', immediately: true, prorate: true });
-  assert.equal(p.name, '3 classes per week'); assert.equal(p.credits, 3); assert.equal(p.priceCents, 5500); assert.equal(p.pendingChange, undefined);
+  assert.equal(p.name, '3 Classes Per Week Membership'); assert.equal(p.credits, 3); assert.equal(p.priceCents, 5500); assert.equal(p.pendingChange, undefined);
   const sale = (await h.store.listSales({ from: '2026-10-01', to: '2026-12-31', clientId: 'back' })).find((s) => s.note === 'Prorated difference');
   assert.equal(sale?.totalCents, diff);
   assert.match(p.adjustments!.at(-1)!.reason, new RegExp(`charged the \\$${(diff / 100).toFixed(2)} difference`));

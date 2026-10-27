@@ -162,17 +162,17 @@ const signInAs = async (p, who) => {
   // different membership
   await card.getByRole('button', { name: 'Edit' }).click();
   await p.getByRole('tab', { name: 'Different membership' }).click();
-  await p.locator('.em-opt', { hasText: '3 classes per week' }).click();
+  await p.locator('.em-opt', { hasText: '3 Classes Per Week Membership' }).click();
   await p.waitForTimeout(200);
   await p.getByRole('button', { name: 'Review change' }).click();
   const sum = await p.locator('.sheet, [role=dialog]').last().innerText();
-  assert.match(sum, /Move Hannah from 2 classes per week .* to 3 classes per week/);
+  assert.match(sum, /Move Hannah from 2 Classes Per Week Membership .* to 3 Classes Per Week Membership/);
   assert.match(sum, /won.t charge or credit anything/);
   assert.match(sum, /They keep 2 classes a week until/);
   await p.waitForTimeout(250);
   await p.screenshot({ path: `${OUT}3-edit-membership-confirm-1024.png` });
-  await p.getByRole('button', { name: /^Move to 3 classes per week/ }).click();
-  await p.getByText(/is moving to 3 classes per week/).waitFor({ timeout: 4000 });
+  await p.getByRole('button', { name: /^Move to 3 Classes Per Week Membership/ }).click();
+  await p.getByText(/is moving to 3 Classes Per Week Membership/).waitFor({ timeout: 4000 });
   await p.waitForSelector('.pass-pending', { timeout: 4000 });
   say('membership move saved: ' + (await p.locator('.pass-pending').first().innerText()));
   await ctx.close();
