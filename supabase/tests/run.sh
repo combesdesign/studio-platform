@@ -29,7 +29,11 @@ trap cleanup EXIT
 "${RUNAS[@]}" "$PGBIN/initdb" -D "$WORK/data" -U postgres --auth=trust -E UTF8 >/dev/null
 "${RUNAS[@]}" "$PGBIN/pg_ctl" -D "$WORK/data" -o "-p $PORT -k $WORK -c listen_addresses='' -c wal_level=logical" -l "$WORK/log" -w start >/dev/null
 
-PSQL=(psql -X -q -v ON_ERROR_STOP=1 -h "$WORK" -p "$PORT" -U postgres -d postgres)
+# The Momence import test loads what the converter writes for the fake export in tests/fixtures/momence.
+MOMENCE_DIR="$WORK/momence-staging"
+mkdir -p "$MOMENCE_DIR"
+(cd "$SUPA/.." && node --import tsx scripts/momence-convert.mts tests/fixtures/momence --out "$MOMENCE_DIR" >/dev/null)
+PSQL=(psql -X -q -v ON_ERROR_STOP=1 -v momence_dir="$MOMENCE_DIR" -h "$WORK" -p "$PORT" -U postgres -d postgres)
 
 step() { printf '\n== %s\n' "$1"; }
 
