@@ -16,14 +16,15 @@ export type EmailKind =
   | 'booking_confirmed' | 'waitlist_joined' | 'waitlist_promoted' | 'booking_cancelled' | 'class_cancelled' | 'class_reminder' | 'welcome'
   | 'receipt' | 'gift_card'
   | 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder'
-  | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer';
+  | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer'
+  | 'message_reply';
 
 export interface EmailOverride { enabled?: boolean; subject?: string | null; intro?: string | null }
 
 export interface EmailDef {
   kind: EmailKind;
   /** Heading in the Settings > Emails list. */
-  group: 'Classes' | 'Payments' | 'Appointments' | 'Events';
+  group: 'Classes' | 'Payments' | 'Appointments' | 'Events' | 'Messages';
   label: string;
   /** When it goes out, in plain English. */
   when: string;
@@ -152,6 +153,11 @@ export const EMAIL_DEFS: EmailDef[] = [
     subject: 'A place opened up: {session_name}', intro: 'Good news, a place has opened up in the {what} you were waiting for.',
     tags: ['first_name', 'studio_name', 'session_name', 'session_time', 'instructor', 'location', 'what', 'claim_by', 'amount'], cta: 'Open the app',
   },
+  {
+    kind: 'message_reply', group: 'Messages', label: 'We replied to your message', when: 'When the studio replies to a client in Messages and the client doesn’t have notifications on. At most one every 15 minutes per conversation. Also switched by Settings › Marketing.', heading: 'You have a reply',
+    subject: '{studio_name} replied to your message', intro: '{studio_name} has replied to your message. Open Messages in the app to read it and write back.',
+    tags: ['first_name', 'studio_name'], cta: 'Open Messages',
+  },
 ];
 
 export const emailDef = (k: string): EmailDef | undefined => EMAIL_DEFS.find((d) => d.kind === k);
@@ -171,6 +177,8 @@ export function samplePayload(studioName: string, kind?: string): EmailPayload {
     items: [{ qty: 1, name: '4 class pack', unit_cents: 10500 }], total_cents: 10500, gst_cents: 955, sale_id: 'a1b2c3d4-0000-0000-0000-000000000000',
     // gift card
     recipient_name: 'Maya', from_name: 'Hank', code: 'GIFT-7K3Q-9XPM', message: 'Happy birthday! Go and stretch.',
+    // message_reply
+    preview: 'Yes, bring her along. The 9am Saturday class has spots open.',
   };
 }
 
@@ -319,6 +327,12 @@ export function renderEmail(kind: string, p: EmailPayload, ov?: EmailOverride | 
       body = `<p>${hi}</p>${paragraphs(intro)}${classBox(p)}${note}<p style="font-size:13px;color:#4b5563">Can’t make it? Please cancel in the app so someone on the waitlist can take your spot.</p>${policy}`;
       text = `${hiText}\n\n${intro}\n\n${textBox}\n\nCan't make it? Please cancel in the app so someone else can take your spot.${policyText}`;
       break;
+    case 'message_reply': {
+      const snippet = String(p.preview ?? '').trim();
+      body = `<p>${hi}</p>${paragraphs(intro)}${snippet ? `<blockquote style="margin:12px 0;padding:8px 14px;border-left:3px solid ${theme(p).primary};color:#4b5563">${esc(snippet)}</blockquote>` : ''}`;
+      text = `${hiText}\n\n${intro}${snippet ? `\n\n“${snippet}”` : ''}`;
+      break;
+    }
     case 'welcome':
       title = `Welcome to ${studioName(p)}`;
       body = `<p>${hi}</p>${paragraphs(intro)}`;

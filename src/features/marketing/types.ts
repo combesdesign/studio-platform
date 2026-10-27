@@ -313,7 +313,18 @@ export interface MarketingSettings {
   smsSender: string;
   /** Extra line in the email footer, e.g. "You're getting this because you joined our newsletter." */
   footerNote: string;
+  /** Who can use the inbox. Default no_instructors: owner, managers and front desk. */
+  inboxAccess: InboxAccess;
+  /** Email the studio when a client messages (at most one per conversation every 15 minutes). Default on. */
+  emailStudio: boolean;
+  /** Email a client when the studio replies and they don't have notifications on (same batching). Default on. */
+  emailClient: boolean;
 }
+
+export type InboxAccess = 'owner' | 'owner_manager' | 'no_instructors' | 'all_staff';
+
+/** An email the inbox queued (demo only: live ones sit in the send queue). */
+export interface InboxAlert { at: string; audience: 'staff' | 'client'; clientId: string; to: string; subject: string; preview: string }
 
 export interface ProviderStatus {
   /** 'stub' until Twilio is configured. */
@@ -386,6 +397,10 @@ export interface MarketingStore {
 
   // --- settings
   getSettings(): Promise<MarketingSettings>;
+  /** Can the signed-in staff member use the inbox, under the studio's setting? Any staff can ask (the UI hides the inbox when not). */
+  getInboxAccess(): Promise<{ access: InboxAccess; allowed: boolean }>;
+  /** Demo only: the emails the inbox "sent". */
+  listInboxAlerts?(): Promise<InboxAlert[]>;
   updateSettings(patch: Partial<MarketingSettings>): Promise<MarketingSettings>;
   getProviders(): Promise<ProviderStatus>;
 }

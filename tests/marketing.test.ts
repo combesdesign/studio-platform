@@ -10,6 +10,7 @@ import { ruleMatches, filterMatches, reachable } from '../src/features/marketing
 import { AUTOMATION_CATALOG, describeFilter } from '../src/features/marketing/catalog';
 import { webProvider, capacitorProvider, pushProvider } from '../src/features/marketing/push';
 import type { AudienceMember, MarketingStore } from '../src/features/marketing/types';
+import { canUseInbox } from '../src/features/marketing/permissions';
 
 const BRAND: EmailBrand = { name: 'Test Studio', primary: '#123456', ink: '#111111', accent: '#8899aa', soft: '#eeeeee', highlight: '#f5e9c8', bg: '#fafafa', displayFont: 'Gloock', bodyFont: 'Work Sans' };
 
@@ -299,4 +300,95 @@ test('settings: sender details save per studio and a bad reply-to is refused', a
   const prov = await a.m.getProviders();
   assert.equal(prov.sms.provider, 'stub');
   assert.equal(prov.push.ready, false);
+});
+
+// ---------------------------------------------------------------- messaging: who sees the inbox, and the email alerts
+test('inbox access: the default is owner, managers and front desk; the setting narrows or widens it, in the store', async () => {
+  const p = platform();
+  const d = await desk(p, 'snowy');
+  assert.equal((await d.m.getSettings()).inboxAccess, 'no_instructors', 'default: what the inbox always did');
+  const who = async (role: string) => { await d.as(await d.staff(role)); return d.m.getInboxAccess().then((a) => a.allowed, () => false); };
+  const reads = async (role: string) => { await d.as(await d.staff(role)); return d.m.listThreads().then(() => true, () => false); };
+  const matrix = async () => ({ owner: await reads('owner'), front_desk: await reads('front_desk'), instructor: await reads('instructor') });
+  assert.deepEqual(await matrix(), { owner: true, front_desk: true, instructor: false }, 'default');
+  assert.equal(await who('instructor'), false);
+  for (const [access, want] of [
+    ['owner', { owner: true, front_desk: false, instructor: false }],
+    ['owner_manager', { owner: true, front_desk: false, instructor: false }],
+    ['all_staff', { owner: true, front_desk: true, instructor: true }],
+    ['no_instructors', { owner: true, front_desk: true, instructor: false }],
+  ] as const) {
+    await d.asOwner();
+    await d.m.updateSettings({ inboxAccess: access });
+    assert.deepEqual(await matrix(), want, access);
+  }
+  // (the demo has no manager to sign in as; the rule itself, and the SQL test, cover them)
+  assert.deepEqual((['owner', 'manager', 'front_desk', 'instructor'] as const).map((r) => canUseInbox(r, 'owner_manager')), [true, true, false, false]);
+  assert.deepEqual((['owner', 'manager', 'front_desk', 'instructor'] as const).map((r) => canUseInbox(r, 'no_instructors')), [true, true, true, false]);
+  const first = (await d.as(await d.staff('owner')).then(() => d.s.listClients()))[0]!.id;
+  await d.as(await d.staff('instructor'));
+  await assert.rejects(() => d.m.sendStaffMessage(first, 'hi'), (e: Error & { code?: string }) => e.code === 'NOT_ALLOWED');
+  await assert.rejects(() => d.m.getThread(first), (e: Error & { code?: string }) => e.code === 'NOT_ALLOWED');
+  await assert.rejects(() => d.m.inboxUnreadCount(), (e: Error & { code?: string }) => e.code === 'NOT_ALLOWED');
+  await d.as(await d.staff('front_desk'));
+  await assert.rejects(() => d.m.updateSettings({ inboxAccess: 'all_staff' }), (e: Error & { code?: string }) => e.code === 'NOT_ALLOWED', 'only owner and managers change it');
+  await d.asOwner();
+  await assert.rejects(() => d.m.updateSettings({ inboxAccess: 'everyone' as never }), /who can use/i);
+  // the other studio keeps its own
+  const h = await desk(p, 'harbour');
+  assert.equal((await h.m.getSettings()).inboxAccess, 'no_instructors');
+});
+
+test('inbox emails: a client message alerts the studio once per 15 minutes, a reply emails the client; both switch off', async () => {
+  const p = platform();
+  const d = await desk(p, 'snowy');
+  const [c] = (await d.s.listClients()).filter((x) => x.email);
+  const alerts = async () => { await d.asOwner(); return (await d.m.listInboxAlerts!()).filter((a) => a.clientId === c!.id); };
+  const send = async (body: string) => { await d.as(clientUser(c!)); await d.m.sendMyMessage(body); };
+  const reply = async (body: string) => { await d.asOwner(); await d.m.sendStaffMessage(c!.id, body); };
+  const settings = await d.m.getSettings();
+  assert.equal(settings.emailStudio, true, 'on by default');
+  assert.equal(settings.emailClient, true, 'on by default');
+  await send('First question');
+  let a = await alerts();
+  assert.equal(a.length, 1);
+  assert.equal(a[0]!.audience, 'staff');
+  assert.match(a[0]!.subject, /sent you a message/);
+  assert.match(a[0]!.subject, new RegExp(c!.firstName));
+  assert.equal(a[0]!.preview, 'First question');
+  CLOCK = new Date(CLOCK.getTime() + 10 * 60_000);
+  await send('Second, ten minutes later');
+  assert.equal((await alerts()).length, 1, 'inside 15 minutes: no second alert');
+  CLOCK = new Date(CLOCK.getTime() + 6 * 60_000);
+  await send('Third, a new window');
+  assert.equal((await alerts()).length, 2, 'after 15 minutes: alerts again');
+  // the reply emails the client (once per window), through the editable "message_reply" email
+  await reply('Of course!');
+  a = await alerts();
+  assert.deepEqual(a.map((x) => x.audience), ['staff', 'staff', 'client']);
+  assert.equal(a[2]!.to, c!.email);
+  assert.match(a[2]!.subject, /replied to your message/);
+  await reply('And one more thing');
+  assert.equal((await alerts()).filter((x) => x.audience === 'client').length, 1, 'client email: one per 15 minutes too');
+  // reworded in Settings > Emails
+  await d.s.saveEmailTemplate('message_reply', { subject: 'A reply from {studio_name}' });
+  CLOCK = new Date(CLOCK.getTime() + 20 * 60_000);
+  await reply('Later reply');
+  assert.match((await alerts()).filter((x) => x.audience === 'client').at(-1)!.subject, /^A reply from /, 'the studio’s own wording');
+  // switches
+  await d.m.updateSettings({ emailStudio: false });
+  CLOCK = new Date(CLOCK.getTime() + 20 * 60_000);
+  const n = (await alerts()).length;
+  await send('While alerts are off');
+  assert.equal((await alerts()).length, n, 'studio alerts off: nothing recorded');
+  await d.asOwner();
+  await d.m.updateSettings({ emailStudio: true, emailClient: false });
+  CLOCK = new Date(CLOCK.getTime() + 20 * 60_000);
+  await reply('While client emails are off');
+  assert.equal((await alerts()).filter((x) => x.audience === 'client').length, 2, 'client emails off: nothing new');
+  await d.m.updateSettings({ emailClient: true });
+  await d.s.saveEmailTemplate('message_reply', { enabled: false });
+  CLOCK = new Date(CLOCK.getTime() + 20 * 60_000);
+  await reply('While the email is off in Settings > Emails');
+  assert.equal((await alerts()).filter((x) => x.audience === 'client').length, 2, 'switched off in Settings > Emails: nothing new');
 });

@@ -15,6 +15,7 @@ import './studio.css';
 
 registerStudioNav({ id: 'marketing', feature: 'marketing', label: 'Marketing', short: 'Marketing', icon: 'mail', href: '#/marketing', order: 47, perm: 'marketing.view' });
 registerStudioRoute({ id: 'marketing', feature: 'marketing', path: '/marketing', nav: 'marketing', perm: 'marketing.view', render: () => <MarketingPage /> });
+registerStudioRoute({ id: 'marketing.inbox', feature: 'marketing', path: '/marketing/inbox', nav: 'marketing', perm: 'marketing.inbox', render: () => <MarketingPage tab="inbox" /> });
 registerStudioRoute({ id: 'marketing.tab', feature: 'marketing', path: '/marketing/:tab', nav: 'marketing', perm: 'marketing.view', render: ({ params }) => <MarketingPage tab={params.tab} /> });
 registerStudioRoute({ id: 'marketing.thread', feature: 'marketing', path: '/marketing/inbox/:id', nav: 'marketing', perm: 'marketing.inbox', render: ({ params }) => <MarketingPage tab="inbox" id={params.id} /> });
 registerSettingsTab({ id: 'marketing', feature: 'marketing', label: 'Marketing', order: 47, perm: 'marketing.view', render: () => <MarketingSettingsTab /> });

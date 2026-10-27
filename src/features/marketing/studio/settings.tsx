@@ -4,8 +4,12 @@ import { useAction, useData, useToast } from '../../../shared/react';
 import { Loading, useStudio } from '../../../studio/ui';
 import { needMarketing } from '../api';
 import { pushProvider, saveToken, savedToken } from '../push';
-import type { MarketingSettings } from '../types';
-import { Tone } from './bits';
+import type { InboxAccess, MarketingSettings } from '../types';
+import { Switch, Tone } from './bits';
+
+const INBOX_OPTIONS: [InboxAccess, string][] = [
+  ['owner', 'Owner only'], ['owner_manager', 'Owner and managers'], ['no_instructors', 'All staff except instructors (default)'], ['all_staff', 'All staff'],
+];
 
 export function MarketingSettingsTab() {
   const { can, studio } = useStudio();
@@ -19,7 +23,7 @@ export function MarketingSettingsTab() {
   if (!d || !s.data) return s.error ? <p className="form-err">{s.error.message}</p> : <Loading />;
   const disabled = !can('marketing.manage');
   const dirty = JSON.stringify(d) !== JSON.stringify(s.data);
-  const set = (k: keyof MarketingSettings, v: string) => setD({ ...d, [k]: v });
+  const set = <K extends keyof MarketingSettings>(k: K, v: MarketingSettings[K]) => setD({ ...d, [k]: v });
   const p = pushProvider();
   const mine = push.data?.registered;
   const turnOn = () => run(async () => {
@@ -42,6 +46,21 @@ export function MarketingSettingsTab() {
           <label className="field"><span>Text sender name or number</span><input className="input" value={d.smsSender} disabled={disabled} placeholder="Provider default" onChange={(e) => set('smsSender', e.target.value)} /></label>
           <label className="field span2"><span>Extra line in the email footer</span><input className="input" value={d.footerNote} disabled={disabled} onChange={(e) => set('footerNote', e.target.value)} placeholder="You’re getting this because you joined our newsletter." /></label>
         </div>
+      </section>
+      <section className="card pad">
+        <h3>Client <em>messages</em></h3>
+        <p className="muted small mk-set-sub">Clients write to you from Profile › Messages in their app. Choose who reads the inbox and how you and your clients hear about new messages.</p>
+        <div className="form-grid">
+          <label className="field span2"><span>Who can use the inbox</span>
+            <select className="input" value={d.inboxAccess} disabled={disabled} onChange={(e) => set('inboxAccess', e.target.value as InboxAccess)}>
+              {INBOX_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          </label>
+        </div>
+        <ul className="mk-prov">
+          <li><span><strong>Email me when a client messages</strong>Goes to {studio.email || 'the owner’s email'}, with a snippet and a link to the inbox. At most one every 15 minutes per conversation.</span><Switch checked={d.emailStudio} disabled={disabled} label="Email me when a client messages" onChange={(v) => set('emailStudio', v)} /></li>
+          <li><span><strong>Email clients when we reply (if they don’t have notifications on)</strong>So they don’t miss it. Same 15 minute limit. You can reword it in Settings › Emails.</span><Switch checked={d.emailClient} disabled={disabled} label="Email clients when we reply" onChange={(v) => set('emailClient', v)} /></li>
+        </ul>
       </section>
       <section className="card pad">
         <h3>How things <em>send</em></h3>

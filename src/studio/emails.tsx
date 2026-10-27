@@ -14,7 +14,7 @@ function Toggle({ on, label, disabled, onChange }: { on: boolean; label: string;
   return <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} className={cx('mk-switch', on && 'on')} onClick={() => onChange(!on)}><span /></button>;
 }
 
-const GROUPS: EmailDef['group'][] = ['Classes', 'Appointments', 'Events', 'Payments'];
+const GROUPS: EmailDef['group'][] = ['Classes', 'Appointments', 'Events', 'Messages', 'Payments'];
 
 export function EmailsTab() {
   const rows = useData(() => store.listEmailTemplates(), []);

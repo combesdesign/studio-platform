@@ -7,7 +7,7 @@ import type { DemoState } from '../../data/demo/engine';
 import type { ID } from '../../shared/types';
 import { buildAudience, filterAudience, reachable, type AudienceSnapshot } from './segments';
 import type {
-  Automation, AudienceMember, Campaign, CampaignStats, MarketingSettings, MessageLogEntry, PushPlatform, Segment, InboxMessage,
+  Automation, AudienceMember, Campaign, CampaignStats, MarketingSettings, MessageLogEntry, PushPlatform, Segment, InboxMessage, InboxAlert,
 } from './types';
 
 export interface StoredCampaign extends Omit<Campaign, 'stats'> {
@@ -31,11 +31,14 @@ export interface Slice {
   messages: InboxMessage[];
   devices: StoredDevice[];
   settings: MarketingSettings;
+  /** Inbox emails the demo "sent" (studio alerts and client replies). */
+  alerts?: InboxAlert[];
 }
 
 export const emptySlice = (): Slice => ({
   segments: [], tags: {}, campaigns: [], automations: [], log: [], threads: [], messages: [], devices: [],
-  settings: { fromName: '', replyTo: '', smsSender: '', footerNote: '' },
+  settings: { fromName: '', replyTo: '', smsSender: '', footerNote: '', inboxAccess: 'no_instructors', emailStudio: true, emailClient: true },
+  alerts: [],
 });
 
 /** Fills in anything missing (a studio whose slice predates a field). */

@@ -697,6 +697,81 @@ await t('marketing: the existing drains (send-reminders, send-email flush) send 
   }
 });
 
+await t('messaging: the drain emails the studio when a client writes (snippet, link to the thread) and the client when the studio replies, as the studio; switches and push are respected', async () => {
+  const alice = id('alice_client'), aliceUser = id('alice');
+  const first = sql(`select first_name || ' ' || last_name from public.clients where id = '${alice}'`);
+  sql(`update public.studios set email = 'hello@snowy.test' where id = '${SNOWY_ID}'`);
+  const say = (sender, body) => sql(`select app.marketing_post('${SNOWY_ID}', '${alice}', '${sender}', null, '${body}')`);
+  const drain = async () => (await post(await load('send-reminders'), {}, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  const mails = (n) => calls.filter((c) => c.host === 'api.resend.com').slice(n).map((c) => JSON.parse(c.body));
+  const status = (aud) => sql(`select string_agg(status, ',' order by created_at) from public.marketing_messages where source = 'inbox' and channel = 'email' and payload ->> 'audience' = '${aud}'`);
+  sql(`insert into public.marketing_settings (studio_id) values ('${SNOWY_ID}') on conflict do nothing`);
+  try {
+    // the studio is told, once, even though the client wrote twice
+    say('client', 'Can I bring a friend on Saturday?');
+    say('client', 'Also, is parking easy?');
+    let before = calls.filter((c) => c.host === 'api.resend.com').length;
+    let j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    let got = mails(before).filter((m) => m.to[0] === 'hello@snowy.test');
+    assert.equal(got.length, 1, 'one alert for two messages');
+    assert.equal(got[0].subject, `${first} sent you a message`);
+    assert.ok(got[0].html.includes('Can I bring a friend on Saturday?') && got[0].text.includes('Can I bring a friend'), 'with a snippet');
+    assert.ok(got[0].html.includes(`#/marketing/inbox/${alice}`) && got[0].text.includes(`#/marketing/inbox/${alice}`), 'and a link to the thread');
+    assert.ok(got[0].html.includes('Snowy Pilates Club') && got[0].from.startsWith('Snowy Pilates Club'), 'as the studio');
+    assert.ok(!/Unsubscribe/.test(got[0].html), 'a service message: no unsubscribe link');
+    assert.equal(status('staff'), 'sent');
+    // the client is told of the reply, with the studio's own wording
+    sql(`insert into public.email_templates (studio_id, kind, subject) values ('${SNOWY_ID}', 'message_reply', 'A reply from {studio_name}')`);
+    say('staff', 'Of course, bring her along.');
+    before = calls.filter((c) => c.host === 'api.resend.com').length;
+    j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    got = mails(before).filter((m) => m.to[0] === 'alice@example.test');
+    assert.equal(got.length, 1, 'the client gets one email');
+    assert.equal(got[0].subject, 'A reply from Snowy Pilates Club');
+    assert.ok(got[0].html.includes('Of course, bring her along.') && got[0].html.includes('#/messages'), 'snippet and a link to Messages');
+    // switched off after queueing: closed, not sent
+    sql(`delete from public.marketing_messages where source = 'inbox'`);
+    sql(`update public.marketing_settings set email_studio = false where studio_id = '${SNOWY_ID}'`);
+    say('client', 'Another one');
+    assert.equal(status('staff'), '', 'switch off: nothing queued');
+    sql(`update public.marketing_settings set email_studio = true where studio_id = '${SNOWY_ID}'`);
+    sql(`delete from public.marketing_messages where source = 'inbox'`);
+    say('client', 'Queued while on');
+    sql(`update public.marketing_settings set email_studio = false where studio_id = '${SNOWY_ID}'`);
+    before = calls.filter((c) => c.host === 'api.resend.com').length;
+    await drain();
+    assert.equal(mails(before).filter((m) => m.to[0] === 'hello@snowy.test').length, 0, 'the drain respects the switch');
+    assert.equal(status('staff'), 'skipped');
+    sql(`update public.marketing_settings set email_studio = true where studio_id = '${SNOWY_ID}'`);
+    // push: with keys set and a web device the client is told by notification, not email; without keys they still get the email
+    sql(`delete from public.marketing_messages where source = 'inbox'`);
+    sql(`insert into public.marketing_push_devices (id, studio_id, user_id, client_id, platform, token) values ('00000000-0000-4000-8000-0000000002a1', '${SNOWY_ID}', '${aliceUser}', '${alice}', 'web', 'https://push.example/ok/mm')`);
+    say('staff', 'See you there');
+    before = calls.filter((c) => c.host === 'api.resend.com').length;
+    await drain();
+    assert.equal(mails(before).filter((m) => m.to[0] === 'alice@example.test').length, 1, 'push not configured: the email goes');
+    sql(`delete from public.marketing_messages where source = 'inbox'`);
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+    const jwk = privateKey.export({ format: 'jwk' });
+    const pub = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]).toString('base64url');
+    Object.assign(ENV, { VAPID_PUBLIC_KEY: pub, VAPID_PRIVATE_KEY: jwk.d, VAPID_SUBJECT: 'mailto:hello@studios.test' });
+    say('staff', 'And again');
+    before = calls.filter((c) => c.host === 'api.resend.com').length;
+    await drain();
+    assert.equal(mails(before).filter((m) => m.to[0] === 'alice@example.test').length, 0, 'push configured and she has a device: no email');
+    assert.equal(status('client'), 'skipped');
+  } finally {
+    delete ENV.VAPID_PUBLIC_KEY; delete ENV.VAPID_PRIVATE_KEY; delete ENV.VAPID_SUBJECT;
+    sql(`delete from public.marketing_push_devices where studio_id = '${SNOWY_ID}'`);
+    sql(`delete from public.email_templates where studio_id = '${SNOWY_ID}' and kind = 'message_reply'`);
+    sql(`update public.marketing_settings set email_studio = true, email_client = true where studio_id = '${SNOWY_ID}'`);
+    sql(`delete from public.marketing_messages where studio_id = '${SNOWY_ID}'`);
+    sql(`delete from public.marketing_thread_messages`); sql(`delete from public.marketing_threads`);
+  }
+});
+
 await t('web push: the drain sends encrypted, VAPID-signed pushes, drops dead subscriptions (410), and waits in the queue until keys are set', async () => {
   const alice = id('alice_client'), aliceUser = id('alice');
   const b64u = (b) => Buffer.from(b).toString('base64url');

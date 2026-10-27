@@ -11,7 +11,7 @@ import './permissions';
 import { registerLiveFeature, type LiveFeatureContext } from '../../data/supabase/features';
 import { validateCampaign } from './validate';
 import type {
-  AudiencePreview, Automation, AutomationRun, Campaign, CampaignDetail, InboxMessage, InboxThread, InboxThreadDetail, MarketingSettings,
+  AudiencePreview, Automation, AutomationRun, Campaign, CampaignDetail, InboxAccess, InboxMessage, InboxThread, InboxThreadDetail, MarketingSettings,
   MarketingStore, MessageLogEntry, MyThread, ProviderStatus, PushStatus, Segment, SegmentWithCount,
 } from './types';
 
@@ -119,6 +119,7 @@ function create(ctx: LiveFeatureContext): MarketingStore {
 
     // ---------------------------------------------------------------- settings
     getSettings: () => ctx.read(() => rpc<MarketingSettings>('marketing_get_settings')),
+    getInboxAccess: () => ctx.read(() => rpc<{ access: InboxAccess; allowed: boolean }>('marketing_inbox_access')),
     updateSettings: (patch) => ctx.write(() => rpc<MarketingSettings>('marketing_update_settings', { p_patch: patch as unknown as Row })),
     getProviders: () => ctx.read(async (): Promise<ProviderStatus> => ({
       sms: { provider: 'stub', ready: false, note: 'Texts are queued and logged by a stub until Twilio is set up. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM to the marketing-send function to send real ones.' },

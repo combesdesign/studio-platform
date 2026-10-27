@@ -5,13 +5,14 @@ import type { Client } from '../../../shared/types';
 import { Icon, SheetHead, useStudio } from '../../../studio/ui';
 import { smsInfo } from '../render';
 import { ago, marketing, needMarketing } from '../api';
-import { useInboxLive } from './inbox';
+import { useInboxAccess, useInboxLive } from './inbox';
 
 /** Today › side: unread client messages. Renders nothing when there are none. */
 export function InboxWidget() {
   const t = useData(async () => (await marketing()?.listThreads())?.filter((x) => x.unread > 0) ?? [], []);
   useInboxLive(t.reload);
-  if (!t.data?.length) return null;
+  const access = useInboxAccess();
+  if (!access.allowed || !t.data?.length) return null;
   return (
     <section className="card pad mk-widget">
       <h3>New <em>messages</em></h3>
@@ -30,12 +31,14 @@ export function InboxWidget() {
 
 /** Client profile › header button. */
 export function MessageButton({ client }: { client: Client }) {
+  if (!useInboxAccess().allowed) return null;
   return <a className="btn soft" href={`#/marketing/inbox/${client.id}`}><Icon name="mail" size={18} />Message</a>;
 }
 
 /** Client profile › header button: one-off text to this client (owner, manager, front desk). */
 export function SendTextButton({ client }: { client: Client }) {
   const [open, setOpen] = useState(false);
+  if (!useInboxAccess().allowed) return null;
   return (
     <>
       <button type="button" className="btn soft" onClick={() => setOpen(true)}><Icon name="phone" size={18} />Send a text</button>

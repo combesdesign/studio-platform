@@ -10,6 +10,12 @@ export function useInboxLive(reload: () => void) {
   useEffect(() => marketing()?.subscribeInbox?.(reload), [reload]);
 }
 
+/** Can this staff member use the inbox, under the studio's setting? `loaded` is false until we know, so nothing flashes in or out. */
+export function useInboxAccess(): { loaded: boolean; allowed: boolean } {
+  const a = useData(async () => (await marketing()?.getInboxAccess().catch(() => null)) ?? null, []);
+  return { loaded: a.data !== undefined, allowed: a.data?.allowed ?? false };
+}
+
 export function InboxTab({ clientId }: { clientId?: string }) {
   const threads = useData(() => needMarketing().listThreads(), []);
   useInboxLive(threads.reload);

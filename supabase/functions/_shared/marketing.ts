@@ -8,6 +8,7 @@ import { must } from './db.ts';
 import { sendViaResend, studioLink } from './email.ts';
 import { env } from './http.ts';
 import { sendWebPush, vapidFromEnv } from './webpush.ts';
+import { escapeHtml, layout, renderEmail as renderClientEmail, type EmailOverride } from './emails.ts';
 import { automationBlocks, buildSms, mergeTags, renderEmail, type EmailBrand, type RenderBlock } from './marketing-render.ts';
 
 export { renderEmail, buildSms, mergeTags };
@@ -23,7 +24,9 @@ export interface Job {
   campaign: { name: string; subject: string; preheader: string; blocks: RenderBlock[]; body: string } | null;
   automation: { key: string; subject: string; heading: string; body: string; buttonLabel: string } | null;
   studio: { name: string; slug: string; email: string; address: string; branding: Any; customDomains: string[] | null };
-  settings: { fromName: string; replyTo: string; smsSender: string; footerNote: string };
+  settings: { fromName: string; replyTo: string; smsSender: string; footerNote: string; inboxAccess?: string; emailStudio?: boolean; emailClient?: boolean };
+  /** inbox emails only: the studio's own wording for the client email (Settings > Emails) */
+  emailOverrides?: Record<string, EmailOverride>;
 }
 
 // ---------------------------------------------------------------- the studio's look
@@ -93,6 +96,37 @@ export function varsFor(job: Job): Record<string, string> {
   return { ...(job.payload ?? {}), first_name: job.firstName, last_name: job.lastName, studio_name: job.studio.name, app_url: appLink(job.studio) } as Record<string, string>;
 }
 
+// ---------------------------------------------------------------- inbox emails
+
+/**
+ * The two emails around the inbox. To the studio: "<Client> sent you a message", a snippet and a link to that thread (not editable).
+ * To the client: the studio's editable 'message_reply' email (Settings > Emails), with a link to Messages. Both are service
+ * messages, so no unsubscribe link; the queue has already applied the 15-minute batching and the switches.
+ */
+export function buildInboxEmail(job: Job): { subject: string; html: string; text: string } {
+  const preview = String(job.payload?.preview ?? '').trim();
+  const b = brandFor(job.studio);
+  const base: Any = {
+    studio_name: job.studio.name, address: job.studio.address, brand: { primary: b.primary, ink: b.ink, soft: b.soft, bg: b.bg },
+    ...(b.logoUrl ? { logo_url: b.logoUrl } : {}), first_name: job.firstName, preview,
+  };
+  if (job.payload?.audience === 'staff') {
+    const who = `${job.firstName} ${job.lastName}`.trim() || 'A client';
+    const root = (studioLink(job.studio.slug, 'studio') ?? Deno.env.get('APP_URL') ?? '').replace(/#.*$/, '');
+    const url = root ? `${root}#/marketing/inbox/${job.clientId ?? ''}` : '';
+    const quote = preview ? `<blockquote style="margin:12px 0;padding:8px 14px;border-left:3px solid ${b.primary};color:#4b5563">${escapeHtml(preview)}</blockquote>` : '';
+    return {
+      subject: `${who} sent you a message`,
+      html: layout('New message', `<p><strong>${escapeHtml(who)}</strong> sent you a message in Messages.</p>${quote}`, { ...base, cta_url: url || null, cta_label: 'Open the inbox' }),
+      text: `${who} sent you a message.${preview ? `\n\n“${preview}”` : ''}${url ? `\n\nOpen the inbox: ${url}` : ''}`,
+    };
+  }
+  const root = appLink(job.studio).replace(/#.*$/, '');
+  const out = renderClientEmail('message_reply', { ...base, cta_url: root ? `${root}#/messages` : null }, job.emailOverrides?.message_reply);
+  if (!out) throw new Error('message_reply email missing');
+  return out;
+}
+
 // ---------------------------------------------------------------- push
 
 /** Web push is on when VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are all set. Until then push rows simply wait in the queue. */
@@ -139,6 +173,10 @@ async function deliver(job: Job): Promise<{ providerId?: string; links?: (string
     const body = job.source === 'inbox' ? String(job.payload?.body ?? '') : buildSms(job.campaign?.body ?? job.automation?.body ?? '', vars, { marketing: job.kind === 'marketing' });
     return { providerId: await sendSms(job.to, body, job.settings.smsSender) };
   }
+  if (job.source === 'inbox') {
+    await sendViaResend(job.to, buildInboxEmail(job), { fromName: job.settings.fromName || job.studio.name, replyTo: job.settings.replyTo || job.studio.email || undefined });
+    return {};
+  }
   const m = buildEmail(job, vars);
   const subject = mergeTags((job.subject ?? '').trim() || job.campaign?.subject || job.automation?.subject || '', vars).trim() || job.studio.name;
   await sendViaResend(job.to, { subject, html: m.html, text: m.text }, { fromName: job.settings.fromName || job.studio.name, replyTo: job.settings.replyTo || job.studio.email || undefined });
@@ -150,7 +188,7 @@ async function deliver(job: Job): Promise<{ providerId?: string; links?: (string
 export async function drainMarketing(admin: Db, limit = 50): Promise<{ sent: number; failed: number }> {
   // Due scheduled campaigns and automations are queued first (idempotent: the sent log's unique key stops repeats).
   must(await admin.rpc('marketing_tick'));
-  const jobs = (must(await admin.rpc('marketing_claim', { p_channels: vapid() ? ['email', 'sms', 'push'] : ['email', 'sms'], p_limit: limit })) ?? []) as Job[];
+  const jobs = (must(await admin.rpc('marketing_claim', { p_channels: vapid() ? ['email', 'sms', 'push'] : ['email', 'sms'], p_limit: limit, p_push_on: Boolean(vapid()) })) ?? []) as Job[];
   let sent = 0, failed = 0;
   for (const job of jobs) {
     try {

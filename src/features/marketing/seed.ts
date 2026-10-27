@@ -30,7 +30,7 @@ export function seedMarketing(args: { studio: Studio; state: DemoState; now: Dat
     id: newId('sg'), name: s.name, description: s.description, filter: JSON.parse(JSON.stringify(s.filter)), createdAt: iso(nowMs - (60 - i) * DAY_MS),
   }));
   const seg = (name: string) => slice.segments.find((s) => s.name === name)!;
-  slice.settings = { fromName: studio.name, replyTo: studio.email, smsSender: '', footerNote: '' };
+  slice.settings = { fromName: studio.name, replyTo: studio.email, smsSender: '', footerNote: '', inboxAccess: 'no_instructors', emailStudio: true, emailClient: true };
   // A brand-new studio has no clients yet: it gets the starter audiences and the automations, but no made-up history.
   if (!state.clients.some((c) => !c.archived)) {
     slice.automations = defaultAutomations().map((a) => ({ ...a, updatedAt: iso(nowMs) }));
@@ -239,7 +239,7 @@ export function seedMarketing(args: { studio: Studio; state: DemoState; now: Dat
     { id: newId('pd'), who: `staff:${owner.id}`, platform: 'web', token: 'demo-web-owner', at: iso(nowMs - 9 * DAY_MS) },
     { id: newId('pd'), who: `staff:${staffReply.id}`, platform: 'ios', token: 'demo-ios-desk', at: iso(nowMs - 5 * DAY_MS) },
   ];
-  slice.settings = { fromName: studio.name, replyTo: studio.email, smsSender: '', footerNote: '' };
+  slice.settings = { fromName: studio.name, replyTo: studio.email, smsSender: '', footerNote: '', inboxAccess: 'no_instructors', emailStudio: true, emailClient: true };
   return slice;
 }
 

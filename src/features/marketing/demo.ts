@@ -3,7 +3,7 @@
  * (see slice.ts), so it persists, syncs between tabs (the studio app and the client app) and resets with the demo.
  * Nothing is really sent: emails and texts go into a send log, with simulated opens and clicks.
  */
-import './permissions';
+import { canUseInbox } from './permissions';
 import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/features';
 import type { ID } from '../../shared/types';
 import { AUTOMATION_CATALOG, defaultAutomations } from './catalog';
@@ -14,7 +14,7 @@ import {
 } from './slice';
 import { cleanAutomation, cleanBody, cleanFilter, cleanTags, validateCampaign } from './validate';
 import type {
-  AudiencePreview, Automation, AutomationInput, AutomationRun, Campaign, CampaignDetail, InboxMessage, InboxThread,
+  AudiencePreview, Automation, AutomationInput, AutomationRun, Campaign, CampaignDetail, InboxAccess, InboxAlert, InboxMessage, InboxThread,
   InboxThreadDetail, MarketingSettings, MarketingStore, MessageLogEntry, MyThread, ProviderStatus, PushPlatform, PushRegistration,
   PushStatus, Segment, SegmentWithCount,
 } from './types';
@@ -107,6 +107,46 @@ function create(ctx: DemoFeatureContext): MarketingStore {
     const u = ctx.me();
     if (u.kind !== 'client') throw err('NOT_ALLOWED', 'Messages from clients can only be sent from the client app.');
     return u.clientId;
+  };
+  /** The sender settings, with the inbox ones filled in for a studio saved before they existed. */
+  const cfg = (): MarketingSettings => {
+    const s = S().settings;
+    s.inboxAccess ??= 'no_instructors'; s.emailStudio ??= true; s.emailClient ??= true;
+    return s;
+  };
+  /** Staff who may use the inbox under the studio's setting (Settings › Marketing). Same rule as app.marketing_inbox_ok live. */
+  const needInbox = () => {
+    const st = ctx.requireStaff('marketing.inbox');
+    if (!canUseInbox(st.role, cfg().inboxAccess)) throw err('NOT_ALLOWED', 'Your role doesn’t have access to that.');
+    return st;
+  };
+  /**
+   * The inbox emails, as live queues them: a client's message emails the studio (its contact email, else the owner), and a staff reply
+   * emails the client (the editable "message_reply" email). Each switch can turn it off, and there is at most one per conversation per
+   * audience every 15 minutes. Nothing is sent from the demo: the emails are recorded (and the client's goes to their outbox).
+   * Live also skips the client's email when they have a web push device and push is configured; the demo has no push keys.
+   */
+  const queueAlert = (clientId: ID, from: 'client' | 'staff', m: InboxMessage) => {
+    const set = cfg(), audience = from === 'client' ? 'staff' : 'client';
+    if (!(audience === 'staff' ? set.emailStudio : set.emailClient)) return;
+    const c = clientOf(clientId);
+    const core = ctx.core();
+    const to = audience === 'staff'
+      ? (ctx.studio().email ?? '').trim() || (core.state.staff.find((x) => x.role === 'owner' && x.active)?.email ?? '').trim()
+      : (c.email ?? '').trim();
+    if (!to) return;
+    const sl = S();
+    const alerts = (sl.alerts ??= []);
+    const now = ctx.now().getTime();
+    if (alerts.some((a) => a.clientId === clientId && a.audience === audience && now - Date.parse(a.at) < 15 * 60_000)) return;
+    const preview = m.body.replace(/\s+/g, ' ').slice(0, 120);
+    let subject = `${fullName(c)} sent you a message`;
+    if (audience === 'client') {
+      if (!core.engine.email('message_reply', clientId, undefined, { preview })) return;   // switched off in Settings > Emails
+      subject = core.state.outbox.at(-1)?.subject ?? subject;
+    }
+    alerts.push({ at: ctx.now().toISOString(), audience, clientId, to, subject, preview });
+    if (alerts.length > 100) alerts.splice(0, alerts.length - 100);
   };
   const whoKey = () => { const u = ctx.me(); return u.kind === 'client' ? `client:${u.clientId}` : `staff:${u.staffId}`; };
 
@@ -299,23 +339,24 @@ function create(ctx: DemoFeatureContext): MarketingStore {
 
     // ================================================================ inbox (staff)
     listThreads: () => ctx.read(() => {
-      ctx.requireStaff('marketing.inbox');
+      needInbox();
       const live = new Set(ctx.core().state.clients.filter((c) => !c.archived).map((c) => c.id));
       return S().threads.filter((t) => live.has(t.clientId)).map(toThread).sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
     }),
     getThread: (clientId) => ctx.read((): InboxThreadDetail => {
-      ctx.requireStaff('marketing.inbox'); clientOf(clientId);
+      needInbox(); clientOf(clientId);
       const t = threadFor(clientId);
       return { thread: t ? toThread(t) : null, messages: t ? msgsOf(t.id) : [] };
     }),
     sendStaffMessage: (clientId, body) => ctx.write((): InboxMessage => {
-      const staff = ctx.requireStaff('marketing.inbox'); clientOf(clientId);
+      const staff = needInbox(); clientOf(clientId);
       const m = addMessage(clientId, 'staff', cleanBody(body, err), staff.name);
       threadFor(clientId)!.staffUnread = 0; // replying means they've read it
+      queueAlert(clientId, 'staff', m);
       return m;
     }),
     sendText: (clientId, body) => ctx.write((): InboxMessage => {
-      const staff = ctx.requireStaff('marketing.inbox');
+      const staff = needInbox();
       const c = clientOf(clientId);
       if (!(c.phone ?? '').trim()) throw err('NO_PHONE', `${c.firstName} doesn’t have a mobile number saved.`);
       const text = (body ?? '').replace(/\r\n/g, '\n').trim();
@@ -330,12 +371,12 @@ function create(ctx: DemoFeatureContext): MarketingStore {
       return m;
     }),
     markThreadRead: (clientId) => ctx.write(() => {
-      ctx.requireStaff('marketing.inbox');
+      needInbox();
       const t = threadFor(clientId);
       if (t) t.staffUnread = 0;
     }),
     inboxUnreadCount: () => ctx.read(() => {
-      ctx.requireStaff('marketing.inbox');
+      needInbox();
       return S().threads.reduce((n, t) => n + t.staffUnread, 0);
     }),
 
@@ -348,6 +389,7 @@ function create(ctx: DemoFeatureContext): MarketingStore {
       const id = myClient();
       const m = addMessage(id, 'client', cleanBody(body, err));
       threadFor(id)!.clientUnread = 0; // sending means they're in the conversation
+      queueAlert(id, 'client', m);
       return m;
     }),
     markMyThreadRead: () => ctx.write(() => { const t = threadFor(myClient()); if (t) t.clientUnread = 0; }),
@@ -383,10 +425,21 @@ function create(ctx: DemoFeatureContext): MarketingStore {
     }),
 
     // ================================================================ settings
-    getSettings: () => ctx.read((): MarketingSettings => { ctx.requireStaff('marketing.view'); return { ...S().settings }; }),
+    getSettings: () => ctx.read((): MarketingSettings => { ctx.requireStaff('marketing.view'); return { ...cfg() }; }),
+    getInboxAccess: () => ctx.read(() => {
+      const st = ctx.requireStaff('marketing.inbox');
+      return { access: cfg().inboxAccess, allowed: canUseInbox(st.role, cfg().inboxAccess) };
+    }),
+    listInboxAlerts: () => ctx.read((): InboxAlert[] => { ctx.requireStaff('marketing.view'); return [...(S().alerts ?? [])]; }),
     updateSettings: (patch) => ctx.write((): MarketingSettings => {
       ctx.requireStaff('marketing.manage');
-      const s = S().settings;
+      const s = cfg();
+      if (patch.inboxAccess !== undefined) {
+        if (!['owner', 'owner_manager', 'no_instructors', 'all_staff'].includes(patch.inboxAccess)) throw err('INVALID', 'Pick who can use the inbox.');
+        s.inboxAccess = patch.inboxAccess as InboxAccess;
+      }
+      if (patch.emailStudio !== undefined) s.emailStudio = !!patch.emailStudio;
+      if (patch.emailClient !== undefined) s.emailClient = !!patch.emailClient;
       for (const k of ['fromName', 'replyTo', 'smsSender', 'footerNote'] as const) {
         const v = patch[k];
         if (v === undefined) continue;
