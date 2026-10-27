@@ -71,6 +71,8 @@ export interface ClientProfileEntry {
   path: string;
   order?: number;
   feature?: string;
+  /** A small element shown before the chevron, e.g. an unread count. It loads its own data and renders nothing when there is none. */
+  badge?: React.ReactElement;
 }
 const clientTabs: ClientTab[] = [];
 const clientRoutes: ClientRoute[] = [];

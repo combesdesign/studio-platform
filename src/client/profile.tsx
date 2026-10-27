@@ -106,6 +106,7 @@ export function Profile({ nav }: { nav: Nav }) {
             <button key={e.id} className="list-row" onClick={() => goFlow(nav, e.path, { label: 'Profile', where: '/profile' })}>
               <span className="row-ic">{typeof e.icon === 'string' ? <Icon name={e.icon} size={20} /> : e.icon}</span>
               <span className="list-row-main"><span className="list-row-title">{e.label}</span>{e.sub && <span className="list-row-sub">{e.sub}</span>}</span>
+              {e.badge}
               <Icon name="chevron" size={18} className="faint" />
             </button>
           ))}

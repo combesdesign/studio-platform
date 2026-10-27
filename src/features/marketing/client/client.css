@@ -17,3 +17,4 @@
 .mk-compose .btn { width: 48px; min-width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; }
 .mk-prompt { flex-wrap: wrap; margin: 14px 0 0; }
 .mk-prompt-btns { display: flex; gap: 8px; margin-left: auto; }
+.mk-unread { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 13px; line-height: 1; margin-right: 4px; }

@@ -65,4 +65,13 @@ export function MessagesScreen({ nav, path }: { nav: Nav; path: string }) {
   );
 }
 
+/** Unread replies, shown on the Profile › Messages row. */
+export function MessagesBadge() {
+  const n = useData(async () => (await marketing()?.myUnreadCount()) ?? 0, []);
+  const reload = n.reload;
+  useEffect(() => marketing()?.subscribeInbox?.(reload), [reload]);
+  if (!n.data) return null;
+  return <span className="mk-unread" aria-label={`${n.data} unread`}>{n.data}</span>;
+}
+
 export const MessagesIcon = ({ size = 20 }: { size?: number }) => <Icon name="mail" size={size} />;
