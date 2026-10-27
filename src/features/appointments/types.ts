@@ -157,6 +157,9 @@ export interface Appointment {
   cancelledAt?: ISODateTime;
   /** Cancelled in time after paying money: the studio still has to refund it (Refund button; the core refund does the work). */
   refundDue?: boolean;
+  /** The room it is held in (staff choose it, only when the studio has more than one room). Its location comes with it. */
+  roomId?: ID;
+  locationId?: ID;
 }
 
 export interface BookAppointmentInput {
@@ -168,6 +171,8 @@ export interface BookAppointmentInput {
   /** Staff booking on behalf. Clients book themselves. */
   clientId?: ID;
   note?: string;
+  /** Staff only, and only when the studio has several rooms. A busy room is refused with ROOM_BUSY. */
+  roomId?: ID;
   pay: { method: AppointmentPayMethod; /** Optional: a specific credit. Default: the one expiring soonest. */ creditId?: ID };
 }
 
@@ -206,6 +211,9 @@ export interface StudioEvent {
   capacity: number;
   hostStaffId?: ID;
   location?: string;
+  /** The room every session is held in, when the studio has several rooms (the location is filled in from it). A busy room is refused with ROOM_BUSY. */
+  roomId?: ID;
+  locationId?: ID;
   /** 1+ sessions, sorted. */
   sessions: EventSession[];
   /** Clients only see published events. */

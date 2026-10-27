@@ -10,6 +10,8 @@ export interface RoomUse {
   endsAt: ISODateTime;
   /** Shown in the warning: 'Reformer Flow'. */
   label?: string;
+  /** The thing this belongs to when one thing holds the room several times (an event's sessions): never a clash with itself. */
+  ownerId?: ID | undefined;
 }
 
 /** Half-open: a class that ends at 9:00 doesn't clash with one that starts at 9:00. */
@@ -20,13 +22,24 @@ export function timesOverlap(aStart: string, aEnd: string, bStart: string, bEnd:
 /** The first use of the same room that overlaps. No room, no clash. */
 export function findRoomClash(want: { roomId?: ID | undefined; startsAt: string; endsAt: string; ignoreId?: ID | undefined }, uses: readonly RoomUse[]): RoomUse | undefined {
   if (!want.roomId) return undefined;
-  return uses.find((u) => u.roomId === want.roomId && u.id !== want.ignoreId && timesOverlap(want.startsAt, want.endsAt, u.startsAt, u.endsAt));
+  return uses.find((u) => u.roomId === want.roomId && !(want.ignoreId && (u.id === want.ignoreId || u.ownerId === want.ignoreId)) && timesOverlap(want.startsAt, want.endsAt, u.startsAt, u.endsAt));
 }
 
 /** Scheduled (not cancelled) classes as room uses. */
 export function classUses(sessions: readonly ClassSession[], classTypes: readonly ClassType[]): RoomUse[] {
   const name = new Map(classTypes.map((c) => [c.id, c.name]));
   return sessions.filter((s) => s.status !== 'cancelled' && s.roomId).map((s) => ({ id: s.id, kind: 'class' as const, roomId: s.roomId, startsAt: s.startsAt, endsAt: s.endsAt, label: name.get(s.classTypeId) ?? 'Class' }));
+}
+
+/** Appointments that hold a room (the database's statuses: booked, completed, no-show, awaiting payment). Structural, so the demo can read the feature's slice. */
+export function appointmentUses(appts: readonly { id: ID; roomId?: ID | undefined; startsAt: ISODateTime; endsAt: ISODateTime; status: string }[]): RoomUse[] {
+  const holds = ['booked', 'completed', 'no_show', 'pending_payment'];
+  return appts.filter((a) => a.roomId && holds.includes(a.status)).map((a) => ({ id: a.id, kind: 'appointment' as const, roomId: a.roomId, startsAt: a.startsAt, endsAt: a.endsAt, label: 'an appointment' }));
+}
+
+/** Each session of an event that hasn't been cancelled holds the event's room. */
+export function eventUses(events: readonly { id: ID; title: string; roomId?: ID | undefined; cancelled?: boolean | undefined; sessions: readonly { startsAt: ISODateTime; endsAt: ISODateTime }[] }[]): RoomUse[] {
+  return events.filter((e) => e.roomId && !e.cancelled).flatMap((e) => e.sessions.map((s, i) => ({ id: `${e.id}#${i}`, ownerId: e.id, kind: 'event' as const, roomId: e.roomId, startsAt: s.startsAt, endsAt: s.endsAt, label: e.title })));
 }
 
 /** 'Reformer Flow at 6:15am'-style text for the warning. Time comes from the caller so this stays timezone-free. */

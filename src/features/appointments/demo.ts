@@ -6,6 +6,7 @@
 import './permissions';
 import { registerDemoFeature, type DemoFeatureContext } from '../../data/demo/features';
 import { can } from '../../domain/permissions';
+import { locationOfRoom } from '../../domain/rooms';
 import { StoreError } from '../../shared/store';
 import { addDays, dateTime as dateTimeLabel, studioDate } from '../../shared/format';
 import { renderEmail, type EmailPayload } from '../../domain/emails';
@@ -79,6 +80,13 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
   const guardianOf = (id: ID): ID | undefined => clientOf(id)?.guardianClientId;
   const familyOf = (clientId: ID): ID[] => [clientId, ...core().clients.filter((c) => c.guardianClientId === clientId && !c.archived).map((c) => c.id)];
   const requireView = (): Staff => ctx.requireStaff('appointments.view');
+  /** A room to hold, with the location it is in. Undefined when none was chosen; NOT_FOUND for a room this studio doesn't have. */
+  const roomPlace = (roomId?: ID): { roomId: ID; locationId: ID } | undefined => {
+    if (!roomId) return undefined;
+    const locationId = locationOfRoom(ctx.core().engine.ensureLocations().rooms, roomId);
+    if (!locationId) throw err('NOT_FOUND', 'That room could not be found.');
+    return { roomId, locationId };
+  };
 
   // ------------------------------------------------------------ decorate
   const dec = (a: StoredAppointment): Appointment => ({ ...a, staffName: staffOf(a.staffId)?.name ?? 'Instructor', clientName: fullName(clientOf(a.clientId)) });
@@ -327,6 +335,8 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (!Number.isInteger(people) || people < 1 || people > type.capacity) throw err('INVALID', type.capacity === 1 ? 'This is a one-to-one session.' : `This session takes up to ${type.capacity} people.`);
       requireWaiver(clientId, w);
       checkMethod(w, input.pay.method, true);
+      // Staff can hold a room for it (a client's booking never does). The clash rule is the one classes and events follow.
+      const place = w.kind === 'staff' ? roomPlace(input.roomId) : undefined;
 
       const startsAt = new Date(input.startsAt).toISOString();
       const day = studioDate(new Date(startsAt));
@@ -359,8 +369,9 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
         });
         payment = { method: input.pay.method, amountCents: sale.totalCents, saleId: sale.id };
       }
+      if (place) ctx.core().engine.assertRoomFree({ roomId: place.roomId, startsAt, endsAt: open.endsAt });
       const appt: StoredAppointment = {
-        id: ctx.newId('apt'), typeId: type.id, typeName: type.name, staffId: input.staffId, clientId, people, startsAt, endsAt: open.endsAt, bufferMin: type.bufferMin,
+        ...place, id: ctx.newId('apt'), typeId: type.id, typeName: type.name, staffId: input.staffId, clientId, people, startsAt, endsAt: open.endsAt, bufferMin: type.bufferMin,
         status: 'booked', payment, source: w.kind === 'client' ? 'client' : 'staff', createdAt: now.toISOString(),
         ...(input.note?.trim() ? { note: input.note.trim() } : {}), ...(staffId ? { bookedByStaffId: staffId } : {}),
       };
@@ -425,6 +436,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       }
       // the same appointment, a new time: payment, credits and history stay as they were
       const previous = { previous_when: dateTimeLabel(a.startsAt), previous_staff: staffOf(a.staffId)?.name ?? '' };
+      if (a.roomId) ctx.core().engine.assertRoomFree({ roomId: a.roomId, startsAt, endsAt: open.endsAt, id: a.id });
       a.startsAt = startsAt; a.endsAt = open.endsAt; a.staffId = staffId; a.bufferMin = type.bufferMin;
       queueEmail(a.clientId, 'appointment_moved', `${a.typeName} moved to ${startsAt}`, apptInfo(a, previous));
       return dec(a);
@@ -514,10 +526,13 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       const existing = input.id ? S().events.find((e) => e.id === input.id) : undefined;
       if (input.id && !existing) throw err('NOT_FOUND', 'We couldn’t find that event.');
       if (existing && input.capacity < registeredCount(existing.id)) throw err('INVALID', `${registeredCount(existing.id)} people are registered, so capacity can’t go below that.`);
+      const place = roomPlace(input.roomId);
+      if (place && !existing?.cancelled) for (const s of sessions) ctx.core().engine.assertRoomFree({ roomId: place.roomId, startsAt: s.startsAt, endsAt: s.endsAt, ...(existing ? { id: existing.id } : {}) });
       const e: StudioEvent = {
         ...(existing ?? {}), ...input, id: existing?.id ?? ctx.newId('aev'), title: input.title.trim(), sessions,
         description: input.description ?? '', createdAt: existing?.createdAt ?? ctx.now().toISOString(),
       };
+      if (place) Object.assign(e, place); else { delete e.roomId; delete e.locationId; }
       const list = S().events;
       const i = list.findIndex((x) => x.id === e.id);
       if (i >= 0) list[i] = e; else list.push(e);

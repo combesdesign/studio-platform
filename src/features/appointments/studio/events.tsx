@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Sheet, store, useAction, useData, useToast } from '../../../shared/react';
 import { money, studioDate, studioToUTC } from '../../../shared/format';
 import { ClientSearch, MethodPicker } from '../../../studio/book';
+import { RoomPicker, placeLabel, useLocations } from '../../../studio/locations';
 import { Confirm, Empty, Fill, Icon, Loading, Seg, SheetHead, cx, roleCan, toCents, toDollars, useStudio } from '../../../studio/ui';
 import { KIND_LABEL, REG_STATUS_LABEL, clock, dateOf, dayLabel, eventWhen, needAppts, price, range, studioMinutes } from '../api';
 import { eventEnd, eventProblem, eventStart, fromMinutes } from '../logic';
@@ -67,6 +68,7 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
   const [pick, setPick] = useState<{ id: string; name: string } | null>(null);
   const [cancelEv, setCancelEv] = useState(false);
   const [reason, setReason] = useState('');
+  const places = useLocations();
   const e = ev.data;
   if (!e) return <><SheetHead title="Event" onClose={onClose} /><Loading /></>;
   const list = regs.data ?? [];
@@ -80,6 +82,7 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
     if (r.payment.saleId) await store.refundSale(r.payment.saleId, { reason: 'Event cancelled' });
     await ap.markRefunded({ registrationId: r.id }); reload();
   }, 'Refunded');
+  const place = placeLabel(e, places.locations, places.rooms);
   return (
     <>
       <SheetHead title={e.title} sub={`${KIND_LABEL[e.kind]} · ${eventWhen(e)}${e.location ? ` · ${e.location}` : ''}`} onClose={onClose} />
@@ -87,6 +90,7 @@ function EventSheet({ id, onClose, onEdit }: { id: string; onClose: () => void; 
         <span className="chip">{going.length} / {e.capacity} signed up</span><span className="chip">{price(e.priceCents)}</span>
         {e.waitlisted > 0 && <span className="chip warn">{e.waitlisted} on the waitlist</span>}
         {e.hostStaffId && <span className="chip">Host: {staffById(e.hostStaffId)?.name ?? 'Instructor'}</span>}
+        {place && <span className="chip">{place}</span>}
         {e.cancelled ? <span className="chip danger">Cancelled{e.cancelReason ? `: ${e.cancelReason}` : ''}</span> : !e.published && <span className="chip warn">Draft, hidden from clients</span>}
       </div>
       {e.sessions.length > 1 && <ul className="ap-sessions" style={{ marginBottom: 14 }}>{e.sessions.map((s, i) => <li key={s.startsAt}><span>Session {i + 1} · {dayLabel(s.startsAt)}</span><span>{range(s.startsAt, s.endsAt)}</span></li>)}</ul>}
@@ -163,7 +167,7 @@ function EventEditor({ event, onClose, onSaved }: { event: StudioEventSummary | 
   const toast = useToast();
   const [v, setV] = useState(() => ({
     kind: (event?.kind ?? 'workshop') as EventKind, title: event?.title ?? '', description: event?.description ?? '', price: toDollars(event?.priceCents ?? 0), capacity: String(event?.capacity ?? 12),
-    hostStaffId: event?.hostStaffId ?? '', location: event?.location ?? '', published: event?.published ?? true, refundCutoffHours: String(event?.refundCutoffHours ?? 48),
+    hostStaffId: event?.hostStaffId ?? '', location: event?.location ?? '', roomId: event?.roomId ?? '', locationId: event?.locationId ?? '', published: event?.published ?? true, refundCutoffHours: String(event?.refundCutoffHours ?? 48),
   }));
   const [sessions, setSessions] = useState<Sess[]>(() => event && event.sessions.length
     ? event.sessions.map((s) => ({ date: dateOf(s.startsAt), start: fromMinutes(studioMinutes(s.startsAt)), end: fromMinutes(studioMinutes(s.endsAt) || 24 * 60 - 1) }))
@@ -174,7 +178,7 @@ function EventEditor({ event, onClose, onSaved }: { event: StudioEventSummary | 
 
   const input = (): StudioEventInput => ({
     ...(event ? { id: event.id } : {}), kind: v.kind, title: v.title.trim(), description: v.description.trim(), priceCents: toCents(v.price), capacity: Math.round(Number(v.capacity) || 0),
-    ...(v.hostStaffId ? { hostStaffId: v.hostStaffId } : {}), ...(v.location.trim() ? { location: v.location.trim() } : {}), published: v.published,
+    ...(v.hostStaffId ? { hostStaffId: v.hostStaffId } : {}), ...(v.location.trim() ? { location: v.location.trim() } : {}), ...(v.roomId ? { roomId: v.roomId, locationId: v.locationId } : {}), published: v.published,
     refundCutoffHours: Math.max(0, Math.round(Number(v.refundCutoffHours) || 0)),
     sessions: sessions.map((s) => ({ startsAt: studioToUTC(s.date, s.start), endsAt: studioToUTC(s.date, s.end) })).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
   });
@@ -197,6 +201,7 @@ function EventEditor({ event, onClose, onSaved }: { event: StudioEventSummary | 
           <label className="field"><span>Spots</span><input className="input" inputMode="numeric" value={v.capacity} onChange={set('capacity')} /></label>
           <label className="field"><span>Host</span><select className="select" value={v.hostStaffId} onChange={set('hostStaffId')}><option value="">No one in particular</option>{staff.filter((s) => s.active !== false).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
           <label className="field"><span>Where</span><input className="input" value={v.location} onChange={set('location')} placeholder="Studio, rooftop…" /></label>
+          <RoomPicker roomId={v.roomId || undefined} onChange={(room) => setV({ ...v, roomId: room?.id ?? '', locationId: room?.locationId ?? '' })} />
           <label className="field"><span>Full refund up to (hours before the first session)</span><input className="input" inputMode="numeric" value={v.refundCutoffHours} onChange={set('refundCutoffHours')} /></label>
         </div>
         <div>

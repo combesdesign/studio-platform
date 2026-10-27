@@ -18,7 +18,7 @@ import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
   checkPassForSession, compareWaitlist, comparePassPriority, computePassStatus, generateSessions, hasEnded, hasStarted,
   isCountedPass, isEditableMembership, isFamilyShareable, isIntroEligible, isPausedOn, membershipChangeCents, nextBillingAfter, passFieldsFrom, renewalDateProblem, pickWaitlistPromotion, withinBookingWindow,
-  studioDay as studioDate, classUses, sessionLayout, isBookableSpot, pickSpot, clashMessage, findRoomClash, locationOfRoom, type Eligibility, type PassUse,
+  studioDay as studioDate, classUses, appointmentUses, eventUses, sessionLayout, isBookableSpot, pickSpot, clashMessage, findRoomClash, locationOfRoom, type Eligibility, type PassUse,
 } from '../../domain';
 
 export const STATE_VERSION = 1;
@@ -331,7 +331,10 @@ export class Engine {
 
   /** The class (or other room use) a session would clash with, if any. */
   roomClash(want: { roomId?: ID | undefined; startsAt: string; endsAt: string; id?: ID | undefined }): ReturnType<typeof findRoomClash> {
-    return findRoomClash({ roomId: want.roomId, startsAt: want.startsAt, endsAt: want.endsAt, ignoreId: want.id }, classUses(this.s.sessions, this.s.classTypes));
+    // Classes, and the appointments feature's appointments and events when the studio has any (it keeps them in its own slice).
+    const ap = this.s.features?.appointments as { appointments?: Parameters<typeof appointmentUses>[0]; events?: Parameters<typeof eventUses>[0] } | undefined;
+    const uses = [...classUses(this.s.sessions, this.s.classTypes), ...appointmentUses(ap?.appointments ?? []), ...eventUses(ap?.events ?? [])];
+    return findRoomClash({ roomId: want.roomId, startsAt: want.startsAt, endsAt: want.endsAt, ignoreId: want.id }, uses);
   }
 
   /** After a template changes: drop its future sessions that have no bookings, so they regenerate. */

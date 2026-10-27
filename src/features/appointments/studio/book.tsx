@@ -4,6 +4,7 @@ import { Sheet, errorMessage, store, useAction, useBackHandler, useData, useToas
 import { addDays, money, studioDate } from '../../../shared/format';
 import type { Client } from '../../../shared/types';
 import { ClientSearch, MethodPicker } from '../../../studio/book';
+import { RoomPicker, placeLabel, useLocations } from '../../../studio/locations';
 import { Avatar, Confirm, Icon, SheetHead, cx, fullName, roleCan, useStudio } from '../../../studio/ui';
 import { APPT_STATUS_LABEL, APPT_STATUS_TONE, clock, dayFull, dayLabel, dateOf, needAppts, range } from '../api';
 import { usableCredits } from '../logic';
@@ -31,6 +32,8 @@ export function AppointmentSheet({ appt, onClose }: { appt: Appointment; onClose
     onClose();
   }, 'Refunded');
   const mark = (s: 'completed' | 'no_show' | 'booked') => run(async () => { await ap.setAppointmentStatus(appt.id, s); onClose(); }, s === 'completed' ? 'Marked done' : s === 'no_show' ? 'Marked no-show' : 'Back to booked');
+  const places = useLocations();
+  const place = placeLabel(appt, places.locations, places.rooms);
   if (moving) return <StaffMoveBody appt={appt} onClose={() => setMoving(false)} onMoved={onClose} />;
   return (
     <>
@@ -45,6 +48,7 @@ export function AppointmentSheet({ appt, onClose }: { appt: Appointment; onClose
         <div className="ap-kv">
           <div><span className="muted">Client</span> <a href={`#/clients/${appt.clientId}`}>{appt.clientName}</a></div>
           <div><span className="muted">Instructor</span> {appt.staffName}</div>
+          {place && <div><span className="muted">Room</span> {place}</div>}
           {appt.bufferMin > 0 && <div><span className="muted">Buffer</span> {appt.bufferMin} min after</div>}
           <div><span className="muted">Booked</span> {appt.source === 'staff' ? 'by the studio' : 'by the client'}</div>
         </div>
@@ -145,6 +149,7 @@ function BookBody({ preset, onClose }: { preset?: Client; onClose: () => void })
   const [people, setPeople] = useState(1);
   const [method, setMethod] = useState<AppointmentPayMethod>('card_reader');
   const [note, setNote] = useState('');
+  const [roomId, setRoomId] = useState('');   // only chosen when the studio has several rooms (the picker hides itself otherwise)
   const type = types.data?.find((t) => t.id === typeId);
   const slots = useData(async () => (typeId ? ap.listSlots({ typeId, from: day, to: day }) : []), [typeId, day]);
   const credits = useData(async () => (client ? ap.listCredits(client.id) : []), [client?.id]);
@@ -169,7 +174,7 @@ function BookBody({ preset, onClose }: { preset?: Client; onClose: () => void })
   }
   const book = async () => {
     if (!sel || !type) return;
-    const r = await run(() => ap.bookAppointment({ typeId: type.id, staffId: sel.staffId, startsAt: sel.startsAt, people, clientId: client.id, ...(note.trim() ? { note: note.trim() } : {}), pay: { method } }), 'Booked');
+    const r = await run(() => ap.bookAppointment({ typeId: type.id, staffId: sel.staffId, startsAt: sel.startsAt, people, clientId: client.id, ...(note.trim() ? { note: note.trim() } : {}), ...(roomId ? { roomId } : {}), pay: { method } }), 'Booked');
     if (r) onClose();
   };
   const offering = type ? type.staffIds : [];
@@ -202,6 +207,7 @@ function BookBody({ preset, onClose }: { preset?: Client; onClose: () => void })
                   </div>
                 ) : null}
                 {method !== 'pack' && <><MethodPicker value={method as 'card_reader' | 'cash' | 'comp'} onChange={setMethod} /><div className="muted small">{method === 'comp' ? 'No charge.' : `${money(people * type.priceCents, { cents: true })} to take.`}</div></>}
+                <div className="form-grid"><RoomPicker roomId={roomId || undefined} onChange={(room) => setRoomId(room?.id ?? '')} /></div>
                 <label className="field"><span>Note for the instructor (optional)</span><textarea className="textarea" rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></label>
               </>
             )}

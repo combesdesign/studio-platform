@@ -117,7 +117,7 @@ function createStore(ctx: LiveFeatureContext): AppointmentsStore {
     bookAppointment: (input) => ctx.write(async () => {
       const r = obj(await rpc('appointments_book', {
         p_type_id: input.typeId, p_staff_id: input.staffId, p_starts_at: input.startsAt, p_people: input.people ?? 1, p_client_id: input.clientId ?? null,
-        p_note: input.note ?? null, p_method: input.pay.method, p_credit_id: input.pay.creditId ?? null,
+        p_note: input.note ?? null, p_method: input.pay.method, p_credit_id: input.pay.creditId ?? null, p_room_id: input.roomId ?? null,
       }));
       return { appointment: toAppt(r.appointment), ...(r.sale ? { sale: toSale(r.sale) } : {}) };
     }),
