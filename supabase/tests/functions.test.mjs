@@ -47,6 +47,9 @@ globalThis.fetch = async (url, init = {}) => {
   if (u.host === 'api.resend.com') return reply({ id: 'email_1' });
   if (u.host === 'sms.example') return reply({ ok: true });
   if (u.host === 'push.example') return new Response(null, { status: /^\/gone\//.test(u.pathname) ? 410 : /^\/broken\//.test(u.pathname) ? 500 : 201 }); // a fake push service
+  if (u.host === 'oauth2.googleapis.com') return reply({ access_token: 'ya29.fake', expires_in: 3600 });
+  if (u.host === 'fcm.googleapis.com') { const tok = JSON.parse(body).message.token; return tok.startsWith('dead') ? reply({ error: { code: 404, status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] } }, 404) : reply({ name: 'projects/p/messages/1' }); }
+  if (/^api(\.sandbox)?\.push\.apple\.com$/.test(u.host)) { const tok = u.pathname.split('/').pop(); return tok === 'dead410' ? reply({ reason: 'Unregistered' }, 410) : tok === 'badtok' ? reply({ reason: 'BadDeviceToken' }, 400) : tok === 'down' ? reply({ reason: 'ServiceUnavailable' }, 503) : new Response(null, { status: 200 }); }
   if (u.host === 'api.anthropic.com') return anthropic(JSON.parse(body));
   const p = u.pathname.replace('/v1/', '');
   if (p in stripeObjects) return reply(typeof stripeObjects[p] === 'function' ? stripeObjects[p](body) : stripeObjects[p]);
@@ -850,7 +853,7 @@ await t('web push: the drain sends encrypted, VAPID-signed pushes, drops dead su
     // 410 removes that subscription only
     assert.equal(sql(`select count(*) from public.marketing_push_devices where token like '%/gone/%'`), '0');
     assert.equal(sql(`select count(*) from public.marketing_push_devices where client_id = '${alice}'`), '2');
-    assert.equal(status(1), 'sent:webpush:2');
+    assert.equal(status(1), 'sent:push:2');
 
     // 3. a push service that is only down: retried, subscription kept
     device(4, 'https://push.example/broken/ccc', keys);
@@ -870,6 +873,101 @@ await t('web push: the drain sends encrypted, VAPID-signed pushes, drops dead su
     assert.equal(sql(`select count(*) from public.marketing_push_devices`), '0');
   } finally {
     delete ENV.VAPID_PUBLIC_KEY; delete ENV.VAPID_PRIVATE_KEY; delete ENV.VAPID_SUBJECT;
+    sql(`delete from public.marketing_push_devices`);
+    sql(`delete from public.marketing_messages where studio_id = '${SNOWY_ID}'`);
+  }
+});
+
+await t('native push: FCM (Android) and APNs (iPhone) send with the right auth and payload, drop dead tokens, and skip cleanly without keys', async () => {
+  const alice = id('alice_client'), aliceUser = id('alice');
+  const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const ec = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const sa = { project_id: 'snowy-proj', client_email: 'fcm@snowy-proj.iam.gserviceaccount.com', private_key: rsa.privateKey.export({ type: 'pkcs8', format: 'pem' }) };
+  const device = (n, platform, token) => sql(`insert into public.marketing_push_devices (id, studio_id, user_id, client_id, platform, token)
+    values ('00000000-0000-4000-8000-0000000002a${n}', '${SNOWY_ID}', '${aliceUser}', '${alice}', '${platform}', '${token}')`);
+  const pushRow = (n, preview) => sql(`insert into public.marketing_messages (id, studio_id, client_id, channel, source, ref_name, payload, dedupe_key)
+    values ('00000000-0000-4000-8000-0000000002b${n}', '${SNOWY_ID}', '${alice}', 'push', 'inbox', 'Message',
+            '{"audience":"client","threadId":"t1","messageId":"n${n}","preview":"${preview}"}'::jsonb, 'inbox:n${n}')`);
+  const status = (n) => sql(`select status || ':' || coalesce(provider_id, '') from public.marketing_messages where id = '00000000-0000-4000-8000-0000000002b${n}'`);
+  const drain = async () => (await post(await load('send-reminders'), {}, { 'x-cron-secret': ENV.CRON_SECRET })).json();
+  const since = (from, re) => calls.slice(from).filter((c) => re.test(c.host));
+  const hdr = (c) => Object.fromEntries(Object.entries(c.headers).map(([k, v]) => [k.toLowerCase(), v]));
+  const KEYS = ['FCM_SERVICE_ACCOUNT', 'APNS_KEY_P8', 'APNS_KEY_ID', 'APNS_TEAM_ID', 'APNS_BUNDLE_ID', 'APNS_SANDBOX'];
+  try {
+    device(1, 'android', 'fcm-live'); device(2, 'android', 'dead-fcm'); device(3, 'ios', 'ios-live'); device(4, 'ios', 'dead410'); device(5, 'ios', 'badtok');
+    pushRow(1, 'Hello phone');
+
+    // 1. no keys: it waits, nothing goes out
+    let before = calls.length;
+    let j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    assert.equal(calls.slice(before).filter((c) => /googleapis|apple\.com/.test(c.host)).length, 0);
+    assert.equal(status(1), 'queued:');
+
+    // 2. only FCM set: Android is sent, iPhones are skipped (and kept)
+    ENV.FCM_SERVICE_ACCOUNT = JSON.stringify(sa);
+    before = calls.length;
+    j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    assert.equal(since(before, /apple\.com/).length, 0, 'no APNs call without APNs keys');
+    const oauth = since(before, /oauth2/);
+    assert.equal(oauth.length, 1, 'one token exchange, reused for both devices');
+    const params = new URLSearchParams(oauth[0].body);
+    assert.equal(params.get('grant_type'), 'urn:ietf:params:oauth:grant-type:jwt-bearer');
+    const [fh, fc, fs] = params.get('assertion').split('.');
+    assert.deepEqual(JSON.parse(Buffer.from(fh, 'base64url')), { alg: 'RS256', typ: 'JWT' });
+    const fclaims = JSON.parse(Buffer.from(fc, 'base64url'));
+    assert.equal(fclaims.iss, sa.client_email);
+    assert.equal(fclaims.scope, 'https://www.googleapis.com/auth/firebase.messaging');
+    assert.equal(fclaims.aud, 'https://oauth2.googleapis.com/token');
+    assert.ok(createVerify('RSA-SHA256').update(`${fh}.${fc}`).verify(rsa.publicKey, Buffer.from(fs, 'base64url')), 'RS256 signature checks out');
+    const fcms = since(before, /fcm\.googleapis/);
+    assert.equal(fcms.length, 2);
+    const live = fcms.find((c) => JSON.parse(c.body).message.token === 'fcm-live');
+    assert.equal(live.path, '/v1/projects/snowy-proj/messages:send');
+    assert.equal(hdr(live).authorization, 'Bearer ya29.fake');
+    const msg = JSON.parse(live.body).message;
+    assert.equal(msg.notification.title, 'Snowy Pilates Club');
+    assert.equal(msg.notification.body, 'Hello phone');
+    assert.ok(msg.data.url.endsWith('#/messages'), msg.data.url);
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where token = 'dead-fcm'`), '0', 'UNREGISTERED deletes the token');
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where platform = 'ios'`), '3', 'iPhones kept while APNs is off');
+    assert.equal(status(1), 'sent:push:1');
+
+    // 3. APNs set too (sandbox): headers, ES256 token, payload, dead tokens removed
+    Object.assign(ENV, { APNS_KEY_P8: ec.privateKey.export({ type: 'pkcs8', format: 'pem' }), APNS_KEY_ID: 'KEY123ABCD', APNS_TEAM_ID: 'TEAM123456', APNS_BUNDLE_ID: 'com.snowypilatesclub.app', APNS_SANDBOX: '1' });
+    pushRow(2, 'Second');
+    before = calls.length;
+    j = await drain();
+    assert.equal(j.failed, 0, JSON.stringify(j));
+    const aps = since(before, /apple\.com/);
+    assert.equal(aps.length, 3);
+    assert.ok(aps.every((c) => c.host === 'api.sandbox.push.apple.com' && c.method === 'POST'));
+    const a = aps.find((c) => c.path === '/3/device/ios-live');
+    const ah = hdr(a);
+    assert.equal(ah['apns-topic'], 'com.snowypilatesclub.app');
+    assert.equal(ah['apns-push-type'], 'alert');
+    const am = /^bearer ([\w-]+)\.([\w-]+)\.([\w-]+)$/.exec(ah.authorization);
+    assert.ok(am, ah.authorization);
+    assert.deepEqual(JSON.parse(Buffer.from(am[1], 'base64url')), { alg: 'ES256', kid: 'KEY123ABCD' });
+    assert.equal(JSON.parse(Buffer.from(am[2], 'base64url')).iss, 'TEAM123456');
+    assert.ok(createVerify('SHA256').update(`${am[1]}.${am[2]}`).verify({ key: ec.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(am[3], 'base64url')), 'ES256 signature checks out');
+    const body = JSON.parse(a.body);
+    assert.deepEqual(body.aps.alert, { title: 'Snowy Pilates Club', body: 'Second' });
+    assert.ok(body.url.endsWith('#/messages'));
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where token in ('dead410','badtok')`), '0', '410 and BadDeviceToken delete the token');
+    assert.equal(sql(`select count(*) from public.marketing_push_devices where token in ('ios-live','fcm-live')`), '2');
+    assert.equal(status(2), 'sent:push:2');
+
+    // 4. Apple only down: retried, token kept
+    sql(`delete from public.marketing_push_devices`);
+    device(6, 'ios', 'down'); pushRow(3, 'Third');
+    j = await drain();
+    assert.equal(j.failed, 1);
+    assert.equal(sql(`select count(*) from public.marketing_push_devices`), '1');
+    assert.equal(sql(`select status from public.marketing_messages where id = '00000000-0000-4000-8000-0000000002b3'`), 'queued');
+  } finally {
+    for (const k of KEYS) delete ENV[k];
     sql(`delete from public.marketing_push_devices`);
     sql(`delete from public.marketing_messages where studio_id = '${SNOWY_ID}'`);
   }

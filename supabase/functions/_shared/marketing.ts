@@ -8,6 +8,7 @@ import { must } from './db.ts';
 import { sendViaResend, studioLink } from './email.ts';
 import { env } from './http.ts';
 import { sendWebPush, vapidFromEnv } from './webpush.ts';
+import { apnsFromEnv, apnsTopic, fcmFromEnv, sendApns, sendFcm } from './nativepush.ts';
 import { escapeHtml, layout, renderEmail as renderClientEmail, type EmailOverride } from './emails.ts';
 import { automationBlocks, buildSms, mergeTags, renderEmail, type EmailBrand, type RenderBlock } from './marketing-render.ts';
 
@@ -144,29 +145,36 @@ export function pushPayload(job: Job): { title: string; body: string; url: strin
   return { title: job.studio.name, body: preview || 'You have a new message', url: `${appLink(job.studio).replace(/#.*$/, '')}#/messages`, tag: `thread-${job.payload?.threadId ?? 'x'}` };
 }
 
-/** Send one queued push to each of the person's web devices; drop devices the push service says are gone (404 / 410). */
+/** Native push: FCM (Android) is on with FCM_SERVICE_ACCOUNT, APNs (iOS) with APNS_KEY_P8 + APNS_KEY_ID + APNS_TEAM_ID + a bundle id. */
+export const fcm = () => fcmFromEnv((k) => Deno.env.get(k));
+export const apns = () => apnsFromEnv((k) => Deno.env.get(k));
+/** Anything configured at all; with nothing, push rows wait in the queue. */
+export const pushOn = () => Boolean(vapid() || fcm() || apns());
+
+/** Send one queued push to each of the person's devices (web, Android, iPhone); drop tokens the service says are dead. A device whose platform has no keys is skipped. */
 async function deliverPush(admin: Db, job: Job): Promise<{ providerId?: string; links?: (string | null)[] }> {
-  const keys = vapid();
-  if (!keys) throw new Error('Web push is not configured');
-  const devices = (job.devices ?? []).filter((d) => d.platform === 'web');
-  // TODO(native push): devices with platform 'ios' | 'android' (Capacitor apps) are saved but skipped here. To deliver:
-  //   android -> FCM HTTP v1 (POST https://fcm.googleapis.com/v1/projects/<id>/messages:send, OAuth2 from a service account, env FCM_SERVICE_ACCOUNT)
-  //   ios     -> APNs HTTP/2 with a .p8 key (env APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, topic = the app's bundle id), or FCM if the iOS app uses Firebase.
-  // See docs/APP-STORES.md ("Push notifications"). Delete a token when the service answers 404 / 410 / UNREGISTERED, as the web branch does.
-  if (!devices.length) return { providerId: job.devices?.length ? 'no-web-devices' : 'no-devices' };
+  const web = vapid(), android = fcm(), ios = apns();
+  if (!web && !android && !ios) throw new Error('Push is not configured');
+  const all = job.devices ?? [];
   const payload = pushPayload(job);
-  let ok = 0, gone = 0;
+  const topic = ios ? apnsTopic(ios, job.studio.slug) : null;
+  let ok = 0, gone = 0, skipped = 0;
   const errors: string[] = [];
-  for (const d of devices) {
-    const r = await sendWebPush({ endpoint: d.token, keys: d.keys }, payload, keys, { topic: payload.tag });
+  for (const d of all) {
+    let r: { ok: boolean; expired?: boolean; gone?: boolean; error?: string };
+    if (d.platform === 'web' && web) r = await sendWebPush({ endpoint: d.token, keys: d.keys }, payload, web, { topic: payload.tag });
+    else if (d.platform === 'android' && android) r = await sendFcm(d.token, payload, android);
+    else if (d.platform === 'ios' && ios && topic) r = await sendApns(d.token, payload, ios, topic);
+    else { skipped++; continue; }
     if (r.ok) ok++;
-    else if (r.expired) {
+    else if (r.expired || r.gone) {
       gone++;
       must(await admin.from('marketing_push_devices').delete().eq('id', d.id));
     } else errors.push(r.error ?? 'failed');
   }
   if (!ok && errors.length) throw new Error(errors[0]); // every live device failed: retry later (up to 5 attempts)
-  return { providerId: ok ? `webpush:${ok}` : gone ? 'expired' : 'no-devices' };
+  if (ok) return { providerId: `push:${ok}` };
+  return { providerId: gone ? 'expired' : skipped ? 'skipped-no-keys' : 'no-devices' };
 }
 
 async function deliver(job: Job): Promise<{ providerId?: string; links?: (string | null)[] }> {
@@ -192,7 +200,7 @@ async function deliver(job: Job): Promise<{ providerId?: string; links?: (string
 export async function drainMarketing(admin: Db, limit = 50): Promise<{ sent: number; failed: number }> {
   // Due scheduled campaigns and automations are queued first (idempotent: the sent log's unique key stops repeats).
   must(await admin.rpc('marketing_tick'));
-  const jobs = (must(await admin.rpc('marketing_claim', { p_channels: vapid() ? ['email', 'sms', 'push'] : ['email', 'sms'], p_limit: limit, p_push_on: Boolean(vapid()) })) ?? []) as Job[];
+  const jobs = (must(await admin.rpc('marketing_claim', { p_channels: pushOn() ? ['email', 'sms', 'push'] : ['email', 'sms'], p_limit: limit, p_push_on: pushOn() })) ?? []) as Job[];
   let sent = 0, failed = 0;
   for (const job of jobs) {
     try {

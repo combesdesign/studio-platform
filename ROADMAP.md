@@ -53,7 +53,7 @@ Every feature built from here lands in both.
   - [x] birthday
   - [x] post-first-class
 - [x] Two-way inbox (studio ⇄ client messages in the app)
-- [x] Push notifications (Capacitor and web push): device registration and the queue are built; delivery is stubbed until VAPID / FCM keys exist
+- [x] Push notifications (Capacitor and web push): device registration and the queue are built; delivery goes out once VAPID / FCM / APNs keys are set
 
 ### B3 Selling extras
 - [x] Gift cards: buy, send and redeem, with balance tracking
@@ -106,7 +106,7 @@ Libby's pain points: Momence only offers a fixed list of problems (hers often is
 - [ ] Store submission: Apple and Google accounts in Libby's business name, privacy policy page (built in the app, draft wording needs a lawyer), TestFlight and internal testing run, real-device Stripe round trip
 - [ ] Decide the on-demand video rule for iPhone (Apple IAP vs leave it out of the store app), see docs/APP-STORES.md section 0
 - [x] In-app "Delete my account" (Apple 5.1.1(v) and Google require it before submission)
-- [ ] Native push delivery: FCM HTTP v1 (Android) and APNs (iOS) in `deliverPush` (tokens are already saved)
+- [x] Native push delivery: FCM HTTP v1 (Android) and direct APNs (iOS) in `deliverPush`, dead tokens removed. Still to do: try it on real phones with real keys
 - [ ] Universal links / app links files in `public/.well-known/` once the Team ID and signing fingerprint exist
 - [ ] Real accounts: Supabase, Stripe and Resend, plus a Stripe test-mode run-through
 - [ ] Momence data import (waiting on Libby's export)

@@ -164,12 +164,58 @@ That works with no extra setup beyond the **URL Types** step above (iOS) and the
 
 ## 6. Push notifications
 
-The app registers the phone for notifications and saves its token with the studio (`platform` is `ios` or `android`). **Sending to those phones is not built yet.** Until it is, the switch in Profile saves the device and nothing arrives. Web push to the PWA still works with VAPID keys.
+The server sends to the phones itself (`supabase/functions/_shared/nativepush.ts`, called from `deliverPush`). **Android goes through Firebase Cloud Messaging (FCM). iPhone goes straight to Apple (APNs)**, so the iPhone app needs no Firebase code. Each part switches on by itself when its settings exist, and does nothing without them. Dead tokens (app deleted, token expired) are removed automatically.
 
-To switch on delivery later you need:
-- **iOS (APNs)**: in your Apple Developer account, Keys, create an **APNs key** (.p8). Keep the Key ID and Team ID. The topic is the app id.
-- **Android (FCM)**: create a Firebase project, add the Android app (package `com.snowypilatesclub.app`), download `google-services.json` into `android/app/`, and make a service account for sending.
-- Then the server side: `supabase/functions/_shared/marketing.ts`, `deliverPush`, has a TODO listing exactly what to add (FCM HTTP v1 for Android, APNs HTTP/2 for iOS, delete tokens the service says are dead). Needs env: `FCM_SERVICE_ACCOUNT`, `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`.
+Do the steps below on your Mac in a browser. Replace `snowypilatesclub` with the studio's id where it shows.
+
+### A. Android: Firebase and the service account
+1. Go to console.firebase.google.com and sign in with the Google account that will own the project (for Snowy, Libby's).
+2. **Add project**, name it "Snowy Pilates Club", you can turn Google Analytics off, **Create project**.
+3. On the project home click the **Android** icon. Package name: `com.snowypilatesclub.app` (it must match the app id exactly). Register the app.
+4. **Download `google-services.json`** and put it in `android/app/` in the project. Skip the SDK steps Firebase shows, Capacitor handles those. Run `npx cap sync` again.
+5. Back in Firebase: the cog next to Project Overview, **Project settings**, **Service accounts** tab, **Generate new private key**, **Generate key**. A `.json` file downloads. Treat it like a password: don't email it, don't put it in the repo.
+6. Check the **Firebase Cloud Messaging API (V1)** is enabled: Project settings, **Cloud Messaging** tab. It says Enabled. If not, click the three dots and enable it.
+7. Put the whole file's contents into Supabase (section D) as `FCM_SERVICE_ACCOUNT`.
+
+### B. iPhone: the APNs key
+1. Go to developer.apple.com/account, **Certificates, Identifiers & Profiles**, **Keys**, the plus button.
+2. Name it "Snowy push", tick **Apple Push Notifications service (APNs)**, **Continue**, **Register**.
+3. **Download** the `.p8` file. **Apple only lets you download it once**, so keep it somewhere safe (a password manager is good). Write down the **Key ID** shown on the page.
+4. Your **Team ID** is on the Membership details page (developer.apple.com/account, Membership). It is 10 characters.
+5. Make sure the app's identifier (Identifiers, `com.snowypilatesclub.app`) has **Push Notifications** ticked, and that you added the **Push Notifications** capability in Xcode (section 4).
+6. One key works for every app in the same developer account, and for both sandbox and production.
+
+### C. Open the .p8 so you can paste it
+On the Mac, in Terminal:
+```bash
+cat ~/Downloads/AuthKey_ABC123DEFG.p8 | pbcopy
+```
+That copies the whole key (including the BEGIN and END lines) to the clipboard, ready to paste.
+
+### D. Put the settings into Supabase
+In the Supabase dashboard: your project, **Edge Functions**, **Secrets** (or Project settings, Edge Functions, Secrets), **Add new secret** for each:
+
+| Name | Value | For |
+|---|---|---|
+| `FCM_SERVICE_ACCOUNT` | the whole service-account `.json` file, pasted | Android |
+| `APNS_KEY_P8` | the whole `.p8` file, pasted (the clipboard from step C) | iPhone |
+| `APNS_KEY_ID` | the 10-character Key ID | iPhone |
+| `APNS_TEAM_ID` | your 10-character Team ID | iPhone |
+| `APNS_BUNDLE_ID` | `com.snowypilatesclub.app` (the app id) | iPhone, single-studio build |
+| `APNS_BUNDLE_IDS` | optional, for the multi-studio platform: `{"snowy":"com.snowypilatesclub.app","harbour":"com.harbour.app"}`. A studio listed here uses its own id, others fall back to `APNS_BUNDLE_ID`. | iPhone |
+| `APNS_SANDBOX` | `1` only while testing a build installed straight from Xcode. Leave it out for TestFlight and the App Store. | iPhone |
+
+Or from Terminal if you use the Supabase CLI: `supabase secrets set APNS_KEY_ID=ABC123DEFG APNS_TEAM_ID=TEAM123456 APNS_BUNDLE_ID=com.snowypilatesclub.app` and `supabase secrets set APNS_KEY_P8="$(cat ~/Downloads/AuthKey_ABC123DEFG.p8)" FCM_SERVICE_ACCOUNT="$(cat ~/Downloads/snowy-proj-firebase-adminsdk.json)"`. Secrets apply to the functions straight away, no redeploy.
+
+Web push (the website) still uses `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (GO-LIVE step 9b). All three kinds can be on together.
+
+### E. Test it
+1. Install the app on a real phone (push doesn't work in the iOS simulator for APNs tokens, and the Android emulator needs Google Play images). Sign in, open Profile and turn **Notifications** on.
+2. Have the studio reply to that client in the inbox. The next scheduled run sends it (within a few minutes).
+3. Nothing arrived? In Supabase, table `marketing_messages`, look at the push row: `provider_id` says `push:1` (sent), `skipped-no-keys` (that kind of phone has no settings yet), `expired` (token was dead and got removed), or `error` has the reason (`APNs 403 InvalidProviderToken` means the Key ID / Team ID / .p8 don't match; `APNs 400 DeviceTokenNotForTopic` is treated as dead, so check `APNS_BUNDLE_ID` against the app id and that sandbox matches the build).
+
+### Why APNs directly for iPhone
+Capacitor's push plugin gives the app a raw Apple token on iPhone and an FCM token on Android. Sending iPhone through FCM as well would mean adding the Firebase iOS SDK and a second plugin to the app, and re-registering every existing token. Direct APNs needs only the key above and about 50 lines on the server. It assumes the function runtime's `fetch` speaks HTTP/2 (APNs refuses HTTP/1.1). Deno, which Supabase Edge Functions run on, does that automatically. This is untested against Apple here: the tests use a fake fetch.
 
 Apple also wants a good reason to ask for notifications. The app asks gently, after a first booking.
 
