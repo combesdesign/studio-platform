@@ -426,7 +426,7 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .wk-none { font-size: 13px; color: var(--faint); padding: 4px; }
 .wk-add { margin-top: 6px; border: 1px dashed var(--line); background: none; border-radius: 10px; min-height: 36px; color: var(--faint); cursor: pointer; display: grid; place-items: center; }
 .wk-add:hover { color: var(--primary); border-color: var(--accent); }
-.check { min-height: 32px; align-items: center; }
+.check { min-height: 44px; align-items: center; }
 .check input { margin-top: 0; }
 .check.span2 { grid-column: 1 / -1; }
 
@@ -1058,10 +1058,45 @@ body:has(.savebar) .toast, body:has(.savebar) .snack { bottom: calc(96px + var(-
 .eml-on { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
 .eml-off { background: var(--highlight); border-radius: 12px; padding: 10px 14px; margin: 0 0 14px; }
 .eml-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-.eml-tags .chip { min-height: 36px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 14px; }
+.eml-tags .chip { min-height: 44px; height: auto; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 14px; }
 .eml-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 10px; }
 .eml-pv-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .eml-pv-head h3 { margin: 0; }
 .eml-subject { display: grid; gap: 2px; margin: 10px 0 12px; }
 .eml-frame { width: 100%; height: 560px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
 @media (max-width: 900px) { .eml { grid-template-columns: minmax(0, 1fr); } .eml-frame { height: 480px; } }
+
+/* ---- Touch targets: everything you tap is at least 44px (iPad at the front desk). QA pass, Nov 2026 ---- */
+.me-out { width: 44px; height: 44px; }
+.btn.sm { min-height: 44px; }
+.seg button, .seg.sm button { min-height: 44px; }
+.wk-add { min-height: 44px; }
+.linkish { min-height: 44px; padding: 0 6px; margin: 0 -6px; }
+.chip.flag { position: relative; }
+.chip.flag::after { content: ""; position: absolute; inset: -8px -4px; }
+.mk-switch { position: relative; }
+.mk-switch::after { content: ""; position: absolute; inset: -6px -4px; }
+button.chip, .chip[role=button] { min-height: 44px; height: auto; }
+select.select.sm { min-height: 44px; }
+.btn.icon.ghost, .btn.icon { min-width: 44px; }
+input[type=checkbox], input[type=radio] { margin: 0; }
+
+/* ---- Sidebar on short screens (iPad landscape 768 high, portrait with every feature on): never hide Settings or Sign out ---- */
+.side { overflow-y: auto; scrollbar-width: none; }
+.side::-webkit-scrollbar { display: none; }
+@media (max-height: 1100px) {
+  .nav { gap: 2px; }
+  .nav a { min-height: 48px; }
+  .brand { padding-bottom: 14px; }
+  .brand-tag { display: none; }
+}
+@media (max-height: 900px) {
+  .side { padding-top: calc(14px + var(--safe-top)); }
+  .nav a { min-height: 44px; }
+  .brand { padding-bottom: 8px; }
+  .brand-logo { width: 110px; }
+}
+@media (max-width: 999px) and (max-height: 1100px) {
+  .nav a { min-height: 52px; padding: 4px; }
+  .brand-logo { width: 64px; }
+}

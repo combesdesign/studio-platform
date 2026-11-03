@@ -48,7 +48,7 @@ function PayStep({ amountCents, busy, onPay, note }: { amountCents: number; busy
         <label className="field"><span>Name on card</span><input className="input" autoComplete="cc-name" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} /></label>
       </div>
       <button className="btn block big" disabled={!!busy} onClick={() => onPay('pay')}>
-        {busy === 'pay' ? 'Processing…' : <><Icon name="lock" size={17} />Pay {money(amountCents, { cents: true })}</>}
+        {busy === 'pay' ? 'Processing…' : <><Icon name="lock" size={17} />Pay {money(amountCents)}</>}
       </button>
       {note && <p className="fine muted center">{note}</p>}
     </>

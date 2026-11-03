@@ -3,6 +3,7 @@
 //   node build.mjs --watch    -> rebuild on change (serve dist/ with any static server)
 // Env:
 //   SUPABASE_URL, SUPABASE_ANON_KEY   live backend (omit for the demo build)
+//   ALLOW_DEMO_PARAM=1                let ?demo=1 force demo data on a live (Supabase) build. Off by default; demo builds always allow it.
 //   STUDIO_SLUG                       single-studio deployment, e.g. STUDIO_SLUG=snowy (the Snowy app). Omit for the platform.
 //   PLATFORM_DOMAIN                   the platform's domain, so <slug>.<domain> opens that studio (e.g. studioplatform.app)
 //   VAPID_PUBLIC_KEY                  web push public key (npx web-push generate-vapid-keys). Omit and the notification switch stays hidden.
@@ -72,6 +73,7 @@ const opts = {
   define: {
     __SUPABASE_URL__: JSON.stringify(process.env.SUPABASE_URL || ''),
     __SUPABASE_ANON_KEY__: JSON.stringify(process.env.SUPABASE_ANON_KEY || ''),
+    __ALLOW_DEMO_PARAM__: JSON.stringify(/^(1|true)$/i.test(process.env.ALLOW_DEMO_PARAM || '')),
     __STUDIO_SLUG__: JSON.stringify(STUDIO_SLUG),
     __PLATFORM_DOMAIN__: JSON.stringify(PLATFORM_DOMAIN),
     __VAPID_PUBLIC_KEY__: JSON.stringify((process.env.VAPID_PUBLIC_KEY || '').trim()),

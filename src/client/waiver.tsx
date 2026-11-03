@@ -50,7 +50,10 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   const steps = skipHealth ? ['About you', 'Waiver'] : ['About you', 'Your health', 'Waiver'];
   const stepName = steps[step];
   const okAbout = about.emergencyContactName.trim().length > 1 && about.emergencyContactPhone.trim().length >= 6;
-  const okHealth = qs.every((x) => answers[x]?.yn) && preg !== '';
+  // If the studio's own questions already ask about pregnancy, use that answer instead of asking twice.
+  const pregQ = qs.find((x) => /pregnan/i.test(x));
+  const pregYN: YN = pregQ ? (answers[pregQ]?.yn ?? '') : preg;
+  const okHealth = qs.every((x) => answers[x]?.yn) && pregYN !== '';
   const okSign = agree && sig.trim().length >= 2;
   const canNext = stepName === 'About you' ? okAbout : stepName === 'Your health' ? okHealth : okSign;
 
@@ -78,7 +81,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
       });
       const out: Record<string, string> = {};
       if (!skipHealth) qs.forEach((x) => { const a = answers[x]!; out[x] = a.yn === 'Yes' ? (a.detail.trim() ? `Yes: ${a.detail.trim()}` : 'Yes') : 'No'; });
-      await store.submitWaiver(c.id, { answers: out, ...(injuries.trim() ? { injuries: injuries.trim() } : {}), ...(skipHealth ? {} : { pregnantOrPostnatal: preg === 'Yes' }) });
+      await store.submitWaiver(c.id, { answers: out, ...(injuries.trim() ? { injuries: injuries.trim() } : {}), ...(skipHealth ? {} : { pregnantOrPostnatal: pregYN === 'Yes' }) });
       app.refreshAuth();
       // Step off the step entries first (quietly), then leave the flow.
       if (then) {
@@ -140,17 +143,18 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
                   <div key={x} className="hq">
                     <p className="hq-q">{x}</p>
                     <YesNo value={a.yn} onChange={(yn) => setAnswers({ ...answers, [x]: { ...a, yn } })} />
+                    {x === pregQ && a.yn === 'Yes' && <p className="note cream mt-8"><Icon name="heart" size={20} /><span>Congratulations! Please chat to your instructor before class, and make sure you have clearance from a women’s health professional for Mums + Bubs.</span></p>}
                     {a.yn === 'Yes' && (
                       <input className="input mt-8" placeholder="A few words, if you’re comfortable" value={a.detail} onChange={(e) => setAnswers({ ...answers, [x]: { ...a, detail: e.target.value } })} />
                     )}
                   </div>
                 );
               })}
-              <div className="hq">
+              {!pregQ && <div className="hq">
                 <p className="hq-q">Are you pregnant or postnatal (had a baby in the last 12 months)?</p>
                 <YesNo value={preg} onChange={setPreg} />
                 {preg === 'Yes' && <p className="note cream mt-8"><Icon name="heart" size={20} /><span>Congratulations! Please chat to your instructor before class, and make sure you have clearance from a women’s health professional for Mums + Bubs.</span></p>}
-              </div>
+              </div>}
               <label className="field"><span>Any injuries, niggles or conditions we should know about?</span>
                 <textarea className="textarea" placeholder="e.g. lower back pain, recent knee surgery – or leave blank" value={injuries} onChange={(e) => setInjuries(e.target.value)} />
               </label>

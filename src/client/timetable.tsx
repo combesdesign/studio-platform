@@ -497,7 +497,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
             </>
           ) : (
             <>
-              <h2>You’re out of <em>credits</em></h2>
+              {(credits?.length ?? 0) === 0 ? <h2>You’ll need a <em>pass</em></h2> : <h2>You’re out of <em>credits</em></h2>}
               <p className="muted">You’ll need a pass that covers {ct?.name ?? 'this class'} to book. Grab one and we’ll bring you straight back here.</p>
             </>
           )}

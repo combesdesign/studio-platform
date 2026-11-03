@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Sheet, errorMessage, leaveSheets, store, useBackHandler, useData, useToast } from '../../../shared/react';
 import { addDays, money, studioDate } from '../../../shared/format';
 import { Accent, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, SheetHead, useApp } from '../../../client/ui';
-import { goFlow, queryOf } from '../../../client/lib';
+import { backOut, flowFrom, goFlow, queryOf } from '../../../client/lib';
 import { WhosComing, creditLine, fullName, useDependants } from '../../../client/family';
 import { brandAsset } from '../../../shared/branding';
 import {
@@ -45,7 +45,7 @@ function PayStep({ amountCents, busy, onPay, note }: { amountCents: number; busy
         </div>
         <label className="field"><span>Name on card</span><input className="input" autoComplete="cc-name" value={card.name} onChange={(e) => setCard({ ...card, name: e.target.value })} /></label>
       </div>
-      <button className="btn block big" disabled={busy} onClick={onPay}>{busy ? 'Processing…' : <><Icon name="lock" size={17} />Pay {money(amountCents, { cents: true })}</>}</button>
+      <button className="btn block big" disabled={busy} onClick={onPay}>{busy ? 'Processing…' : <><Icon name="lock" size={17} />Pay {money(amountCents)}</>}</button>
       {note && <p className="fine muted center">{note}</p>}
     </div>
   );
@@ -97,7 +97,7 @@ export function AppointmentsScreen({ nav, path }: { nav: Nav; path: string }) {
 
   return (
     <div className="screen">
-      <div className="screen-back"><BackPill label="Profile" onClick={() => nav('/profile')} /></div>
+      <div className="screen-back"><BackPill label={flowFrom(path)?.label ?? 'Profile'} onClick={() => backOut(nav, path, '/profile')} /></div>
       <ScreenHead eyebrow="One on one and special sessions" title={<>Privates <em>and events</em></>} sub="Book a private or duet with your instructor, or sign up for a workshop or course." />
       <Segmented<Tab> value={tab} onChange={setTab} options={[
         { value: 'book', label: 'Book' }, { value: 'events', label: 'Events', count: (events.data ?? []).length },
@@ -654,7 +654,7 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
                 <div key={r.id} className="list-row" style={{ cursor: 'default' }}><span className="row-ic"><Flower size={20} /></span>
                   <span className="list-row-main"><span className="list-row-title">{r.eventTitle}{r.clientId !== app.client.id ? ` · ${r.clientName.split(' ')[0]}` : ''}</span>
                     <span className="list-row-sub">{e ? eventWhen(e) : dayLabel(r.startsAt)}</span></span>
-                  <button className="btn soft sm" onClick={() => nav('/appointments?tab=events')}>Details</button></div>
+                  <button className="btn soft sm" onClick={() => goFlow(nav, '/appointments?tab=events', { label: 'Bookings', where: '/bookings' })}>Details</button></div>
               );
             })}
           </div>
@@ -668,7 +668,7 @@ function Mine({ nav, appts, regs, credits, events, reload }: {
               <div key={w.id} className="list-row" style={{ cursor: 'default' }}><span className="row-ic"><Flower size={20} /></span>
                 <span className="list-row-main"><span className="list-row-title">{e.title}</span>
                   <span className="list-row-sub">{w.status === 'offered' ? `A place is held for you until ${dayLabel(w.offerExpiresAt!)}, ${clock(w.offerExpiresAt!)}` : `Number ${w.position} in line`}</span></span>
-                <button className={'btn sm ' + (w.status === 'offered' ? '' : 'soft')} onClick={() => nav('/appointments?tab=events')}>{w.status === 'offered' ? 'Claim' : 'Details'}</button></div>
+                <button className={'btn sm ' + (w.status === 'offered' ? '' : 'soft')} onClick={() => goFlow(nav, '/appointments?tab=events', { label: 'Bookings', where: '/bookings' })}>{w.status === 'offered' ? 'Claim' : 'Details'}</button></div>
             );
           })}</div>
         </div>
@@ -710,7 +710,7 @@ export function TimetableBanner({ nav }: { nav: Nav }) {
   const offer = (events.data ?? []).find((e) => e.myWaitlist?.status === 'offered');
   if (offer) {
     return (
-      <button className="ap-promo" style={{ margin: '0 0 16px' }} onClick={() => nav('/appointments?tab=events')}>
+      <button className="ap-promo" style={{ margin: '0 0 16px' }} onClick={() => goFlow(nav, '/appointments?tab=events', { label: 'Timetable', where: '/' })}>
         <ApptIcon size={26} />
         <span style={{ flex: 1 }}><strong>A place opened up</strong><span>{offer.title} is held for you until {dayLabel(offer.myWaitlist!.offerExpiresAt!)}, {clock(offer.myWaitlist!.offerExpiresAt!)}</span></span>
         <Icon name="chevron" size={18} />
@@ -718,7 +718,7 @@ export function TimetableBanner({ nav }: { nav: Nav }) {
     );
   }
   return (
-    <button className="ap-promo" style={{ margin: '0 0 16px' }} onClick={() => nav('/appointments')}>
+    <button className="ap-promo" style={{ margin: '0 0 16px' }} onClick={() => goFlow(nav, '/appointments', { label: 'Timetable', where: '/' })}>
       <ApptIcon size={26} />
       <span style={{ flex: 1 }}><strong>Privates{n ? ' and events' : ''}</strong><span>{(types.data ?? []).length ? 'Book a one on one' : 'Workshops and courses'}{n ? `, or join ${n === 1 ? 'a workshop' : `one of ${n} workshops and events`}` : ''}</span></span>
       <Icon name="chevron" size={18} />

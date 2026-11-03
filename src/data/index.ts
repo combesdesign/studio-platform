@@ -16,15 +16,17 @@ import { hasFeature } from '../shared/plans';
 import { readOnlyStore } from './readonly';
 import { createDemoPlatform } from './demo';
 import { createSupabasePlatform } from './supabase';
+import { demoParamForcesDemo } from './demoParam';
 
 declare const __SUPABASE_URL__: string;
 declare const __SUPABASE_ANON_KEY__: string;
 declare const __STUDIO_SLUG__: string;
 declare const __PLATFORM_DOMAIN__: string;
+declare const __ALLOW_DEMO_PARAM__: boolean;
 
 const url = typeof __SUPABASE_URL__ === 'string' ? __SUPABASE_URL__ : '';
 const key = typeof __SUPABASE_ANON_KEY__ === 'string' ? __SUPABASE_ANON_KEY__ : '';
-const forceDemo = typeof location !== 'undefined' && /[?&]demo=1/.test(location.search);
+const forceDemo = typeof location !== 'undefined' && demoParamForcesDemo({ supabaseUrl: url, allowDemoParam: typeof __ALLOW_DEMO_PARAM__ === 'boolean' && __ALLOW_DEMO_PARAM__, search: location.search });
 
 /** Set at build time for a single-studio deployment (e.g. 'snowy'); '' for the platform. */
 export const BUILD_STUDIO = typeof __STUDIO_SLUG__ === 'string' ? __STUDIO_SLUG__ : '';
