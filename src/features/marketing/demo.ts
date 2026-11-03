@@ -461,4 +461,21 @@ function create(ctx: DemoFeatureContext): MarketingStore {
   };
 }
 
-registerDemoFeature({ name: 'marketing', seed: (a) => seedMarketing(a), create });
+/** Account deleted: the message log keeps its rows without the address or name (queued ones won't go), and threads, tags and alerts about the person are removed. */
+function afterAccountDeleted(ctx: DemoFeatureContext, clientIds: ID[]): void {
+  const raw = ctx.slice<Partial<Slice>>();
+  if (!raw.log && !raw.threads && !raw.tags) return;
+  const ids = new Set(clientIds);
+  for (const l of raw.log ?? []) {
+    if (!ids.has(l.clientId)) continue;
+    l.to = ''; l.clientName = ''; delete l.subject;
+    if (l.status === 'queued') { l.status = 'skipped'; l.error = 'Account deleted'; }
+  }
+  const threads = new Set((raw.threads ?? []).filter((t) => ids.has(t.clientId)).map((t) => t.id));
+  if (raw.threads) raw.threads = raw.threads.filter((t) => !threads.has(t.id));
+  if (raw.messages) raw.messages = raw.messages.filter((m) => !threads.has(m.threadId));
+  if (raw.tags) for (const id of ids) delete raw.tags[id];
+  if (raw.alerts) raw.alerts = raw.alerts.filter((a) => !ids.has(a.clientId));
+}
+
+registerDemoFeature({ name: 'marketing', seed: (a) => seedMarketing(a), create, afterAccountDeleted });

@@ -86,6 +86,16 @@ function unwindRefundedSale(ctx: DemoFeatureContext, sale: Sale): void {
 registerDemoFeature({
   name: 'commerce',
   afterRefund: unwindRefundedSale,
+  // Account deleted: gift cards they bought or own lose the recipient's name and email and the message; their referral code goes.
+  afterAccountDeleted: (ctx, clientIds) => {
+    const raw = ctx.slice<Partial<Slice>>();
+    const ids = new Set(clientIds);
+    for (const k of raw.cards ?? []) {
+      if (!((k.purchaserClientId && ids.has(k.purchaserClientId)) || (k.ownerClientId && ids.has(k.ownerClientId)))) continue;
+      delete k.recipientName; delete k.recipientEmail; delete k.message; delete k.fromName;
+    }
+    if (raw.refCodes) for (const id of ids) delete raw.refCodes[id];
+  },
   seed: ({ studio, state, now }): Slice => {
     const slice = emptySlice(studio.slug);
     if (studio.slug !== 'snowy' && studio.slug !== 'harbour') return slice;

@@ -44,6 +44,12 @@ export interface DemoFeature<K extends keyof FeatureStores = keyof FeatureStores
   /** After staff refund a sale (inside the same write): put back anything the feature took for it. Must be safe to repeat. */
   afterRefund?(ctx: DemoFeatureContext, sale: Sale): void;
   /**
+   * After an account is deleted (inside the same write; `clientIds` is the person and their dependants): cancel what is still ahead
+   * for them, clear their queued emails and take personal text out of the feature's records. The core part (classes, passes, details,
+   * the main outbox) is already done. Must be safe to repeat. Live equivalent: public.account_delete_apply (3000, 3003).
+   */
+  afterAccountDeleted?(ctx: DemoFeatureContext, clientIds: ID[]): void;
+  /**
    * Capacity adjuster: how many spots of this class the feature keeps back from DIRECT client bookings (never negative).
    * Clients book and see capacity minus the sum over features; staff, the roster and the feature's own bookings use the real
    * capacity. Reads the studio's state directly (pure: no ctx, no writes). Live equivalent: app.register_capacity_hook.

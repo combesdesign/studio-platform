@@ -164,8 +164,18 @@ function seedSlice(studio: Studio, state: DemoState, now: Date, newId: (p: strin
   return out;
 }
 
+/** Account deleted: the ratings stay for the studio's averages, without the first name or comment; "skip this class" notes go. */
+function afterAccountDeleted(ctx: DemoFeatureContext, clientIds: ID[]): void {
+  const raw = ctx.slice<Slice>();
+  const ids = new Set(clientIds);
+  for (const e of raw.entries ?? []) if (ids.has(e.clientId)) { e.clientFirstName = ''; e.comment = null; }
+  const theirs = new Set(ctx.core().state.bookings.filter((b) => ids.has(b.clientId)).map((b) => b.id));
+  if (raw.dismissed) raw.dismissed = raw.dismissed.filter((id) => !theirs.has(id));
+}
+
 registerDemoFeature({
   name: 'reviews',
+  afterAccountDeleted,
   seed: ({ studio, state, now, newId }) => seedSlice(studio, state, now, newId),
   create,
 });

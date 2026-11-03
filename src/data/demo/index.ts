@@ -1148,6 +1148,7 @@ export class DemoStore implements DataStore {
     }
     this.state.interest = (this.state.interest ?? []).filter((i) => !ids.has(i.clientId));
     this.state.outbox = this.state.outbox.filter((m) => !ids.has(m.clientId));
+    for (const f of demoFeatures()) f.afterAccountDeleted?.(this.featureContext(f.name), [...ids]);
   }
 
   async removeDependant(dependantId: ID): Promise<void> {

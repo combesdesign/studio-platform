@@ -48,8 +48,32 @@ export interface Slice {
 
 const err = (code: string, message: string) => new StoreError(code, message);
 
+/** Account deleted: future appointments and event places are cancelled (spots free, pack credits back, paid ones flagged for refund), waitlist spots and queued emails go. */
+function afterAccountDeleted(ctx: DemoFeatureContext, clientIds: ID[]): void {
+  const s = ctx.slice<Partial<Slice>>();
+  if (!s.types) return;   // this studio never opened the feature: nothing to clean
+  const ids = new Set(clientIds);
+  const nowIso = ctx.now().toISOString();
+  for (const a of s.appointments ?? []) {
+    if (!ids.has(a.clientId) || a.status !== 'booked' || a.startsAt < nowIso) continue;
+    a.status = 'cancelled'; a.cancelledAt = nowIso;
+    if (a.payment.method === 'pack') {
+      for (const u of a.payment.credits ?? []) { const c = s.credits?.find((x) => x.id === u.creditId); if (c) c.used = Math.max(0, c.used - u.n); }
+    } else if (a.payment.amountCents > 0) a.refundDue = true;
+  }
+  for (const r of s.registrations ?? []) {
+    const e = s.events?.find((x) => x.id === r.eventId);
+    if (!ids.has(r.clientId) || r.status !== 'registered' || !e || e.sessions.every((x) => x.startsAt < nowIso)) continue;
+    r.status = 'cancelled'; r.cancelledAt = nowIso;
+    if (r.payment.amountCents > 0) r.refundDue = true;   // the place they free is offered to the waitlist the next time the studio's events are read
+  }
+  for (const w of s.waitlist ?? []) if (ids.has(w.clientId) && (w.status === 'waiting' || w.status === 'offered')) w.status = 'left';
+  if (s.outbox) s.outbox = s.outbox.filter((m) => !ids.has(m.clientId));
+}
+
 registerDemoFeature({
   name: 'appointments',
+  afterAccountDeleted,
   seed: ({ studio, state, now, newId }) => seedAppointments(studio, state, now, newId),
   create: (ctx) => createStore(ctx),
 });

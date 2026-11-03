@@ -56,6 +56,21 @@ select count(*) as bob_bookings from public.bookings where client_id = test.id('
 select count(*) as bob_sales from public.sales where client_id = test.id('bob_client') \gset
 select test.ok(:bob_bookings >= 1 and :bob_sales >= 1, 'setup: Bob has bookings and sales');
 
+-- Bob also has (3003): a paid appointment and an event place next week, a pack-paid one, and queued emails in every outbox.
+insert into public.appointment_types (name, duration_min, price_cents) values ('Private deletion test', 50, 9000) returning id as bob_type \gset
+insert into public.appointments (type_id, type_name, staff_id, client_id, starts_at, ends_at, pay_method, amount_cents)
+  values (:'bob_type', 'Private deletion test', (select id from public.staff where name = 'Julia'), test.id('bob_client'), '2026-10-27 10:00+11', '2026-10-27 10:50+11', 'card_online', 9000);
+insert into public.studio_events (kind, title, capacity) values ('workshop', 'Deletion workshop', 1) returning id as bob_event \gset
+insert into public.studio_event_sessions (event_id, starts_at, ends_at) values (:'bob_event', '2026-10-28 09:00+11', '2026-10-28 10:00+11');
+insert into public.studio_event_registrations (event_id, client_id, pay_method, amount_cents) values (:'bob_event', test.id('bob_client'), 'card_online', 4000);
+insert into public.studio_event_waitlist (event_id, client_id) values (:'bob_event', test.id('cara_client'));
+insert into public.commerce_gift_cards (code, source, initial_cents, recipient_name, recipient_email, purchaser_client_id)
+  values ('AAAA-BBBB-CCCC', 'purchase', 5000, 'Friend', 'friend@example.test', test.id('bob_client')) returning id as bob_card \gset
+insert into public.commerce_outbox (kind, card_id, to_email) values ('gift_card', :'bob_card', 'friend@example.test');
+insert into public.payroll_outbox (kind, to_staff_id, to_email) values ('cover_requested', (select id from public.staff where name = 'Julia'), 'bob@example.test');
+insert into public.marketing_messages (client_id, channel, source, to_address, subject, dedupe_key) values (test.id('bob_client'), 'email', 'campaign', 'bob@example.test', 'Hello Bob', 'del-test-1');
+select count(*) as other_commerce from public.commerce_outbox where card_id <> :'bob_card' \gset
+
 -- ---------------------------------------------------------------- who may ask
 select test.login('cara');
 select test.throws($$select public.account_deletion_plan(test.id('bob_client'))$$, 'NOT_ALLOWED', 'another client cannot delete Bob''s account');
@@ -117,6 +132,18 @@ select test.eq((select count(*) from public.sales where client_id = test.id('bob
 select test.eq((select count(*) from public.bookings b join public.class_sessions s on s.id = b.session_id
                  where b.client_id = test.id('bob_client') and b.status in ('booked', 'waitlisted') and s.starts_at >= app.now()), 0::bigint, 'upcoming classes cancelled');
 select test.eq((select count(*) from public.passes where client_id = test.id('bob_client') and status <> 'cancelled'), 0::bigint, 'memberships cancelled');
+select test.eq((select status from public.appointments where client_id = test.id('bob_client')), 'cancelled', 'his future appointment is cancelled (the slot is free)');
+select test.eq((select refund_due from public.appointments where client_id = test.id('bob_client')), true, '...and flagged for the studio to refund (he paid)');
+select test.eq((select status from public.studio_event_registrations where client_id = test.id('bob_client')), 'cancelled', 'his event place is cancelled');
+select test.eq((select refund_due from public.studio_event_registrations where client_id = test.id('bob_client')), true, '...and flagged for refund');
+select test.eq((select count(*) from public.studio_event_registrations where client_id = test.id('bob_client') and status = 'registered'), 0::bigint, 'no live event registrations left');
+select test.eq((select status from public.studio_event_waitlist where client_id = test.id('cara_client')), 'offered', 'the freed event place goes to the next person on the waitlist');
+select test.eq((select count(*) from public.commerce_outbox where card_id = :'bob_card'), 0::bigint, 'queued gift card email cleared (commerce outbox)');
+select test.eq((select count(*) from public.payroll_outbox where to_email = 'bob@example.test'), 0::bigint, 'queued payroll email to his address cleared');
+select test.eq((select status from public.marketing_messages where dedupe_key = 'del-test-1'), 'skipped', 'queued marketing message will not be sent');
+select test.eq((select to_address from public.marketing_messages where dedupe_key = 'del-test-1'), '', '...and has no address');
+select test.eq((select count(*) from public.appointments_outbox where client_id = test.id('bob_client')), 0::bigint, 'appointment emails cleared (including the cancellations just queued)');
+select test.eq((select details ->> 'appointmentsCancelled' from public.audit_log where action = 'account.delete' and entity_id = test.id('bob_client')::text), '1', 'audit row counts the appointment');
 select test.eq((select count(*) from public.audit_log where action = 'account.delete' and entity_id = test.id('bob_client')::text), 1::bigint, 'one audit row');
 select test.ok(not exists (select 1 from public.audit_log where action = 'account.delete' and details::text ~* 'bob'), '...with no personal details in it');
 select test.eq((select details ->> 'by' from public.audit_log where action = 'account.delete' and entity_id = test.id('bob_client')::text), 'self', '...saying who asked');
