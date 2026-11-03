@@ -1,5 +1,5 @@
 /** Client app helpers (no JSX). */
-import type { ClassType, Pass, Product, SessionWithCounts, Staff, StudioSettings } from '../shared/types';
+import type { ClassType, Location, Pass, Product, SessionWithCounts, Staff, StudioSettings } from '../shared/types';
 import { addDays, dateFormat, dateTime, money, studioDate, time, weekday } from '../shared/format';
 
 /** '6:00am Tue 14 Oct' (strips the comma some ICU builds put after the weekday). */
@@ -129,29 +129,9 @@ export function classTypeFor(types: ClassType[] | undefined, id: string): ClassT
   return types?.find((t) => t.id === id);
 }
 
-// ------------------------------------------------------------------ calendar (.ics)
-const icsEsc = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-const icsTime = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-
-export function icsDataUrl(s: SessionWithCounts, ct: ClassType | undefined, instructor: Staff | undefined, settings: StudioSettings): string {
-  const name = ct?.name ?? 'Pilates class';
-  const desc = [instructor ? `With ${firstName(instructor.name)}` : '', ct?.bookingNote ?? '', settings.cancellationPolicyText ?? '']
-    .filter(Boolean).join('\n\n');
-  const lines = [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${icsEsc(settings.name)}//Client app//EN`, 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-    'BEGIN:VEVENT',
-    `UID:${s.id}@${(settings.email.split('@')[1] || 'studio.app').toLowerCase()}`,
-    `DTSTAMP:${icsTime(new Date().toISOString())}`,
-    `DTSTART:${icsTime(s.startsAt)}`,
-    `DTEND:${icsTime(s.endsAt)}`,
-    `SUMMARY:${icsEsc(`${name} · ${settings.name}`)}`,
-    `LOCATION:${icsEsc(settings.address)}`,
-    `DESCRIPTION:${icsEsc(desc)}`,
-    'BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(name)} in 1 hour`, 'END:VALARM',
-    'END:VEVENT', 'END:VCALENDAR',
-  ];
-  return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(lines.join('\r\n'));
-}
+// Places, local times and the .ics builder are pure and live in the domain (so tests can use them without the store).
+export { placeOf, sessionZone, inZone, zoneLabel } from '../domain/rooms';
+export { icsDataUrl } from '../domain/ics';
 
 export function icsFileName(s: SessionWithCounts, ct?: ClassType): string {
   return `${(ct?.name ?? 'class').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${studioDate(s.startsAt)}.ics`;

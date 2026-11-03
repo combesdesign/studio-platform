@@ -5,7 +5,7 @@ import { store, useData } from '../shared/react';
 import { studioDate, time, dateFormat } from '../shared/format';
 import { CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, useApp } from './ui';
 import { ClassSheet } from './timetable';
-import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, isLateCancel, takePendingClass, timeRange, when } from './lib';
+import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, inZone, isLateCancel, placeOf, sessionZone, takePendingClass, timeRange, when, zoneLabel } from './lib';
 import { weekday } from '../shared/format';
 import { spotLabel } from '../domain/spots';
 
@@ -41,7 +41,7 @@ export function Bookings({ nav }: { nav: Nav }) {
             <div className="stack lg mt-20">
               {studioCancelled.map((b) => (
                 <div key={b.id} className="note danger"><Icon name="info" size={20} />
-                  <div><strong>{b.classType.name} on {WEEKDAYS[weekday(studioDate(b.session.startsAt))]} {time(b.session.startsAt)} was cancelled by the studio.</strong> Your credit has been returned.</div>
+                  <div><strong>{b.classType.name} on {WEEKDAYS[weekday(studioDate(b.session.startsAt))]} {time(b.session.startsAt)}{placeOf(b.session, app.locations) ? ` at ${placeOf(b.session, app.locations)!.name}` : ''} was cancelled by the studio.</strong> Your credit has been returned.</div>
                 </div>
               ))}
               {booked.length === 0 && waiting.length === 0 ? (
@@ -97,8 +97,10 @@ export function Bookings({ nav }: { nav: Nav }) {
 const byStart = (a: BookingWithDetails, b: BookingWithDetails) => a.session.startsAt.localeCompare(b.session.startsAt);
 
 function BookingCard({ b, onOpen, i }: { b: BookingWithDetails; onOpen: () => void; i: number }) {
-  const { settings } = useApp();
-  const d = studioDate(b.session.startsAt);
+  const { settings, locations } = useApp();
+  const where = placeOf(b.session, locations);
+  const zone = sessionZone(b.session, locations, settings.timezone);   // a location in another timezone shows its own local times
+  const d = inZone(zone, () => studioDate(b.session.startsAt));
   const late = isLateCancel(b.session, settings);
   const lbl = dayLabel(d);
   return (
@@ -110,14 +112,15 @@ function BookingCard({ b, onOpen, i }: { b: BookingWithDetails; onOpen: () => vo
       </span>
       <span className="bk-main">
         <span className="bk-name">{b.classType.name}</span>
-        <span className="muted">{lbl === 'Today' || lbl === 'Tomorrow' ? `${lbl} · ` : ''}{timeRange(b.session)}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
+        <span className="muted">{lbl === 'Today' || lbl === 'Tomorrow' ? `${lbl} · ` : ''}{inZone(zone, () => timeRange(b.session))}{zone ? ` (${zoneLabel(zone)})` : ''}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
+        {where && <span className="cls-where"><Icon name="pin" size={14} />{where.name}</span>}
         {b.spot && b.status !== 'waitlisted' && <span className="bk-spot">{spotLabel(b.spot)}</span>}
         {b.status === 'waitlisted' ? (
           <span className="tag warn">Waitlisted #{b.waitlistPosition ?? '–'}</span>
         ) : late ? (
           <span className="bk-hint late">Inside {settings.cancelWindowHours}h – late cancel applies</span>
         ) : (
-          <span className="bk-hint">Free cancel until {time(freeCancelUntil(b.session, settings))} {WEEKDAYS[weekday(studioDate(freeCancelUntil(b.session, settings)))]}</span>
+          <span className="bk-hint">Free cancel until {inZone(zone, () => `${time(freeCancelUntil(b.session, settings))} ${WEEKDAYS[weekday(studioDate(freeCancelUntil(b.session, settings)))]}`)}</span>
         )}
       </span>
       <Icon name="chevron" size={18} className="faint" />
@@ -135,13 +138,16 @@ const PAST_LABEL: Record<string, [string, string]> = {
 };
 
 function PastRow({ b, onOpen }: { b: BookingWithDetails; onOpen: () => void }) {
+  const { settings, locations } = useApp();
+  const where = placeOf(b.session, locations);
+  const zone = sessionZone(b.session, locations, settings.timezone);
   const [label, tone] = PAST_LABEL[b.status] ?? [b.status, ''];
   return (
     <button className="list-row" onClick={onOpen}>
       <span className="past-bar" style={{ background: b.classType.color || 'var(--accent)' }} />
       <span className="list-row-main">
         <span className="list-row-title">{b.classType.name}</span>
-        <span className="list-row-sub">{when(b.session.startsAt)}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
+        <span className="list-row-sub">{inZone(zone, () => when(b.session.startsAt))}{where ? ` · ${where.name}` : ''}{b.instructor ? ` · ${firstName(b.instructor.name)}` : ''}</span>
       </span>
       <span className={'tag ' + tone}>{label}</span>
     </button>

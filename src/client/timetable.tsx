@@ -7,11 +7,11 @@ import { addDays, dateFormat, dayLong, money, pluralise, startOfStudioDay, studi
 import { Slot } from '../shared/slots';
 import { Accent, Arrow, Avatar, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Logo, ScreenHead, SheetHead, Skeleton, classPhoto, useApp } from './ui';
 import {
-  WEEKDAYS, classTypeFor, dayLabel, firstName, freeCancelUntil, goFlow, hoursUntil, icsDataUrl, icsFileName,
+  WEEKDAYS, classTypeFor, dayLabel, firstName, freeCancelUntil, goFlow, hoursUntil, icsDataUrl, icsFileName, inZone, placeOf, sessionZone, zoneLabel,
   isLateCancel, sessionState, staffRole, takePendingClass, timeRange, when,
 } from './lib';
 import { weekday } from '../shared/format';
-import { directionsPlatform, directionsUrl, effectiveLocationId, filterByLocation, hasManyLocations, healthStepFor, spotLabel } from '../domain';
+import { directionsPlatform, directionsUrl, filterByLocation, hasManyLocations, healthStepFor, spotLabel } from '../domain';
 import { SpotGrid, SpotKey } from '../shared/spots';
 import { readLocationPref, validLocationPref, writeLocationPref } from '../shared/locationPref';
 import { WhosComing, creditLine, fullName, useDependants, type WhoOption } from './family';
@@ -173,10 +173,12 @@ function DateStrip({ days, day, onPick, booked }: { days: string[]; day: string;
 
 function SessionCard({ s, ct, mine, onOpen, i }: { s: SessionWithCounts; ct?: ClassType; mine?: BookingWithDetails; onOpen: () => void; i: number }) {
   const { staff, locations } = useApp();
-  const where = hasManyLocations(locations) ? locations.find((l) => l.id === effectiveLocationId(s, locations)) : undefined;
+  const where = placeOf(s, locations);
+  const { settings: studioSettings } = useApp();
+  const zone = sessionZone(s, locations, studioSettings.timezone);
   const inst = staff.find((x) => x.id === s.instructorId);
   const st = sessionState(s);
-  const t = time(s.startsAt);
+  const t = inZone(zone, () => time(s.startsAt));
   const dur = ct?.durationMin ?? Math.round((new Date(s.endsAt).getTime() - new Date(s.startsAt).getTime()) / 60000);
   let status: React.ReactNode;
   if (st === 'cancelled') status = <span className="tag muted-tag">Cancelled</span>;
@@ -350,7 +352,12 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   const bookable = ct?.bookable !== false;
   const className = ct?.name ?? 'Class';
   // Several locations: say which one, with its address and a way to get there. One location: the page is exactly as before.
-  const place = hasManyLocations(app.locations) ? app.locations.find((l) => l.id === effectiveLocationId(s, app.locations)) : undefined;
+  const place = placeOf(s, app.locations);
+  // A location in another timezone shows its own local times (display only)
+  const tz = sessionZone(s, app.locations, app.settings.timezone);
+  const tm = (x: string) => inZone(tz, () => time(x));
+  const dl = (x: string) => inZone(tz, () => dayLong(x));
+  const tr = (x: { startsAt: string; endsAt: string }) => inZone(tz, () => timeRange(x));
   // Leave the sheet (popping its history entry first), then open a flow that knows how to bring us back.
   const toFlow = (to: string) => leaveSheets(() => goFlow(nav, to, { label: className, where, reopen: id }));
   const toShop = () => toFlow('/passes?for=' + encodeURIComponent(id));
@@ -452,7 +459,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
     finally { setBusy(false); }
   };
 
-  const ics = <a className="btn soft block" href={icsDataUrl(s, ct, inst, app.settings)} download={icsFileName(s, ct)}><Icon name="calplus" size={19} />Add to calendar</a>;
+  const ics = <a className="btn soft block" href={icsDataUrl(s, ct, inst, app.settings, place)} download={icsFileName(s, ct)}><Icon name="calplus" size={19} />Add to calendar</a>;
 
   // ---------- success states
   if (mode === 'booked' || mode === 'waitlisted') {
@@ -462,7 +469,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
       <div className="success">
         <div className="success-mark"><Flower size={64} className="bloom" /></div>
         <h2>{results && results.length > 1 ? (mode === 'booked' ? <>You’re all <em>booked</em> in</> : <>You’re on the <em>waitlist</em></>) : mode === 'booked' ? <>You’re <em>booked</em> in</> : <>You’re on the <em>waitlist</em></>}</h2>
-        <p className="muted">{ct?.name} · {time(s.startsAt)} {dayLong(s.startsAt)}{inst ? ` with ${firstName(inst.name)}` : ''}</p>
+        <p className="muted">{ct?.name} · {tm(s.startsAt)} {dl(s.startsAt)}{inst ? ` with ${firstName(inst.name)}` : ''}</p>
         {results && (results.length > 1 || results[0]?.name !== firstName(app.client.firstName)) && (
           <ul className="who-results" aria-label="Who’s booked">
             {results.map((r) => <li key={r.name}><Icon name={r.outcome === 'booked' ? 'check' : 'clock'} size={16} /><strong>{r.name}</strong><span className="muted">{r.outcome === 'booked' ? 'booked in' : 'on the waitlist'}</span></li>)}
@@ -470,7 +477,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         )}
         {mode === 'booked' && gotSpot && <p className="success-spot"><Icon name="pin" size={18} />You’re in <strong>{spotLabel(gotSpot).toLowerCase()}</strong></p>}
         {mode === 'booked' ? (
-          <p className="success-note">Free cancellation until {when(freeCancelUntil(s, app.settings))}. See you on the mat!</p>
+          <p className="success-note">Free cancellation until {inZone(tz, () => when(freeCancelUntil(s, app.settings)))}. See you on the mat!</p>
         ) : (
           <p className="success-note">If a spot opens up we’ll book you in automatically and use a credit then – you’ll get a notification. Auto-booking stops {pluralise(app.settings.waitlistCutoffHours, 'hour')} before class.</p>
         )}
@@ -528,7 +535,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         <div className="center-col">
           <div className="kicker">One quick thing</div>
           <h2>Any new injuries or <em>health changes</em> since last time?</h2>
-          <p className="muted">{className} · {time(s.startsAt)} {dayLong(s.startsAt)}{usingPass ? ` · using ${usingPass.name}` : ''}</p>
+          <p className="muted">{className} · {tm(s.startsAt)} {dl(s.startsAt)}{usingPass ? ` · using ${usingPass.name}` : ''}</p>
         </div>
         {hcIds.map((x) => {
           const a = hcOf(x);
@@ -564,7 +571,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         <SheetHead back={{ label: className, onClick: () => setMode('view') }} onClose={onClose} />
         <div className="center-col">
           <h2>{changing ? <>Move to another <em>spot</em></> : <>Pick your <em>spot</em></>}</h2>
-          <p className="muted">{className} · {time(s.startsAt)} {dayLong(s.startsAt)}</p>
+          <p className="muted">{className} · {tm(s.startsAt)} {dl(s.startsAt)}</p>
         </div>
         <SpotGrid layout={spots.layout} taken={spots.taken} mine={cur} selected={choice} onPick={(sp) => setChoice(sp === cur ? undefined : sp)} label="Choose your spot" />
         <SpotKey showSelected />
@@ -606,7 +613,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         </div>
         <div className="panel-soft row gap-12">
           <span className="cls-bar" style={{ background: ct?.color || 'var(--accent)' }} />
-          <div><strong>{ct?.name}</strong><div className="muted">{time(s.startsAt)} {dayLong(s.startsAt)}</div></div>
+          <div><strong>{ct?.name}</strong><div className="muted">{tm(s.startsAt)} {dl(s.startsAt)}</div></div>
         </div>
         <div className="stack">
           <button className={'btn block ' + (late ? 'danger-solid' : 'danger')} disabled={busy} onClick={cancel}>
@@ -621,7 +628,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
   // ---------- details
   return (
     <div className="cs">
-      <SheetHead compact back={back} title={<>{time(s.startsAt)} · {className}</>} />
+      <SheetHead compact back={back} title={<>{tm(s.startsAt)} · {className}</>} />
       <div className="cs-media">
         <img src={classPhoto(ct ?? undefined)} alt="" />
       </div>
@@ -632,8 +639,8 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
         </div>
         <h2 className="cs-title"><Accent text={ct?.name ?? 'Class'} /></h2>
         <div className="cs-facts">
-          <span><Icon name="calendar" size={18} />{dayLong(s.startsAt)}</span>
-          <span><Icon name="clock" size={18} />{timeRange(s)}</span>
+          <span><Icon name="calendar" size={18} />{dl(s.startsAt)}</span>
+          <span><Icon name="clock" size={18} />{tr(s)}{tz ? ` (${zoneLabel(tz)})` : ''}</span>
           <span><Icon name="pin" size={18} />{place ? place.name : app.settings.address.split(',')[0]}</span>
         </div>
         {place && place.address && (
@@ -721,7 +728,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
               <Icon name={late ? 'info' : 'check'} size={17} />
               {late
                 ? `Cancelling now is a late cancel – the credit won’t be returned.`
-                : `Free cancellation until ${when(freeCancelUntil(s, app.settings))}.`}
+                : `Free cancellation until ${inZone(tz, () => when(freeCancelUntil(s, app.settings)))}.`}
             </p>
             <div className="foot-row">
               {ics}
@@ -744,7 +751,7 @@ function ClassSheetBody({ id, onClose, nav, backLabel, where }: { id: string; on
             {late ? (
               <p className="policy-line late"><Icon name="info" size={17} />Class starts within {pluralise(app.settings.cancelWindowHours, 'hour')}, so this booking can’t be cancelled for a credit back.</p>
             ) : (
-              <p className="policy-line"><Icon name="check" size={17} />Free cancellation until {when(freeCancelUntil(s, app.settings))}.</p>
+              <p className="policy-line"><Icon name="check" size={17} />Free cancellation until {inZone(tz, () => when(freeCancelUntil(s, app.settings)))}.</p>
             )}
             <button className="btn block big" disabled={busy || (showWho && sel.length === 0)} onClick={() => (pickFirst ? (setChoice(undefined), setMode('spot')) : book())}>
               {busy ? 'Booking…' : showWho && sel.length === 0 ? 'Choose who’s coming' : showWho && sel.length > 1 ? <>Book {sel.length} spots <Arrow /></> : showWho && !sel.includes(cid) ? <>Book for {nameOf(sel[0]!)} <Arrow /></> : <>Book this class <Arrow /></>}

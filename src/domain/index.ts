@@ -5,5 +5,6 @@ export * from './permissions';
 export * from './time';
 export * from './capacity';
 export * from './rooms';
+export * from './ics';
 export * from './spots';
 export * from './health';

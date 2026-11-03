@@ -1,4 +1,5 @@
 /** Locations and rooms: clash checks and location filters. Pure, shared by the demo engine, the apps and the tests (the database does the same in 0013). */
+import { withStudioFormat } from '../shared/format';
 import type { ClassSession, ClassType, ID, ISODateTime, Location, Room, ScheduleTemplate } from '../shared/types';
 
 /** Something that holds a room for a while: a class, an appointment or an event session. */
@@ -108,3 +109,19 @@ export function directionsUrl(address: string, platform: 'apple' | 'google'): st
 export function directionsPlatform(ua: string): 'apple' | 'google' {
   return /iPhone|iPad|iPod|Macintosh/i.test(ua) ? 'apple' : 'google';
 }
+
+// ------------------------------------------------------------------ places and local times, for display
+/** The place a class happens, when the studio has more than one location (otherwise nothing about places shows). */
+export function placeOf(s: { locationId?: string | undefined }, locations: Location[]): Location | undefined {
+  return hasManyLocations(locations) ? locations.find((l) => l.id === effectiveLocationId(s, locations)) : undefined;
+}
+/** The timezone to show a class in: its location's, only when that differs from the studio's. */
+export function sessionZone(s: { locationId?: string | undefined }, locations: Location[], studioTz: string): string | undefined {
+  const l = locations.find((x) => x.id === effectiveLocationId(s, locations));
+  return l?.timezone && l.timezone !== studioTz ? l.timezone : undefined;
+}
+/** Run a formatter in another timezone (the studio's own is put back straight after). */
+export function inZone<T>(tz: string | undefined, fn: () => T): T { return tz ? withStudioFormat({ timezone: tz }, fn) : fn(); }
+/** 'Perth time' */
+export const zoneLabel = (tz: string): string => `${tz.split('/').pop()!.replace(/_/g, ' ')} time`;
+
