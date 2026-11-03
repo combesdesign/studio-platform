@@ -1100,3 +1100,12 @@ input[type=checkbox], input[type=radio] { margin: 0; }
   .nav a { min-height: 52px; padding: 4px; }
   .brand-logo { width: 64px; }
 }
+.input.sm, .select.sm { min-height: 44px; }
+.linkish { min-width: 44px; justify-content: center; }
+.pc-x, .mini-step button { position: relative; }
+.pc-x::after, .mini-step button::after { content: ""; position: absolute; inset: -7px; }
+.mini-step { gap: 10px; }
+.seg.sm button { min-width: 44px; }
+summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+@media (max-width: 999px) { .brand { min-height: 44px; min-width: 44px; } }
+a[href^="mailto:"], a[href^="tel:"] { display: inline-block; padding: 12px 0; margin: -12px 0; }

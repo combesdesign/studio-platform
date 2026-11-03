@@ -56,7 +56,7 @@
 .sp-ctxbox dl { display: grid; grid-template-columns: 70px 1fr; gap: 4px 12px; margin: 8px 0 0; }
 .sp-ctxbox dt { color: var(--faint); } .sp-ctxbox dd { margin: 0; overflow-wrap: anywhere; color: var(--ink); }
 .sp-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.sp-browse, .sp-link { color: var(--primary); font-size: 14px; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font: inherit; }
+.sp-browse, .sp-link { color: var(--primary); font-size: 14px; background: none; border: 0; padding: 0; min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font: inherit; }
 
 .sp-done { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 18px 4px 6px; }
 .sp-done h4 { margin: 0; font-size: 28px; font-weight: 400; font-family: var(--display); line-height: 1.15; }

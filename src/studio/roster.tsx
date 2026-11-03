@@ -98,7 +98,7 @@ export function Roster({ id }: { id: string }) {
       setPending((p) => ({ ...p, [e.id]: 'booked' }));
       const r = await run(() => store.undoCheckIn(e.id));
       if (!r) { setPending((p) => { const n = { ...p }; delete n[e.id]; return n; }); return; }
-      snack(`${name} un-checked`);
+      snack(`Check-in undone for ${name}`);
     }
   };
 

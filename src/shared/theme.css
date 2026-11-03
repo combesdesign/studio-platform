@@ -218,7 +218,7 @@ p { margin: 0; }
 .be-color span { display: grid; line-height: 1.25; min-width: 0; }
 .be-color strong { font-weight: 400; font-size: 15px; }
 .be-color small { font-size: 12.5px; color: var(--muted); }
-.be-color .input.sm { min-height: 40px; padding: 8px 10px; font-size: 14px; }
+.be-color .input.sm { min-height: 44px; padding: 8px 10px; font-size: 14px; }
 .be-warn { color: var(--warn); }
 .be-photos { display: flex; gap: 14px; flex-wrap: wrap; }
 .be-photo { display: grid; gap: 8px; justify-items: start; }
