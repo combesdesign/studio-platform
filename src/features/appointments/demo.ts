@@ -43,7 +43,7 @@ export interface Slice {
   /** Reminders already recorded (one per session and time), so the sweep doesn't repeat them. Capped. */
   reminded?: string[];
   /** Emails the live system would send (confirmations, cancellations, waitlist offers); the demo just records them, newest last, capped. */
-  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder' | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer'; text: string; subject?: string }[];
+  outbox?: { at: string; clientId: ID; kind: 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder' | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'event_waitlisted' | 'waitlist_offer'; text: string; subject?: string }[];
 }
 
 const err = (code: string, message: string) => new StoreError(code, message);
@@ -673,6 +673,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       requireWaiver(clientId, w);
       const entry: StoredWaitlist = { id: ctx.newId('awl'), eventId: e.id, clientId, status: 'waiting', joinedAt: now.toISOString() };
       waitlist().push(entry);
+      queueEmail(clientId, 'event_waitlisted', `You’re on the waitlist for ${e.title}`, eventInfo(e));
       return decWait(entry);
     }),
     leaveWaitlist: (id) => ctx.write(() => {

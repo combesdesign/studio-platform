@@ -16,7 +16,7 @@ export type EmailKind =
   | 'booking_confirmed' | 'waitlist_joined' | 'waitlist_promoted' | 'booking_cancelled' | 'class_cancelled' | 'class_reminder' | 'welcome'
   | 'receipt' | 'gift_card'
   | 'appointment_confirmed' | 'appointment_cancelled' | 'appointment_moved' | 'appointment_reminder'
-  | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'waitlist_offer'
+  | 'event_registered' | 'event_cancelled' | 'event_reminder' | 'event_waitlisted' | 'waitlist_offer'
   | 'message_reply';
 
 export interface EmailOverride { enabled?: boolean; subject?: string | null; intro?: string | null }
@@ -146,6 +146,11 @@ export const EMAIL_DEFS: EmailDef[] = [
   {
     kind: 'event_reminder', group: 'Events', label: 'Event reminder', when: 'A set time before the event (Settings › Appointments).', heading: 'See you soon',
     subject: 'See you soon: {session_name}, {session_time}', intro: 'Just a reminder about your {what}.',
+    tags: ['first_name', 'studio_name', 'session_name', 'session_time', 'instructor', 'location', 'what'], cta: 'Open the app',
+  },
+  {
+    kind: 'event_waitlisted', group: 'Events', label: 'Event waitlist: you’re on it', when: 'Right after someone joins the waitlist for a full workshop, course or event.', heading: 'You’re on the waitlist',
+    subject: 'You\'re on the waitlist: {session_name}, {session_time}', intro: 'You’re on the waitlist for this {what}. If a place opens up, we’ll hold it for you and email you straight away.',
     tags: ['first_name', 'studio_name', 'session_name', 'session_time', 'instructor', 'location', 'what'], cta: 'Open the app',
   },
   {

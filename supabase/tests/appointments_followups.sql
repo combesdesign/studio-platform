@@ -38,6 +38,11 @@ select public.appointments_join_waitlist(:'ev') as w1 \gset
 select test.eq(:'w1'::jsonb ->> 'status', 'waiting', 'Cara joins the line');
 select test.eq((:'w1'::jsonb ->> 'position')::int, 1, 'first');
 select test.throws(format($$select public.appointments_join_waitlist(%L)$$, :'ev'), 'ALREADY_BOOKED', 'once');
+select test.admin();
+select test.eq((select count(*)::int from public.appointments_outbox where kind = 'event_waitlisted' and client_id = test.id('cara_client')), 1, 'joining the waitlist queues "you''re on the waitlist" (3004), once');
+select test.eq((select payload ->> 'position' from public.appointments_outbox where kind = 'event_waitlisted' and client_id = test.id('cara_client')), '1', '...saying where she is in line');
+select test.ok('event_waitlisted' = any (app.editable_email_kinds()), 'and it is an editable email');
+select test.login('cara');
 select test.at('2026-10-19 08:01+11');
 select test.login('dan');
 select public.appointments_join_waitlist(:'ev') as w2 \gset

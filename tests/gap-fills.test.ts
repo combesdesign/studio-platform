@@ -25,7 +25,7 @@ async function clientId(store: DataStore, first: string): Promise<ID> {
 const outbox = (d: ReturnType<typeof demo>) => (JSON.parse(d.storage.getItem(STATE_KEY)!).data[d.store.studioId].features.appointments.outbox ?? []) as { kind: string; text: string; subject?: string }[];
 
 // ---------------------------------------------------------------- 1. editable emails, the rest
-const NEW_KINDS = ['receipt', 'gift_card', 'appointment_confirmed', 'appointment_cancelled', 'appointment_moved', 'appointment_reminder', 'event_registered', 'event_cancelled', 'event_reminder', 'waitlist_offer'];
+const NEW_KINDS = ['receipt', 'gift_card', 'appointment_confirmed', 'appointment_cancelled', 'appointment_moved', 'appointment_reminder', 'event_registered', 'event_cancelled', 'event_reminder', 'event_waitlisted', 'waitlist_offer'];
 
 test('emails: every client email is in the editable list, with standard wording that renders and merges every tag', () => {
   for (const k of NEW_KINDS) assert.ok(EMAIL_DEFS.some((d) => d.kind === k), `${k} is editable`);
