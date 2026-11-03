@@ -9,7 +9,7 @@ import { isFeatureLocked, settingsTabsAll, settingsTabsList } from '../shared/re
 import { PlanPanel, Upsell } from './billing';
 import { Avatar, Confirm, Icon, Loading, PageHead, ROLE_LABEL, SheetHead, cx, replaceRoute, roleLabel, toCents, toDollars, useStudio, type Perm } from './ui';
 import { productKindLabel } from './book';
-import { healthPolicy } from '../domain';
+import { healthPolicy, healthVisibility } from '../domain';
 import { BrandingTab } from './branding';
 import { LocationsTab, useLocationsTabVisible } from './locations';
 import { PaymentsPanel } from './payments';
@@ -139,7 +139,7 @@ function PoliciesTab() {
     cancelWindowHours: d.cancelWindowHours, waitlistCutoffHours: d.waitlistCutoffHours, lateCancelFeeCents: d.lateCancelFeeCents, noShowFeeCents: d.noShowFeeCents,
     bookingWindowDays: d.bookingWindowDays, defaultCapacity: d.defaultCapacity, cancellationPolicyText: d.cancellationPolicyText, waitlistPolicyText: d.waitlistPolicyText,
     waiverText: d.waiverText, healthQuestions: d.healthQuestions.map((q) => q.trim()).filter(Boolean),
-    longHealthFormFirstTimers: hp.longFormFirstTimers, quickHealthCheck: hp.quickCheck, quickHealthCheckDays: hp.quickCheckDays,
+    longHealthFormFirstTimers: hp.longFormFirstTimers, quickHealthCheck: hp.quickCheck, quickHealthCheckDays: hp.quickCheckDays, healthNotesVisibility: healthVisibility(d),
     privacyPolicyText: (d.privacyPolicyText ?? '').trim(), termsText: (d.termsText ?? '').trim(),
   }), 'Policies saved');
   return (
@@ -175,6 +175,20 @@ function PoliciesTab() {
             <label className="field" style={{ maxWidth: 260 }}><span>Ask at most once every (days)</span>
               <input className="input" type="number" min={1} max={365} value={hp.quickCheckDays} onChange={(e) => setD({ ...d, quickHealthCheckDays: Math.min(365, Math.max(1, Math.round(Number(e.target.value)) || 30)) })} /></label>
           )}
+        </div>
+      </section>
+      <section className="card pad span-all">
+        <h3>Who can see <em>health notes</em></h3>
+        <p className="muted small" style={{ margin: '6px 0 14px' }}>Injuries and health form answers. The owner and managers can always see them. Clients can always see their own.</p>
+        <div className="stack">
+          {([
+            ['all_staff', 'All staff', 'Everyone who works here, including front desk.'],
+            ['class_instructor', 'Owner, managers and the instructor of a class they’re booked into', 'The most private option that still lets instructors prepare for their class.'],
+            ['owner_manager', 'Owner and managers only', 'Instructors and front desk never see health notes.'],
+          ] as const).map(([v, label, hint]) => (
+            <label className="check" key={v}><input type="radio" name="healthNotesVisibility" checked={healthVisibility(d) === v} onChange={() => setD({ ...d, healthNotesVisibility: v })} />
+              <span><strong>{label}</strong><br /><span className="muted small">{hint}</span></span></label>
+          ))}
         </div>
       </section>
       <section className="card pad span-all">

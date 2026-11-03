@@ -235,6 +235,9 @@ export interface PlatformUser {
 
 // ---------------------------------------------------------------- studio settings (per studio)
 
+/** all_staff; class_instructor = owner, managers and the instructor of a class the client is booked into; owner_manager. */
+export type HealthNotesVisibility = 'all_staff' | 'class_instructor' | 'owner_manager';
+
 export interface StudioSettings {
   name: string; // 'Snowy Pilates Club'
   timezone: string; // 'Australia/Sydney'
@@ -264,6 +267,8 @@ export interface StudioSettings {
   quickHealthCheck?: boolean;
   /** ...at most once every this many days. Unset = 30. */
   quickHealthCheckDays?: number;
+  /** Who can read clients' injuries and health forms. Unset = 'class_instructor'. */
+  healthNotesVisibility?: HealthNotesVisibility;
   /** The studio's own privacy policy / terms, replacing the built-in template (src/shared/legal.ts). Blank or unset = use the template. */
   privacyPolicyText?: string;
   termsText?: string;

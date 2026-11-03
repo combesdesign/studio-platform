@@ -92,6 +92,7 @@ function toSettings(r: Row): StudioSettings {
     longHealthFormFirstTimers: r.long_health_form_first_timers === undefined ? true : bool(r.long_health_form_first_timers),
     quickHealthCheck: r.quick_health_check === undefined ? true : bool(r.quick_health_check),
     quickHealthCheckDays: num(r.quick_health_check_days, 30),
+    healthNotesVisibility: (['all_staff', 'class_instructor', 'owner_manager'] as const).find((v) => v === r.health_notes_visibility) ?? 'class_instructor',
     privacyPolicyText: optStr(r.privacy_policy_text), termsText: optStr(r.terms_text),
   });
 }
@@ -101,7 +102,7 @@ const SETTINGS_COLS: Record<keyof StudioSettings, string> = {
   lateCancelFeeCents: 'late_cancel_fee_cents', noShowFeeCents: 'no_show_fee_cents', bookingWindowDays: 'booking_window_days',
   defaultCapacity: 'default_capacity', waiverText: 'waiver_text', healthQuestions: 'health_questions',
   cancellationPolicyText: 'cancellation_policy_text', waitlistPolicyText: 'waitlist_policy_text',
-  longHealthFormFirstTimers: 'long_health_form_first_timers', quickHealthCheck: 'quick_health_check', quickHealthCheckDays: 'quick_health_check_days',
+  longHealthFormFirstTimers: 'long_health_form_first_timers', quickHealthCheck: 'quick_health_check', quickHealthCheckDays: 'quick_health_check_days', healthNotesVisibility: 'health_notes_visibility',
   privacyPolicyText: 'privacy_policy_text', termsText: 'terms_text',
 };
 
@@ -112,6 +113,9 @@ function toStaff(r: Row, pay?: number): Staff {
     payPerClassCents: pay, active: r.active === undefined ? true : bool(r.active),
   });
 }
+
+/** Every clients column the app reads except the health ones (injuries, health_form, health_update), which only `client_health` hands out (3002). */
+const CLIENT_COLS = 'id, first_name, last_name, email, phone, birthday, photo_url, created_at, emergency_contact_name, emergency_contact_phone, waiver_signed_at, health_checked_at, marketing_opt_in, source, archived, guardian_client_id, deleted_at';
 
 function toClient(r: Row, staffNotes?: string): Client {
   const hf = r.health_form && typeof r.health_form === 'object' ? (r.health_form as Row) : undefined;
@@ -1259,14 +1263,22 @@ class SupabaseStore implements DataStore {
     return new Map(rows.map((r) => [str(r.client_id), str(r.notes)]));
   }
 
+  /** Health fields for the clients the signed-in person may read them for (the studio's "who can see health notes" setting). */
+  private async healthFor(ids: string[]): Promise<Map<string, Row>> {
+    if (!ids.length) return new Map();
+    const rows = arr(await this.rpc('client_health', { p_client_ids: ids })).map(obj);
+    return new Map(rows.map((r) => [str(r.id), r] as const));
+  }
+
   async listClients(opts: { search?: string; includeArchived?: boolean } = {}): Promise<Client[]> {
     await this.requireStaff('clients_view');
-    let q = this.sb.from('clients').select('*').order('first_name').order('last_name');
+    let q = this.sb.from('clients').select(CLIENT_COLS).order('first_name').order('last_name');
     if (!opts.includeArchived) q = q.eq('archived', false);
     const [rows, notes] = await Promise.all([this.rows(q), this.notesFor()]);
+    const health = await this.healthFor(rows.map((r) => str(r.id)));
     const terms = (opts.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
     const names = new Map(rows.map((r) => [str(r.id), `${str(r.first_name)} ${str(r.last_name)}`.trim()] as const));
-    return rows.map((r) => toClient({ ...r, ...(r.guardian_client_id && names.get(str(r.guardian_client_id)) ? { guardian_name: names.get(str(r.guardian_client_id)) } : {}) }, notes.get(str(r.id)))).filter((c) => {
+    return rows.map((r) => toClient({ ...r, ...health.get(str(r.id)), ...(r.guardian_client_id && names.get(str(r.guardian_client_id)) ? { guardian_name: names.get(str(r.guardian_client_id)) } : {}) }, notes.get(str(r.id)))).filter((c) => {
       if (!terms.length) return true;
       // family accounts: search a parent's name to find their dependants too
       const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone ?? ''} ${(c.phone ?? '').replace(/\D/g, '')} ${c.guardianName ?? ''}`.toLowerCase();
@@ -1275,10 +1287,12 @@ class SupabaseStore implements DataStore {
   }
 
   async getClient(id: ID): Promise<Client> {
-    const [r, notes] = await Promise.all([
-      this.one(this.sb.from('clients').select('*').eq('id', id).limit(1), 'We couldn’t find that client.'),
+    const [r0, notes, health] = await Promise.all([
+      this.one(this.sb.from('clients').select(CLIENT_COLS).eq('id', id).limit(1), 'We couldn’t find that client.'),
       this.notesFor(id),
+      this.healthFor([id]),
     ]);
+    const r = { ...r0, ...health.get(id) };
     const gid = optStr(r.guardian_client_id);
     const guardian = gid ? (await this.guardianNames([gid])).get(gid) : undefined;
     return toClient(guardian ? { ...r, guardian_name: guardian } : r, notes.get(id));
@@ -1294,8 +1308,9 @@ class SupabaseStore implements DataStore {
 
   // ------------------------------------------------------------------ family accounts (0010_family.sql; docs/features/family.md)
   async listDependants(guardianId: ID): Promise<Client[]> {
-    const rows = await this.rows(this.sb.from('clients').select('*').eq('guardian_client_id', guardianId).eq('archived', false).order('created_at'));
-    return rows.map((r) => toClient(r));
+    const rows = await this.rows(this.sb.from('clients').select(CLIENT_COLS).eq('guardian_client_id', guardianId).eq('archived', false).order('created_at'));
+    const health = await this.healthFor(rows.map((r) => str(r.id)));
+    return rows.map((r) => toClient({ ...r, ...health.get(str(r.id)) }));
   }
 
   async saveDependant(guardianId: ID, input: DependantInput): Promise<Client> {

@@ -41,16 +41,16 @@ select test.studio('snowy');
 -- ---------------------------------------------------------------- quick health check
 select test.login('alice');
 select test.eq(public.submit_health_check(test.id('alice_client'), false) ->> 'injuries', null, 'No = nothing written to injuries');
-select test.ok((select health_checked_at is not null and health_update is null from public.clients where id = test.id('alice_client')), 'No stamps the date only');
+select test.ok((test.health(test.id('alice_client')) ->> 'health_checked_at' is not null and test.health(test.id('alice_client')) -> 'health_update' = 'null'::jsonb), 'No stamps the date only');
 select test.throws($$select public.submit_health_check(test.id('alice_client'), true, '   ')$$, 'INVALID', 'Yes needs a note');
 select public.submit_health_check(test.id('alice_client'), true, 'sore left knee');
-select test.eq((select injuries from public.clients where id = test.id('alice_client')), '19 Oct 2026: sore left knee', 'Yes adds a dated line to injuries');
+select test.eq((test.health(test.id('alice_client')) ->> 'injuries'), '19 Oct 2026: sore left knee', 'Yes adds a dated line to injuries');
 select public.submit_health_check(test.id('alice_client'), true, 'tight hip');
-select test.eq((select injuries from public.clients where id = test.id('alice_client')), E'19 Oct 2026: sore left knee\n19 Oct 2026: tight hip', 'notes pile up');
-select test.eq((select health_update ->> 'note' from public.clients where id = test.id('alice_client')), 'tight hip', 'the latest update is kept for the roster');
+select test.eq((test.health(test.id('alice_client')) ->> 'injuries'), E'19 Oct 2026: sore left knee\n19 Oct 2026: tight hip', 'notes pile up');
+select test.eq((test.health(test.id('alice_client')) -> 'health_update' ->> 'note'), 'tight hip', 'the latest update is kept for the roster');
 select test.throws($$select public.submit_health_check(test.id('bob_client'), false)$$, 'NOT_FOUND', 'not for someone else');
 update public.clients set health_update = null, health_checked_at = null where id = test.id('alice_client');
-select test.ok((select health_update is not null and health_checked_at is not null from public.clients where id = test.id('alice_client')), 'a client can''t write the health check columns directly');
+select test.ok((test.health(test.id('alice_client')) -> 'health_update' <> 'null'::jsonb and test.health(test.id('alice_client')) ->> 'health_checked_at' is not null), 'a client can''t write the health check columns directly');
 
 -- the roster flags it for the instructor until alice has been checked in to a class since
 select public.book_class(test.id('s_thu'));
@@ -59,7 +59,7 @@ select test.ok(exists (select 1 from jsonb_array_elements(public.get_roster(test
                         where e ->> 'client_id' = test.id('alice_client')::text and e -> 'flags' ? 'health_update'), 'roster flags health_update');
 select test.ok(exists (select 1 from jsonb_array_elements(public.get_roster(test.id('s_thu'))) e
                         where e ->> 'client_id' = test.id('alice_client')::text and e -> 'flags' ? 'injury'), 'and the usual injury flag');
-select test.eq((select count(*)::int from public.clients where id = test.id('alice_client') and health_update is not null), 1, 'instructors can read the update');
+select test.eq((select jsonb_array_length(public.client_health(array[test.id('alice_client')]))), 1, 'instructors can read the update');
 -- another studio's owner can't use the check on this client
 select test.studio('harbour');
 select test.login('hank');

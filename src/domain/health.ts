@@ -3,7 +3,7 @@
  * Pure, so the demo store, the client app and the tests all agree. The live store feeds it the same data
  * (the client row and whether they have a checked-in booking), so demo and live behave the same.
  */
-import type { Client, ISODate, ISODateTime, Pass, Product, StudioSettings } from '../shared/types';
+import type { Booking, Client, ClassSession, HealthNotesVisibility, ISODate, ISODateTime, Pass, Product, StaffRole, StudioSettings } from '../shared/types';
 import { studioDay } from './time';
 import { DAY_MS } from './rules';
 
@@ -100,4 +100,22 @@ export function passFieldsFrom(product: Product): Pick<Pass, 'productId' | 'name
     ...(product.noClasses ? { noClasses: true } : {}),
     ...(product.familyShareable !== undefined ? { familyShareable: product.familyShareable } : {}),
   };
+}
+
+/** The studio's health-notes setting, defaulting to the more private "owner, managers and the class instructor". */
+export function healthVisibility(s: Pick<StudioSettings, 'healthNotesVisibility'> | undefined): HealthNotesVisibility {
+  const v = s?.healthNotesVisibility;
+  return v === 'all_staff' || v === 'owner_manager' || v === 'class_instructor' ? v : 'class_instructor';
+}
+
+/** Is this client booked into a class this staff member teaches (not cancelled, not ended more than a day ago)? */
+export function teachesClient(args: { staffId: string; clientId: string; bookings: Pick<Booking, 'clientId' | 'sessionId' | 'status'>[]; sessions: Pick<ClassSession, 'id' | 'instructorId' | 'endsAt' | 'status'>[]; now: Date }): boolean {
+  const mine = new Map(args.sessions.filter((s) => s.instructorId === args.staffId && s.status !== 'cancelled' && Date.parse(s.endsAt) > args.now.getTime() - DAY_MS).map((s) => [s.id, s] as const));
+  return args.bookings.some((b) => b.clientId === args.clientId && mine.has(b.sessionId) && (b.status === 'booked' || b.status === 'waitlisted' || b.status === 'checked_in'));
+}
+
+/** Can this staff member read the client's injuries / health form? Owner and managers always can. */
+export function canSeeHealthNotes(visibility: HealthNotesVisibility, role: StaffRole, teachesThisClient: boolean): boolean {
+  if (role === 'owner' || role === 'manager' || visibility === 'all_staff') return true;
+  return visibility === 'class_instructor' && teachesThisClient;
 }

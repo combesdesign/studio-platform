@@ -360,6 +360,7 @@ await t('roster: order, flags and staff notes (front desk)', async () => {
   await client.signOut();
   await client.signIn('alice@example.test', 'pw');
   await client.bookClass(ALICE, S_EVE);
+  sql(`update public.studio_settings set health_notes_visibility = 'all_staff'`);   // front desk only reads health notes when the studio says so (3002)
   const alice = await studio.getClient(ALICE);
   await studio.upsertClient({ ...alice, staffNotes: 'Paid cash, owes $10', injuries: 'Dodgy knee' });
   const roster = await studio.getRoster(S_EVE);
@@ -369,6 +370,14 @@ await t('roster: order, flags and staff notes (front desk)', async () => {
   assert.ok(a.flags.includes('first_class') && a.flags.includes('injury'));
   assert.ok(a.pass && a.pass.kind === 'pack');
   assert.ok(roster.some((e) => e.client.photoUrl === undefined));
+  assert.equal(a.client.injuries, 'Dodgy knee');
+  // the default: front desk doesn't see health notes, on the roster or the profile
+  sql(`update public.studio_settings set health_notes_visibility = 'class_instructor'`);
+  const hidden = (await studio.getRoster(S_EVE))[0];
+  assert.ok(!hidden.flags.includes('injury') && hidden.client.injuries === undefined && hidden.client.staffNotes === 'Paid cash, owes $10');
+  assert.equal((await studio.getClient(ALICE)).injuries, undefined);
+  assert.equal((await client.getClient(ALICE)).injuries, 'Dodgy knee');   // the client still reads their own
+  sql(`update public.studio_settings set health_notes_visibility = 'all_staff'`);
   const ci = await studio.checkIn(a.id);
   assert.equal(ci.status, 'checked_in');
   assert.equal((await studio.undoCheckIn(a.id)).status, 'booked');

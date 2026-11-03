@@ -91,7 +91,7 @@ select test.eq((public.checkout_cart(null, '[{"product_id":"9a0d0000-0000-4000-8
                'instructor can sell at the till (RULES: no refunds)');
 update public.studio_settings set cancel_window_hours = 0;
 select test.ok((select count(*) from public.clients) = 7, 'instructor can read client profiles');
-select test.eq((select injuries from public.clients where id = test.id('alice_client')), 'Dodgy left knee', 'instructor can read injuries');
+select test.eq(jsonb_array_length(public.client_health(array[test.id('alice_client')])), 0, 'instructor can not read injuries of a client who is not in their class (3002 default; see health_notes_visibility.sql)');
 select test.eq((select count(*) from public.bookings)::int, 0, 'instructor sees no bookings for classes they don''t teach');
 select test.throws($$select public.get_roster(test.id('s_eve'))$$, 'NOT_ALLOWED', 'instructor cannot see another instructor''s roster');
 select test.eq(jsonb_typeof(public.get_roster(test.id('s_early'))), 'array', 'instructor can see their own roster');

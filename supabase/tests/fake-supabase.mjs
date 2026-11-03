@@ -107,11 +107,13 @@ class Query {
   constructor(key, table) {
     Object.assign(this, { key, table, op: 'select', cols: '*', where: [], orders: [], lim: null, mode: null, values: null, returning: false, onConflict: null });
   }
-  select(cols = '*') { if (this.op === 'select') this.cols = cols; else this.returning = true; return this; }
+  select(cols = '*') { if (this.op === 'select') this.cols = cols; else { this.returning = true; this.retCols = cols; } return this; }
   insert(v) { this.op = 'insert'; this.values = v; return this; }
   update(v) { this.op = 'update'; this.values = v; return this; }
   upsert(v, o = {}) { this.op = 'upsert'; this.values = v; this.onConflict = o.onConflict ?? null; return this; }
   delete() { this.op = 'delete'; return this; }
+  /** PostgREST only returns the columns asked for (it matters: the app roles can't select every column of every table). */
+  retList() { if (!this.returning) return '1 as ok'; return this.retCols && this.retCols !== '*' ? this.retCols.split(',').map((c) => `t.${ident(c.trim())}`).join(', ') : 't.*'; }
   eq(c, v) { this.where.push(`t.${ident(c)} = ${lit(v)}`); return this; }
   neq(c, v) { this.where.push(`t.${ident(c)} <> ${lit(v)}`); return this; }
   lt(c, v) { this.where.push(`t.${ident(c)} < ${lit(v)}`); return this; }
@@ -171,11 +173,11 @@ class Query {
         const sets = cols.filter((c) => !keys.includes(c)).map((c) => `${ident(c)} = excluded.${ident(c)}`);
         conflict = ` on conflict (${keys.map(ident).join(', ')}) do ${sets.length ? `update set ${sets.join(', ')}` : 'nothing'}`;
       }
-      return `with w as (insert into ${T} as t (${cols.map(ident).join(', ')}) values ${values}${conflict} returning t.*) select coalesce(json_agg(w), '[]'::json) from w`;
+      return `with w as (insert into ${T} as t (${cols.map(ident).join(', ')}) values ${values}${conflict} returning ${this.retList()}) select coalesce(json_agg(w), '[]'::json) from w`;
     }
     if (this.op === 'update') {
       const sets = Object.entries(this.values).map(([c, v]) => `${ident(c)} = ${lit(v)}`).join(', ');
-      return `with w as (update ${T} as t set ${sets}${where} returning t.*) select coalesce(json_agg(w), '[]'::json) from w`;
+      return `with w as (update ${T} as t set ${sets}${where} returning ${this.retList()}) select coalesce(json_agg(w), '[]'::json) from w`;
     }
     return `with w as (delete from ${T} as t${where} returning t.*) select coalesce(json_agg(w), '[]'::json) from w`;
   }

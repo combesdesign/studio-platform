@@ -72,6 +72,11 @@ begin
   raise exception 'FAIL: % (expected %, but it worked)', p_name, p_code;
 end $$;
 
+-- The raw health columns of a client, whoever is logged in (the app roles can't select them from the table; see 3002).
+create function test.health(p_id uuid) returns jsonb language sql security definer as $$
+  select jsonb_build_object('injuries', injuries, 'health_form', health_form, 'health_update', health_update, 'health_checked_at', health_checked_at) from public.clients where id = p_id
+$$;
+
 grant execute on all functions in schema test to anon, authenticated, service_role;
 
 -- ----------------------------------------------------------------------------- people

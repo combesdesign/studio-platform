@@ -17,7 +17,7 @@ import type {
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
 import {
   FINANCIAL_SETTINGS_KEYS, buildReport, can, clientsCsv, comparePassPriority, computePassStatus, creditLabel, isIntroEligible,
-  appendHealthNote, isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, validateLayout, cleanLayout, type FeatureAction, type StaffAction,
+  appendHealthNote, canSeeHealthNotes, healthVisibility, teachesClient, isFamilyShareable, isPassCurrent, remainingCredits, rosterFlags, salesCsv, studioDay, templateClashes, validateLayout, cleanLayout, type FeatureAction, type StaffAction,
 } from '../../domain';
 import type { Actor, DemoState, Engine } from './engine';
 import { PERSONA_EMAILS } from './seed';
@@ -223,10 +223,16 @@ export class DemoStore implements DataStore {
     const u = this.readAuth();
     return u?.kind === 'staff' ? this.state.staff.find((s) => s.id === u.staffId) : undefined;
   }
+  /** Staff may read health notes per the studio setting (Settings > Policies). Signed-out and other clients never reach here with someone else's record. */
+  private staffSeesHealth(st: Staff, clientId: ID): boolean {
+    return canSeeHealthNotes(healthVisibility(this.state.settings), st.role,
+      teachesClient({ staffId: st.id, clientId, bookings: this.state.bookings, sessions: this.state.sessions, now: this.now() }));
+  }
   private redactClient(c: Client): Client {
     const st = this.viewerStaff();
     let out: Client = c;
     if (!(st && can(st.role, 'client_staff_notes'))) { const { staffNotes: _omit, ...rest } = c; out = rest; }
+    if (st && !this.staffSeesHealth(st, c.id)) { const { injuries: _i, healthForm: _h, healthUpdate: _u, ...rest } = out; out = rest; }
     const g = c.guardianClientId ? this.engine.findClient(c.guardianClientId) : undefined;
     return g ? { ...out, guardianName: `${g.firstName} ${g.lastName}`.trim() } : out;
   }
@@ -531,6 +537,9 @@ export class DemoStore implements DataStore {
       }
       if (patch.quickHealthCheckDays !== undefined && !(Number.isInteger(patch.quickHealthCheckDays) && patch.quickHealthCheckDays >= 1 && patch.quickHealthCheckDays <= 365)) {
         throw err('INVALID', 'The health check can repeat every 1 to 365 days.');
+      }
+      if (patch.healthNotesVisibility !== undefined && !['all_staff', 'class_instructor', 'owner_manager'].includes(patch.healthNotesVisibility)) {
+        throw err('INVALID', 'Pick who can see health notes.');
       }
       Object.assign(this.state.settings, patch);
       const studio = this.studioRec;
@@ -860,7 +869,10 @@ export class DemoStore implements DataStore {
         const lastCheckInAt = this.state.bookings.filter((x) => x.clientId === b.clientId && x.status === 'checked_in' && x.sessionId !== sessionId)
           .map((x) => this.engine.findSession(x.sessionId)?.startsAt ?? '').filter((t) => t && Date.parse(t) < startT).sort().pop();
         const flags = rosterFlags({ client, booking: b, session: s, ...(pass ? { pass } : {}), passRemaining, priorCheckIns, ...(lastCheckInAt ? { lastCheckInAt } : {}) });
-        return { ...b, client: this.redactClient(client), ...(pass ? { pass } : {}), flags, _name: `${client.firstName} ${client.lastName}` };
+        const hidden = this.redactClient(client);
+        const shownFlags = hidden.injuries === undefined && hidden.healthForm === undefined && (client.injuries !== undefined || client.healthForm !== undefined || client.healthUpdate !== undefined)
+          ? flags.filter((f) => f !== 'injury' && f !== 'health_update') : flags;
+        return { ...b, client: hidden, ...(pass ? { pass } : {}), flags: shownFlags, _name: `${client.firstName} ${client.lastName}` };
       });
       out.sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
         || (a.status === 'waitlisted' ? (a.waitlistPosition ?? 0) - (b.waitlistPosition ?? 0) : a._name.localeCompare(b._name)));
@@ -957,6 +969,8 @@ export class DemoStore implements DataStore {
       const patch: Partial<Client> = { ...input, email };
       delete patch.guardianName; // derived on read, never stored
       if (!can(st.role, 'client_staff_notes')) delete patch.staffNotes;
+      // someone who can't read the health notes can't overwrite them either (the form they edited never had them)
+      if (existing && !this.staffSeesHealth(st, existing.id)) { delete patch.injuries; delete patch.healthForm; delete patch.healthUpdate; }
       if (patch.guardianClientId) {
         const g = this.engine.findClient(patch.guardianClientId);
         if (!g || g.archived) throw err('NOT_FOUND', 'We couldn’t find that parent.');
@@ -966,7 +980,7 @@ export class DemoStore implements DataStore {
       if (existing) {
         delete patch.createdAt;
         Object.assign(existing, patch);
-        return existing;
+        return this.redactClient(existing);
       }
       const c: Client = {
         marketingOptIn: false, source: 'staff', ...patch, firstName: input.firstName.trim(), lastName: input.lastName ?? '', email,
