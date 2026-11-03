@@ -1,5 +1,5 @@
-// ClassPass / Gympass -> database. A STUB. It is OFF unless PARTNER_WEBHOOK_ENABLED=true and it rejects every call
-// until the signature check below is written.
+// ClassPass / Gympass -> database. A STUB. It is OFF unless PARTNER_WEBHOOK_ENABLED=true, and every call must carry a valid
+// signature (provisional HMAC scheme below, with the studio's saved partner key) before anything is booked.
 //
 // REAL USE NEEDS A PARTNER AGREEMENT. ClassPass and Gympass only let a studio take their members after signing the studio
 // up as a partner. That is when they hand over the studio's partner ID, an API key, the real webhook format and how they
@@ -22,27 +22,33 @@
 // through public.integrations_partner_book (spots held for the partner, capacity, repeats: all checked in the database).
 import { adminClient, must } from '../_shared/db.ts';
 import { HttpError, json, serve } from '../_shared/http.ts';
+import { verifyStripeSignature } from '../_shared/stripe.ts';
 
 const PARTNERS = ['classpass', 'gympass'];
 
 /**
- * TODO(partner agreement): VERIFY THE PARTNER'S SIGNATURE HERE. Not done yet, on purpose.
+ * Signature check. PROVISIONAL FORMAT (of our own, until the partner agreement says how they really sign): the header
+ *   X-Partner-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">
+ * made with the studio's saved partner API key (public.integrations_secrets, service role only; saved write-only in Settings > Partners).
+ * The studio is found from `studio_id` (the partner's ID for it) among ENABLED partner rows, so an unknown studio, a studio with
+ * no key, or a stale timestamp (5 minutes, stops replays) is refused. Replace the header and scheme when the partner documents theirs.
  *
- * What goes here depends on what the partner documents: usually an HMAC of the raw body (plus a timestamp, to stop replays)
- * made with the studio's API key and sent in a header. The studio's key is saved write-only in
- * public.integrations_secrets (service role only): look it up with the studio found from `studio_id`, then compare in
- * constant time (see timingSafeEqual in ../_shared/http.ts and verifyStripeSignature in ../_shared/stripe.ts for the pattern).
- *
- * Until it's written this returns false for everything, so the function can never create a booking in production.
- * PARTNER_WEBHOOK_SKIP_VERIFY=true switches the check off for local testing ONLY. Never set it on a real project.
+ * PARTNER_WEBHOOK_SKIP_VERIFY=true switches the check off for local testing ONLY. Never set it on a real project: anyone could
+ * then book classes for free.
  */
-// deno-lint-ignore no-unused-vars
 async function verifySignature(req: Request, rawBody: string, partner: string, studioPartnerId: string): Promise<boolean> {
   if (Deno.env.get('PARTNER_WEBHOOK_SKIP_VERIFY') === 'true') {
     console.warn('partner-webhook: signature check is OFF (PARTNER_WEBHOOK_SKIP_VERIFY). Local testing only.');
     return true;
   }
-  return false; // TODO(partner agreement): replace with the partner's real signature check
+  const header = req.headers.get('X-Partner-Signature');
+  if (!header) return false;
+  const admin = adminClient();
+  const link = must(await admin.from('integrations_partners').select('studio_id').eq('partner', partner).eq('partner_studio_id', studioPartnerId).eq('enabled', true).maybeSingle()) as { studio_id: string } | null;
+  if (!link?.studio_id) return false;
+  const secret = must(await admin.from('integrations_secrets').select('api_key').eq('studio_id', link.studio_id).eq('partner', partner).maybeSingle()) as { api_key: string } | null;
+  if (!secret?.api_key) return false;
+  return await verifyStripeSignature(rawBody, header, secret.api_key);
 }
 
 serve(async (req) => {

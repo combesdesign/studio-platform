@@ -220,7 +220,7 @@ select 'null'::json`));
     },
     auth: {
       async getSession() { return { data: { session: userId() ? { user: { id: userId() } } : null }, error: null }; },
-      async getUser() { return { data: { user: userId() ? { id: userId() } : null }, error: null }; },
+      async getUser() { return { data: { user: userId() ? { id: userId(), email: admin(`select to_json(email) from auth.users where id = ${lit(userId())}`) } : null }, error: null }; },
       async signInWithPassword({ email, password }) {
         if (password === 'wrong') return { data: {}, error: { message: 'Invalid login credentials' } };
         const u = admin(`select to_json(id) from auth.users where lower(email) = lower(${lit(email)})`);

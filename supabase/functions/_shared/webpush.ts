@@ -74,6 +74,21 @@ export async function encryptPayload(plaintext: Uint8Array, p256dh: string, auth
   return concat(header, record);
 }
 
+/**
+ * A push endpoint is whatever address the browser registered, so the server must not post to just anywhere (that would make it a
+ * way to reach internal services). Real push services are public https hosts with a name: no IP addresses, no localhost, no
+ * single-label or internal-looking names, no credentials or odd ports in the address.
+ */
+export function isPublicPushEndpoint(endpoint: string): boolean {
+  let u: URL;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) return false;
+  const h = u.hostname.toLowerCase();
+  if (!h.includes('.') || h.startsWith('[') || /^[\d.]+$/.test(h)) return false;                 // single label, IPv6 literal, IPv4 literal
+  if (h === 'localhost' || /\.(local|localhost|internal|lan|home|corp|intranet)$/.test(h)) return false;
+  return true;
+}
+
 export interface WebPushResult { ok: boolean; status: number; /** the subscription is gone for good (404 / 410): delete it */ expired: boolean; error?: string }
 
 /** Send one push. `payload` null (or a subscription without keys) sends an empty push. Never throws on a push-service error. */
@@ -85,7 +100,7 @@ export async function sendWebPush(
 ): Promise<WebPushResult> {
   try {
     const url = new URL(sub.endpoint);
-    if (url.protocol !== 'https:') return { ok: false, status: 0, expired: false, error: 'Push endpoint must be https' };
+    if (!isPublicPushEndpoint(sub.endpoint)) return { ok: false, status: 0, expired: false, error: 'Push endpoint must be a public https address' };
     const headers: Record<string, string> = {
       Authorization: `vapid t=${await vapidJwt(url.origin, vapid)}, k=${vapid.publicKey}`,
       TTL: String(opts.ttl ?? 86400),

@@ -38,9 +38,11 @@ serve(async (req) => {
   const client = must(await admin.from('clients').select('id, email, first_name, last_name, phone').eq('id', payerId).single());   // the parent pays
   const clientStudio = must(await admin.from('clients').select('studio_id').eq('id', clientId).single()) as { studio_id?: string };
   if (clientStudio?.studio_id && product.studio_id && clientStudio.studio_id !== product.studio_id) throw new HttpError(404, 'NOT_FOUND', 'That product isn’t available.');
-  const studioName: string = clientStudio?.studio_id
-    ? ((must(await admin.from('studios').select('name').eq('id', clientStudio.studio_id).maybeSingle()) as { name?: string } | null)?.name ?? 'Studio')
-    : 'Studio';
+  const studioRow = clientStudio?.studio_id
+    ? (must(await admin.from('studios').select('name, currency').eq('id', clientStudio.studio_id).maybeSingle()) as { name?: string; currency?: string } | null)
+    : null;
+  const studioName: string = studioRow?.name ?? 'Studio';
+  const currency = String(studioRow?.currency || 'AUD').toLowerCase();   // the studio's own currency, never a hard-coded one
 
   // One Stripe customer per client (so cards are remembered and the billing portal works).
   let customerId: string | undefined = must(await admin.from('stripe_customers').select('stripe_customer_id').eq('client_id', payerId).maybeSingle())?.stripe_customer_id;
@@ -64,7 +66,7 @@ serve(async (req) => {
     : {
         quantity: 1,
         price_data: {
-          currency: 'aud',
+          currency,
           unit_amount: product.price_cents, // GST-inclusive, as advertised
           product_data: { name: `${studioName}: ${product.name}`, metadata: { product_id: product.id } },
           ...(isMembership ? { recurring: { interval: product.billing_interval === 'month' ? 'month' : 'week' } } : {}),

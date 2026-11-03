@@ -6,6 +6,7 @@
 import React from 'react';
 import type { StudioBranding } from './types';
 import { accentParts, brandAsset, getBranding } from './branding';
+import { isSafeSvg } from './svgsafe';
 
 /**
  * The studio's logo. animate=true plays the reveal (letters rise in one by one, then the mark spins in) for
@@ -28,7 +29,7 @@ export function Logo({ animate = false, letters = 'var(--primary)', flower = 'va
       </svg>
     );
   }
-  if (logo.svg) {
+  if (logo.svg && isSafeSvg(logo.svg)) {   // markup from the studio's branding: only plain shapes and text, never script
     return <svg className={cls} viewBox={logo.viewBox ?? '0 0 600 180'} role="img" aria-label={name} style={{ ...vars, ...style }} dangerouslySetInnerHTML={{ __html: logo.svg }} />;
   }
   if (logo.imageUrl) {

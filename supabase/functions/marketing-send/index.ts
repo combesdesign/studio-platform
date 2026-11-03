@@ -19,16 +19,17 @@ import { brandFor, buildSms, drainMarketing, mergeTags, renderEmail, sendSms, va
 
 // ---------------------------------------------------------------- who is asking (staff calls)
 
-async function staffOf(req: Request, admin: Db, studioId: string, roles: string[]): Promise<{ name: string }> {
+async function staffOf(req: Request, admin: Db, studioId: string, roles: string[]): Promise<{ name: string; emails: string[] }> {
   const caller = userClient(req);
   const { data: who } = await caller.auth.getUser();
   const uid = who?.user?.id;
   if (!uid) throw new HttpError(401, 'AUTH_REQUIRED', 'Please sign in first.');
-  const mine = must(await admin.from('staff').select('role, name').eq('studio_id', studioId).eq('user_id', uid).eq('active', true)) as { role: string; name: string }[];
+  const mine = must(await admin.from('staff').select('role, name, email').eq('studio_id', studioId).eq('user_id', uid).eq('active', true)) as { role: string; name: string; email: string | null }[];
   const hit = mine.find((s) => roles.includes(s.role));
   if (!hit) throw new HttpError(403, 'NOT_ALLOWED', 'You don’t have permission to do that.');
   await assertStudioWritable(admin, studioId);   // plan overdue past the grace period: staff can't send
-  return { name: hit.name };
+  // Where a test may go: only to the person asking (their login, or the email on their staff row).
+  return { name: hit.name, emails: [who?.user?.email, hit.email].filter((e): e is string => !!e).map((e) => e.trim().toLowerCase()) };
 }
 
 async function sendTest(admin: Db, studioId: string, to: string, t: Any, staffName: string): Promise<void> {
@@ -83,6 +84,10 @@ serve(async (req) => {
       const staff = await staffOf(req, admin, studioId, ['owner', 'manager']);
       const to = String(body.to ?? '').trim();
       if (!to) throw new HttpError(400, 'INVALID', 'Enter where to send the test.');
+      // A test goes to yourself. Otherwise a studio login could use our email sender to mail anyone with any wording.
+      if (String((body.test as Any)?.channel ?? 'email') !== 'sms' && !staff.emails.includes(to.toLowerCase())) {
+        throw new HttpError(400, 'INVALID', 'Send tests to your own email address.');
+      }
       await sendTest(admin, studioId, to, body.test as Any, staff.name);
       return json({ ok: true });
     }

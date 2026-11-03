@@ -1388,6 +1388,74 @@ console.log('\n-- platform billing (the platform\'s own Stripe account, fake Str
   } finally { platformEnv(false); resetSnowy(); }
 }
 
+// ---------------------------------------------------------------- security review (docs/SECURITY-REVIEW.md)
+await t('create-checkout charges in the studio\'s own currency, never a hard-coded one', async () => {
+  const SNOWY = sql(`select id from public.studios where slug = 'snowy'`);
+  stripeObjects.customers = { id: 'cus_cara' };
+  stripeObjects['checkout/sessions'] = { id: 'cs_nzd', url: 'https://checkout.stripe.com/c/pay/cs_nzd' };
+  try {
+    sql(`update public.studios set currency = 'NZD' where id = '${SNOWY}'`);
+    const h = await load('create-checkout');
+    const res = await post(h, { productId: P_PACK4, returnUrl: 'https://app.example/#/passes?paid=x' }, { Authorization: `Bearer ${CARA_USER}` });
+    assert.equal(res.status, 200);
+    assert.equal(form(lastStripe('checkout/sessions').body)['line_items[0][price_data][currency]'], 'nzd');
+  } finally { sql(`update public.studios set currency = 'AUD' where id = '${SNOWY}'`); }
+});
+
+await t('marketing-send: a test email goes only to the person asking, never to an address they type in', async () => {
+  const SNOWY = sql(`select id from public.studios where slug = 'snowy'`);
+  const libbyUser = id('libby');
+  const libbyEmail = sql(`select email from auth.users where id = '${libbyUser}'`);
+  const h = await load('marketing-send');
+  const test = { channel: 'email', subject: 'Hello', preheader: '', blocks: [{ type: 'text', text: 'Hi there' }] };
+  const before = calls.filter((c) => c.host === 'api.resend.com').length;
+  const other = await post(h, { test, to: 'victim@example.test', studioId: SNOWY }, { Authorization: `Bearer ${libbyUser}` });
+  assert.equal(other.status, 400);
+  assert.equal((await other.json()).code, 'INVALID');
+  assert.equal(calls.filter((c) => c.host === 'api.resend.com').length, before, 'nothing was sent to the other address');
+  const own = await post(h, { test, to: libbyEmail.toUpperCase(), studioId: SNOWY }, { Authorization: `Bearer ${libbyUser}` });
+  assert.equal(own.status, 200, await own.clone().text());
+  const sent = calls.filter((c) => c.host === 'api.resend.com').slice(before).map((c) => JSON.parse(c.body));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to[0].toLowerCase(), libbyEmail.toLowerCase());
+  const fran = await post(h, { test, to: libbyEmail, studioId: SNOWY }, { Authorization: `Bearer ${FRAN_USER}` });
+  assert.equal(fran.status, 403, 'front desk cannot send test emails at all');
+});
+
+await t('partner-webhook: a call must be signed with the studio\'s saved partner key (HMAC, 5 minute window) before anything is booked', async () => {
+  const h = await load('partner-webhook');
+  const SNOWY = sql(`select id from public.studios where slug = 'snowy'`);
+  const raw = JSON.stringify({ partner: 'classpass', event: 'booking.moved', studio_id: 'CP-SIG', booking_id: 'SIG-1' });
+  const sign = (secret, at = Math.floor(Date.now() / 1000)) => `t=${at},v1=${createHmac('sha256', secret).update(`${at}.${raw}`).digest('hex')}`;
+  const call = (header) => h(new Request('https://proj.supabase.co/functions/v1/partner-webhook', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(header ? { 'X-Partner-Signature': header } : {}) }, body: raw }));
+  ENV.PARTNER_WEBHOOK_ENABLED = 'true';
+  try {
+    assert.equal((await call(null)).status, 401, 'no signature');
+    assert.equal((await call(sign('whatever'))).status, 401, 'unknown studio id');
+    sql(`insert into public.integrations_partners (studio_id, partner, enabled, partner_studio_id) values ('${SNOWY}', 'classpass', true, 'CP-SIG')`);
+    assert.equal((await call(sign('whatever'))).status, 401, 'studio has no key saved');
+    sql(`insert into public.integrations_secrets (studio_id, partner, api_key) values ('${SNOWY}', 'classpass', 'partner-key-123')`);
+    assert.equal((await call(sign('wrong-key'))).status, 401, 'wrong key');
+    assert.equal((await call(sign('partner-key-123', Math.floor(Date.now() / 1000) - 3600))).status, 401, 'old timestamp (replay)');
+    assert.equal((await call(`${sign('partner-key-123')}x`)).status, 401, 'tampered signature');
+    assert.equal((await call(sign('partner-key-123'))).status, 400, 'a correctly signed call gets past the check (this event type is just not one we handle)');
+    sql(`update public.integrations_partners set enabled = false where studio_id = '${SNOWY}' and partner = 'classpass'`);
+    assert.equal((await call(sign('partner-key-123'))).status, 401, 'a disabled partner is refused');
+  } finally {
+    delete ENV.PARTNER_WEBHOOK_ENABLED;
+    sql(`delete from public.integrations_partners where studio_id = '${SNOWY}' and partner = 'classpass'`);
+  }
+});
+
+await t('web push: the server only posts to public https push services', async () => {
+  const file = path.join(out, 'pushguard.mjs');
+  await build({ entryPoints: [path.join(FN, '_shared/webpush.ts')], bundle: true, format: 'esm', platform: 'node', outfile: file, logLevel: 'error' });
+  const { isPublicPushEndpoint: ok } = await import(`${file}?${Date.now()}`);
+  for (const good of ['https://fcm.googleapis.com/fcm/send/abc', 'https://updates.push.services.mozilla.com/wpush/v2/abc', 'https://web.push.apple.com/QGxx', 'https://wns2-par02p.notify.windows.com/w/?token=x', 'https://push.example/ok/aaa']) assert.equal(ok(good), true, good);
+  for (const bad of ['http://fcm.googleapis.com/x', 'https://localhost/x', 'https://127.0.0.1/x', 'https://169.254.169.254/latest/meta-data', 'https://10.0.0.5/x', 'https://[::1]/x', 'https://metadata/x',
+                     'https://db.internal/x', 'https://user:pw@fcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'ftp://fcm.googleapis.com/x', 'not a url', '']) assert.equal(ok(bad), false, bad);
+});
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');

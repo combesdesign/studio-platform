@@ -40,8 +40,9 @@ select test.throws($$update public.clients set photo_url = 'https://evil.example
 select test.login('bob');
 delete from storage.objects where name like test.id('alice_client') || '/%';
 select test.anon();
-select test.eq((select count(*) from storage.objects where bucket_id = 'avatars')::int, 1, 'photos are public (anon can read)...');
+select test.eq((select count(*) from storage.objects where bucket_id = 'avatars')::int, 0, 'photos are public by URL (public bucket) but signed-out callers cannot list the folders (migration 2900)...');
 select test.admin();
+select test.eq((select count(*) from storage.objects where bucket_id = 'avatars')::int, 1, '...bob could not delete alice''s photo');
 select test.ok((select photo_url like '%/avatars/' || test.id('alice_client') || '/%' from public.clients where id = test.id('alice_client')),
                '...the client saved their photo URL, and bob could not delete alice''s photo');
 select test.throws($$update public.clients set photo_url = 'data:image/jpeg;base64,AAAA' where id = test.id('bob_client')$$,

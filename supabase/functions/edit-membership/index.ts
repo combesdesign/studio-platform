@@ -81,10 +81,11 @@ async function changePlan(user: ReturnType<typeof userClient>, admin: ReturnType
     const item = sub.items?.data?.[0];
     if (!item?.id) throw new HttpError(502, 'PAYMENT_ERROR', 'We couldn’t find this membership’s plan in Stripe.');
     // Same price shape as create-checkout: a saved Stripe price on the platform's own account, otherwise the price itself.
+    const cur = String((must(await admin.from('studios').select('currency').eq('id', p.studio_id).maybeSingle()) as { currency?: string } | null)?.currency || 'AUD').toLowerCase();
     const price = prod.stripe_price_id && !pay.account
       ? { price: prod.stripe_price_id }
       : { price_data: {
-          currency: 'aud', unit_amount: prod.price_cents,
+          currency: cur, unit_amount: prod.price_cents,
           product_data: { name: prod.name, metadata: { product_id: prod.id } },
           recurring: { interval: prod.billing_interval === 'month' ? 'month' : 'week' },
         } };
