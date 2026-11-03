@@ -149,7 +149,11 @@ async function deliverPush(admin: Db, job: Job): Promise<{ providerId?: string; 
   const keys = vapid();
   if (!keys) throw new Error('Web push is not configured');
   const devices = (job.devices ?? []).filter((d) => d.platform === 'web');
-  if (!devices.length) return { providerId: job.devices?.length ? 'no-web-devices' : 'no-devices' }; // native sending (APNs / FCM) isn't built
+  // TODO(native push): devices with platform 'ios' | 'android' (Capacitor apps) are saved but skipped here. To deliver:
+  //   android -> FCM HTTP v1 (POST https://fcm.googleapis.com/v1/projects/<id>/messages:send, OAuth2 from a service account, env FCM_SERVICE_ACCOUNT)
+  //   ios     -> APNs HTTP/2 with a .p8 key (env APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID, topic = the app's bundle id), or FCM if the iOS app uses Firebase.
+  // See docs/APP-STORES.md ("Push notifications"). Delete a token when the service answers 404 / 410 / UNREGISTERED, as the web branch does.
+  if (!devices.length) return { providerId: job.devices?.length ? 'no-web-devices' : 'no-devices' };
   const payload = pushPayload(job);
   let ok = 0, gone = 0;
   const errors: string[] = [];

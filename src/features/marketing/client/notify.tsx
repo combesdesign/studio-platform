@@ -3,8 +3,7 @@
  *   - PushSwitchRow   a row in Profile (slot client.account) with a switch. Hidden when this browser can't do web push or there's no VAPID key.
  *   - PushPrompt      a one-time, gentle line on the "you're booked in" screen (slot client.booked), only after a client's first booking.
  * Both go through usePushOptIn: Notification.requestPermission + PushManager.subscribe (push.ts), then the marketing device registration.
- * Capacitor (native apps, later): canOptIn() is web only for now. When APNs / FCM sending exists, pushProvider() already returns the
- * Capacitor provider inside the native shell, so this same hook works there once canOptIn allows it.
+ * Inside the iOS / Android app, pushProvider() returns the Capacitor provider and the same hook registers the APNs / FCM token.
  */
 import React, { useState } from 'react';
 import { errorMessage, store, useData, useToast } from '../../../shared/react';

@@ -9,6 +9,7 @@ import { clientRoutesList, clientTabsList } from '../shared/registry';
 import { getBranding } from '../shared/branding';
 import '../features/client';
 import { store, featureOn, useData, useRoute, match, ToastProvider, DemoBadge, useToast } from '../shared/react';
+import { NATIVE_BUILD } from '../shared/nativeEnv';
 import { AuthScreens, NewPassword } from './auth';
 import { Timetable } from './timetable';
 import { Bookings } from './bookings';
@@ -230,7 +231,7 @@ function StaffNotice({ user, onSignOut }: { user: AuthUser; onSignOut: () => voi
 // ------------------------------------------------------------------ mount (called by main.tsx once the studio is bound)
 export function mount(root: Root, _studio: Studio): void {
   captureInstallPrompt();
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !isNative()) {
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !isNative() && !NATIVE_BUILD) {
     const reg = () => navigator.serviceWorker.register('sw.js').catch(() => { /* offline shell is a nice-to-have */ });
     if (document.readyState === 'complete') reg(); else window.addEventListener('load', reg);
   }

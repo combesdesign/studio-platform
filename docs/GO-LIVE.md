@@ -356,7 +356,7 @@ When nobody has needed Momence for a week or so, and every member is billing thr
 - **Android**: open the link in **Chrome**, then tap **Install app** (or ⋮ → **Add to Home screen**).
 - Put this in the invite email and on the front-desk sign. The app's Profile screen also shows iPhone users how.
 
-**Later: App Store and Google Play.** The app is built so it can be wrapped as a real store app with **Capacitor** without rewriting it. When Libby wants that:
+**Later: App Store and Google Play.** The app is built so it can be wrapped as a real store app with **Capacitor** without rewriting it. The full step-by-step is in `docs/APP-STORES.md`. In short, when Libby wants that:
 1. **Apple Developer Program**: about **US$99 a year**. Sign up **in Libby's business name** (as an organisation, which needs a free D-U-N-S number for the business).
 2. **Google Play Console**: about **US$25 once**, also in Libby's business name.
 3. The iPhone version is built with **Xcode** on your Mac (free from the Mac App Store). The Android version is built with Android Studio (free).

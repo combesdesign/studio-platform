@@ -6,6 +6,7 @@ import { store, useData, useToast, errorMessage, Sheet, leaveSheets, useBackHand
 import { CURRENCY, addDays, gstOf, money, studioDate } from '../shared/format';
 import { brandAsset, getBranding } from '../shared/branding';
 import { Slot } from '../shared/slots';
+import { appReturnUrl, goExternal } from '../shared/native';
 import { Accent, Arrow, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, Segmented, SheetHead, Skeleton, useApp } from './ui';
 import { Marquee } from '../shared/brand';
 import { fullName, useDependants } from './family';
@@ -341,10 +342,9 @@ function CheckoutBody({ p, onClose, nav, forId, forLabel, onBackToClass, buyFor,
     setBusy('continue');
     try {
       if (store.startCheckout) {
-        const base = location.href.split('#')[0];
-        const returnUrl = `${base}#/passes?paid=${encodeURIComponent(p.id)}${forId ? `&for=${encodeURIComponent(forId)}` : ''}${buyFor ? `&who=${encodeURIComponent(buyFor)}` : ''}`;
+        const returnUrl = appReturnUrl(`/passes?paid=${encodeURIComponent(p.id)}${forId ? `&for=${encodeURIComponent(forId)}` : ''}${buyFor ? `&who=${encodeURIComponent(buyFor)}` : ''}`);
         const r = await store.startCheckout({ clientId: buyFor ?? app.client.id, productId: p.id, returnUrl });
-        if (r && r.url) { location.href = r.url; return; }
+        if (r && r.url) { goExternal(r.url); return; }
       }
       setStep('pay');
     } catch (e) { toast(errorMessage(e)); }

@@ -4,9 +4,9 @@ import { Sheet, useAction, useData } from '../../../shared/react';
 import { Confirm, Empty, Icon, Loading, Seg, SheetHead, cx, useStudio } from '../../../studio/ui';
 import { appUrl, brandOf, dayTime, defaultSchedule, dmTime, needMarketing, pct, plural, STATUS_LABEL, STATUS_TONE } from '../api';
 import { describeFilter } from '../catalog';
-import { MERGE_TAGS, renderEmail, smsInfo, SMS_OPT_OUT } from '../render';
+import { renderEmail, smsInfo, SMS_OPT_OUT } from '../render';
 import type { Campaign, CampaignInput, Channel, EmailBlock, EmailBlockType, SegmentWithCount } from '../types';
-import { Kpi, Tone } from './bits';
+import { Kpi, TagBar, TagText, Tone } from './bits';
 
 const newBlock = (type: EmailBlockType): EmailBlock => ({
   id: Math.random().toString(36).slice(2, 9), type,
@@ -131,7 +131,7 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
         {channel === 'email' ? (
           <>
             <div className="form-grid">
-              <label className="field span2"><span>Subject</span><input className="input" value={subject} maxLength={150} onChange={(e) => setSubject(e.target.value)} placeholder="New classes are up, {{first_name}}" /></label>
+              <label className="field span2"><span>Subject</span><input className="input" value={subject} maxLength={150} onChange={(e) => setSubject(e.target.value)} placeholder="New classes are up, {{first_name}}" /><TagText text={subject} /></label>
               <label className="field span2"><span>Preview line (shown next to the subject)</span><input className="input" value={preheader} maxLength={200} onChange={(e) => setPreheader(e.target.value)} /></label>
             </div>
             <Seg value={step} options={[{ value: 'write', label: 'Write' }, { value: 'preview', label: 'Preview' }]} onChange={setStep} />
@@ -148,6 +148,7 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
                       </span>
                     </div>
                     {b.type === 'heading' && <input className="input" value={b.text ?? ''} onChange={(e) => patch(b.id, { text: e.target.value })} placeholder="A short headline. *Stars* make a word italic." aria-label="Heading" />}
+                    {(b.type === 'heading' || b.type === 'text') && <TagText text={b.text ?? ''} />}
                     {b.type === 'text' && <textarea className="textarea" rows={5} value={b.text ?? ''} onChange={(e) => patch(b.id, { text: e.target.value })} placeholder="Write your message. A blank line starts a new paragraph." aria-label="Text" />}
                     {b.type === 'image' && (
                       <div className="form-grid">
@@ -170,7 +171,7 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
                     <button key={t} className="chip-btn" onClick={() => setBlocks([...blocks, newBlock(t)])}><Icon name="plus" size={16} />{t[0]!.toUpperCase() + t.slice(1)}</button>
                   ))}
                 </div>
-                <p className="faint small">Merge tags: {MERGE_TAGS.map((t) => `{{${t.tag}}}`).join('  ')}. Every email gets your studio’s look and an unsubscribe link.</p>
+                <TagBar note="Every email gets your studio’s look and an unsubscribe link." />
               </div>
             ) : (
               <iframe className="mk-frame" title="Email preview" sandbox="" srcDoc={html} />
@@ -181,6 +182,8 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
             <label className="field"><span>Message</span>
               <textarea className="textarea" rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Hi {{first_name}}, new classes are up. Book at {{app_url}}" aria-label="Text message" />
             </label>
+            <TagBar />
+            <TagText text={body} />
             <p className={cx('small', info.segments > 1 ? 'mk-warn' : 'faint')}>{info.length} characters with “{SMS_OPT_OUT}” added · {plural(info.segments, 'text')} per person ({info.encoding}).</p>
           </>
         )}

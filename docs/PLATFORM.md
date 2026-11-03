@@ -178,7 +178,7 @@ The demo (no Supabase set up, or `?demo=1`) has two studios so you can see the w
 The apps are built to be wrapped with Capacitor (no browser-only tricks), and a single-studio build already has everything a store listing needs:
 
 1. Build with `STUDIO_SLUG=<slug> node build.mjs`. The app's name, icon colour and home-screen name come from that studio's branding.
-2. Wrap `dist/` with Capacitor, with the studio's icon and splash screen.
+2. Wrap it with Capacitor: `npm run build:app -- --studio=<slug>` (client-only, into `dist-app/`), then the steps in `docs/APP-STORES.md` (icons come from `npm run icons:app -- --studio=<slug>`).
 3. Each studio's app is published under **their own** Apple and Google developer accounts (Apple prefers this for white-label apps, and it keeps reviews and payouts theirs). Budget a day per studio for the first one and an hour or two after that.
 
 Nothing about the database changes for this. It's the same platform with a different front door.

@@ -5,6 +5,7 @@ import { addDays, money, studioDate } from '../../../shared/format';
 import type { Product, Sale } from '../../../shared/types';
 import { Accent, Arrow, BackPill, CardSkeletons, ErrorBlock, Flower, Icon, ScreenHead, SectionHead, SheetHead, useApp } from '../../../client/ui';
 import { backOut, flowFrom, goFlow } from '../../../client/lib';
+import { goExternal } from '../../../shared/native';
 import { Receipt } from '../../../client/passes';
 import { commerce, copyText, dm, dmy, inputToCents, needCommerce, referralLink } from '../api';
 import { ECard } from '../ecard';
@@ -221,7 +222,7 @@ export function BuyGiftCardScreen({ nav, path }: { nav: Nav; path: string }) {
         amountCents: cents, recipientName: toName.trim(), recipientEmail: toEmail.trim(), ...(message.trim() ? { message: message.trim() } : {}),
         ...(fromName.trim() ? { fromName: fromName.trim() } : {}), sendOn: later ? sendOn : today,
       });
-      if (r.checkoutUrl) { location.href = r.checkoutUrl; return; }
+      if (r.checkoutUrl) { goExternal(r.checkoutUrl); return; }
       setDone({ card: r.card, ...(r.sale ? { sale: r.sale } : {}) }); setStep('done');
       window.scrollTo(0, 0);
     } catch (e) { toast(errorMessage(e)); } finally { setBusy(false); }
@@ -459,7 +460,7 @@ function CodeCheckout({ onClose }: { onClose: () => void }) {
     try {
       if (quote && quote.totalCents > 0) await new Promise((r) => setTimeout(r, 650));
       const r = await needCommerce().purchaseWithCodes({ productId: product.id, ...(promo ? { promoCode: promo } : {}), ...(gifts.length ? { giftCodes: gifts } : {}) });
-      if (r.checkoutUrl) { location.href = r.checkoutUrl; return; }
+      if (r.checkoutUrl) { goExternal(r.checkoutUrl); return; }
       if (r.sale) { setSale(r.sale); setStep('done'); }
     } catch (e) { toast(errorMessage(e)); } finally { setBusy(false); }
   };

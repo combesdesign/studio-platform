@@ -148,3 +148,12 @@
 .mk-count { margin: 0; color: var(--muted); }
 .mk-count.over { color: var(--ink); }
 .mk-text-none { margin: 8px 0 18px; }
+
+/* Merge tags shown as readable chips (the stored text stays {{first_name}}) */
+.mk-tagbar { display: grid; gap: 6px; margin-top: 10px; }
+.mk-tagbar-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-tagchip { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: var(--soft); color: var(--primary); font: inherit; font-size: 13px; line-height: 1; border: 0; margin: 0 2px; }
+.mk-tagchip.btn-chip { min-height: 44px; padding: 0 16px; font-size: 14px; margin: 0; cursor: pointer; border: 1px solid transparent; }
+.mk-tagchip.btn-chip:hover { border-color: var(--primary); }
+.mk-tagline { display: block; margin: 6px 0 0; }
+.mk-tagline-l { margin-right: 8px; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }

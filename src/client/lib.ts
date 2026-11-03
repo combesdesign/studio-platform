@@ -172,7 +172,7 @@ export const isIOS = () => typeof navigator !== 'undefined' &&
   (/iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1));
 export const isStandalone = () => typeof window !== 'undefined' &&
   ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true);
-export const isNative = () => typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+export { isNative } from '../shared/native';
 
 export function mapsUrl(address: string): string {
   return isIOS() ? `https://maps.apple.com/?q=${encodeURIComponent(address)}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;

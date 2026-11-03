@@ -11,8 +11,9 @@ import { Accent, BackPill, CardSkeletons, Empty, ErrorBlock, Flower, Icon, Scree
 import { backOut, flowFrom, goFlow, queryOf } from '../../../client/lib';
 import { WhosComing, creditLine, fullName, useDependants } from '../../../client/family';
 import { brandAsset } from '../../../shared/branding';
+import { appReturnUrl, goExternal } from '../../../shared/native';
 import {
-  KIND_LABEL, cancelNote, clock, creditsLeft, dayFull, dayLabel, dateOf, eventWhen, hoursUntil, needAppts, pageBase, price, range, APPT_STATUS_LABEL,
+  KIND_LABEL, cancelNote, clock, creditsLeft, dayFull, dayLabel, dateOf, eventWhen, hoursUntil, needAppts, price, range, APPT_STATUS_LABEL,
 } from '../api';
 import { eventEnd, eventStart, usableCredits } from '../logic';
 import type {
@@ -56,10 +57,10 @@ async function tryCheckout(order: Parameters<NonNullable<ReturnType<typeof needA
   const a = needAppts();
   if (!a.startCheckout) return false;
   const r = await a.startCheckout(order);
-  if (r && r.url) { location.href = r.url; return true; }
+  if (r && r.url) { goExternal(r.url); return true; }
   return false;
 }
-const returnUrl = () => `${pageBase()}#/appointments?paid=1`;
+const returnUrl = () => appReturnUrl('/appointments?paid=1');
 const fakeCardDelay = () => new Promise((r) => setTimeout(r, 650));
 
 function WaiverNote({ nav, where, dep }: { nav: Nav; where: string; /** Family: whose waiver (a dependant's is signed by the parent in Profile, then Family). */ dep?: { id: string; firstName: string } }) {

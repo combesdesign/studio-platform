@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="%LANG%">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="%BG%">
+<meta name="robots" content="noindex">
+<title>Open %APP_NAME%</title>
+<style>
+  html, body { margin: 0; height: 100%; background: %BG%; color: %INK%; font: 17px/1.5 system-ui, -apple-system, sans-serif; }
+  main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px 16px; text-align: center; box-sizing: border-box; }
+  h1 { margin: 0; font-size: 26px; font-weight: 600; }
+  p { margin: 0; max-width: 320px; opacity: .8; }
+  a.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 28px; border-radius: 999px; background: %THEME%; color: %BG%; text-decoration: none; font-weight: 600; }
+  a.link { color: %THEME%; font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Taking you back</h1>
+  <p id="msg">Opening the %APP_NAME% app. If nothing happens, tap the button.</p>
+  <a class="btn" id="open" href="./">Open the app</a>
+  <a class="link" id="web" href="./">Continue in your browser instead</a>
+</main>
+<script>
+/* Stripe (and emailed links) land here after a payment. We hand the person back to the installed app with its custom URL scheme.
+   With universal links / app links set up for this address the phone opens the app directly and this page never shows. */
+(function () {
+  var q = new URLSearchParams(location.search);
+  var scheme = q.get('scheme') || '', to = q.get('to') || '/';
+  var okScheme = /^[a-z][a-z0-9.+-]{2,60}$/.test(scheme) && scheme !== 'javascript' && scheme !== 'data';
+  var okTo = to.charAt(0) === '/' && to.charAt(1) !== '/' && !/[\u0000-\u001f\\]/.test(to) && !/^\/*[a-z]+:/i.test(to) && to.length < 600;
+  if (!okTo) to = '/';
+  document.getElementById('web').href = './#' + to;
+  if (!okScheme) { document.getElementById('open').style.display = 'none'; document.getElementById('msg').textContent = 'You can carry on in your browser.'; return; }
+  var url = scheme + '://open?to=' + encodeURIComponent(to);
+  document.getElementById('open').href = url;
+  setTimeout(function () { location.href = url; }, 50);
+})();
+</script>
+</body>
+</html>

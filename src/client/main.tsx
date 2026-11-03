@@ -7,8 +7,10 @@ import React from 'react';
 import '../shared/theme.css';
 import './client.css';
 import { bootApp } from '../shared/boot';
+import { startNative } from '../shared/native';
 import { Closed, FindStudio } from './picker';
 
+startNative(); // App Store / Google Play shell only; does nothing on the web
 bootApp('client', {
   load: () => import('./app'),
   fallback: ({ start, missing }) => <FindStudio start={start} missing={missing} />,

@@ -1,17 +1,19 @@
 /**
  * Push notifications: one small abstraction with two providers.
  *   web         the browser's Push API, through the app's service worker. Needs the server's VAPID public key.
- *   capacitor   the native iOS / Android shell (@capacitor/push-notifications), found at runtime on window.Capacitor, so
- *               nothing is imported and the web build stays free of native code.
+ *   capacitor   the native iOS / Android shell (@capacitor/push-notifications), loaded on demand by shared/native.ts
+ *               only in the app build, so the web bundle stays free of native code.
  * Both just register a device token with the store (store.features.marketing.registerPush). Sending is server-side and needs
  * keys (VAPID, FCM, APNs): until those are set, a registration is saved and getPushStatus says needsKeys. See NOTES.md › marketing.
  *
- * Capacitor (native apps, later): the native shell would call @capacitor/push-notifications and register the APNs / FCM token
- * through the same registerPush call, with platform 'ios' | 'android' (that is what capacitorProvider below does). The server has
- * no APNs / FCM sender yet, so only 'web' devices are sent to. Until that sender exists the opt-in is web only (canOptIn),
- * so the native shell doesn't show a switch that can't deliver; flip that one line when APNs / FCM sending is built.
+ * Capacitor (the iOS / Android apps): the shell calls @capacitor/push-notifications and registers the APNs (iOS) or FCM (Android)
+ * token through the same registerPush call, with platform 'ios' | 'android' (capacitorProvider below). Saving the token works today.
+ * DELIVERY to native devices is not built yet: the server only sends to 'web' devices (see the TODO in
+ * supabase/functions/_shared/marketing.ts deliverPush and docs/APP-STORES.md, "Push notifications").
  */
 import type { PushPlatform, PushRegistration } from './types';
+import { isNative, nativePlatform } from '../../shared/nativeEnv';
+import { plugins } from '../../shared/native';
 
 declare const __VAPID_PUBLIC_KEY__: string;
 /** The web push public key, set at build time (VAPID_PUBLIC_KEY in build.mjs). '' means web push isn't switched on. */
@@ -32,40 +34,39 @@ export interface PushProvider {
 
 // ------------------------------------------------------------------ native (Capacitor)
 
+/** Just the parts of @capacitor/push-notifications we use (the plugin is loaded on demand, see shared/native.ts). */
 interface CapacitorPush {
   requestPermissions(): Promise<{ receive: string }>;
-  checkPermissions(): Promise<{ receive: string }>;
   register(): Promise<void>;
   unregister?(): Promise<void>;
   addListener(ev: string, fn: (e: { value?: string; error?: string }) => void): Promise<{ remove(): void }> | { remove(): void };
 }
-interface CapacitorGlobal { isNativePlatform?(): boolean; getPlatform?(): string; Plugins?: Record<string, unknown> }
-
-const cap = (): CapacitorGlobal | null => (typeof window === 'undefined' ? null : ((window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor ?? null));
-const capPlugin = (): CapacitorPush | null => (cap()?.Plugins?.PushNotifications as CapacitorPush | undefined) ?? null;
+const loadPush = async (): Promise<CapacitorPush> => ((await plugins.push()) as { PushNotifications: CapacitorPush }).PushNotifications;
 
 export const capacitorProvider: PushProvider = {
   platform: 'ios',
-  supported: () => !!(cap()?.isNativePlatform?.() && capPlugin()),
+  supported: () => isNative(),
   permission() { return this.supported() ? 'default' : 'unsupported'; },
   async subscribe() {
-    const p = capPlugin();
+    const p = await loadPush().catch(() => null);
     if (!p) throw new Error('Notifications need the studio’s app.');
     const perm = await p.requestPermissions();
     if (perm.receive !== 'granted') throw new Error('Notifications are turned off for this app. You can switch them on in your phone’s settings.');
+    const handles: { remove(): void }[] = [];
     const token = await new Promise<string>((resolve, reject) => {
-      void Promise.resolve(p.addListener('registration', (e) => resolve(e.value ?? ''))).catch(reject);
-      void Promise.resolve(p.addListener('registrationError', (e) => reject(new Error(e.error || 'Couldn’t register this device.')))).catch(reject);
+      void Promise.resolve(p.addListener('registration', (e) => resolve(e.value ?? ''))).then((h) => handles.push(h), reject);
+      void Promise.resolve(p.addListener('registrationError', (e) => reject(new Error(e.error || 'Couldn’t register this device.')))).then((h) => handles.push(h), reject);
       p.register().catch(reject);
-    });
+    }).finally(() => handles.forEach((h) => h.remove()));
     if (!token) throw new Error('Couldn’t register this device.');
     lastNative = token;
-    return { platform: cap()?.getPlatform?.() === 'android' ? 'android' : 'ios', token };
+    // iOS gives an APNs token, Android an FCM token. The server picks the sender from `platform`.
+    return { platform: nativePlatform() === 'android' ? 'android' : 'ios', token };
   },
   async unsubscribe() {
     const t = lastNative;
     lastNative = null;
-    try { await capPlugin()?.unregister?.(); } catch { /* already gone */ }
+    try { await (await loadPush()).unregister?.(); } catch { /* already gone */ }
     return t;
   },
 };
@@ -117,7 +118,8 @@ const KEY = 'mk-push-token';
 export const savedToken = (): string | null => { try { return localStorage.getItem(KEY); } catch { return null; } };
 export const saveToken = (t: string | null): void => { try { if (t) localStorage.setItem(KEY, t); else localStorage.removeItem(KEY); } catch { /* private mode */ } };
 
-/** Can this device be offered the notification switch? Web push only for now: the browser must support it and there must be a VAPID public key. */
+/** Can this device be offered the notification switch? The app: always. The browser: it must support web push and there must be a VAPID public key. */
 export function canOptIn(serverKey?: string): boolean {
-  return pushProvider() === webProvider && webProvider.supported() && !!(VAPID_PUBLIC_KEY || serverKey);
+  if (capacitorProvider.supported()) return true;
+  return webProvider.supported() && !!(VAPID_PUBLIC_KEY || serverKey);
 }

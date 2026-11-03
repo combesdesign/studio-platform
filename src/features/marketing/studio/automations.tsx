@@ -4,9 +4,9 @@ import { Sheet, useAction, useData } from '../../../shared/react';
 import { Empty, Icon, Loading, Seg, SheetHead, useStudio } from '../../../studio/ui';
 import { appUrl, brandOf, needMarketing, plural } from '../api';
 import { automationDef } from '../catalog';
-import { MERGE_TAGS, renderEmail, automationBlocks, smsInfo } from '../render';
+import { renderEmail, automationBlocks, smsInfo } from '../render';
 import type { Automation, AutomationKey, AutomationRun, Channel } from '../types';
-import { Switch, Tone } from './bits';
+import { Switch, TagBar, TagText, Tone } from './bits';
 
 type Row = Automation & { sentLast30Days: number };
 
@@ -97,15 +97,15 @@ function AutomationEditor({ a, onClose }: { a: Row; onClose: () => void }) {
         {tab === 'preview' && channel === 'email' ? <iframe className="mk-frame" title="Email preview" sandbox="" srcDoc={html} /> : (
           <div className="form-grid">
             {channel === 'email' && <>
-              <label className="field span2"><span>Subject</span><input className="input" value={subject} maxLength={150} onChange={(e) => setSubject(e.target.value)} /></label>
-              <label className="field span2"><span>Heading (*stars* make a word italic)</span><input className="input" value={heading} maxLength={150} onChange={(e) => setHeading(e.target.value)} /></label>
+              <label className="field span2"><span>Subject</span><input className="input" value={subject} maxLength={150} onChange={(e) => setSubject(e.target.value)} /><TagText text={subject} extra={d.tags} /></label>
+              <label className="field span2"><span>Heading (*stars* make a word italic)</span><input className="input" value={heading} maxLength={150} onChange={(e) => setHeading(e.target.value)} /><TagText text={heading} extra={d.tags} /></label>
             </>}
-            <label className="field span2"><span>Message</span><textarea className="textarea" rows={7} value={body} onChange={(e) => setBody(e.target.value)} /></label>
+            <label className="field span2"><span>Message</span><textarea className="textarea" rows={7} value={body} onChange={(e) => setBody(e.target.value)} /><TagText text={body} extra={d.tags} /></label>
             {channel === 'email' && <label className="field span2"><span>Button label (leave empty for no button)</span><input className="input" value={button} maxLength={60} onChange={(e) => setButton(e.target.value)} /></label>}
           </div>
         )}
         {channel === 'sms' && <p className="faint small">{info.length} characters · {plural(info.segments, 'text')} ({info.encoding}).</p>}
-        <p className="faint small">Merge tags: {[...MERGE_TAGS.map((t) => t.tag), ...d.tags.map((t) => t.tag)].map((t) => `{{${t}}}`).join('  ')}</p>
+        <TagBar extra={d.tags} />
       </div>
       <div className="sh-foot">
         <button className="btn ghost" onClick={onClose}>Cancel</button>

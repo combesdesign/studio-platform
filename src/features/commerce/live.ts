@@ -15,6 +15,7 @@
 import './permissions';
 import { registerLiveFeature, type LiveFeatureContext } from '../../data/supabase/features';
 import { money } from '../../shared/format';
+import { appReturnUrl } from '../../shared/nativeEnv';
 import type { ISODate, ISODateTime, PaymentMethod, Sale, SaleItem } from '../../shared/types';
 import { holdNote } from './logic';
 import type {
@@ -167,10 +168,9 @@ registerLiveFeature({
         });
         const card = toCard(obj(r.card));
         // The card stays pending until Stripe confirms payment (the webhook calls commerce_activate_gift_card).
-        const here = typeof location !== 'undefined' ? location.href.split('#')[0] : '';
         let url: string | undefined;
         try {
-          const res = (await ctx.sb.functions.invoke('commerce-checkout', { body: { cardId: card.id, studioId: ctx.studioId, returnUrl: `${here}#/gift-cards` } })) as { data?: Row; error?: unknown };
+          const res = (await ctx.sb.functions.invoke('commerce-checkout', { body: { cardId: card.id, studioId: ctx.studioId, returnUrl: appReturnUrl('/gift-cards') } })) as { data?: Row; error?: unknown };
           url = str(obj(res.data).url);
           if (!url && res.error) {
             // Connect: this studio hasn't connected Stripe yet. Say so plainly (the pending card is never switched on).
