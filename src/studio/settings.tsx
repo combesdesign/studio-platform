@@ -27,6 +27,9 @@ const TABS: { key: string; label: string; perm?: Perm | string; order: number }[
   { key: 'plan', label: 'Plan & billing', perm: 'studioFinance', order: 46 },
 ];
 
+/** The client app's address for a page (the studio app lives one folder down, at /studio/). */
+const clientAppLink = (page: string) => `${location.origin}${location.pathname.replace(/studio\/?$/, '')}${location.search}#/${page}`;
+
 export function Settings({ tab = 'studio' }: { tab?: string }) {
   const { can } = useStudio();
   const feature = settingsTabsList();
@@ -214,6 +217,12 @@ function PoliciesTab() {
           Clients can read these in the app (Profile, and the sign-up and waiver steps) and at <strong>#/privacy</strong> and <strong>#/terms</strong> on your booking address. The app store listings link to them.
           Leave a box empty to use the standard wording with your studio name, ABN, email and address filled in. The standard wording is a draft: have a lawyer read it before you rely on it.
           To write your own, separate paragraphs with a blank line and start a heading with “# ”.
+        </p>
+        <p className="small" style={{ margin: '-6px 0 14px' }}>
+          See what clients see (save first):{' '}
+          {(['privacy', 'terms'] as const).map((k, i) => (
+            <React.Fragment key={k}>{i ? ' · ' : ''}<a href={clientAppLink(k)} target="_blank" rel="noopener noreferrer">{k === 'privacy' ? 'Privacy policy' : 'Terms of use'}</a></React.Fragment>
+          ))}
         </p>
         <div className="stack">
           <label className="field"><span>Privacy policy (your own text, optional)</span><textarea className="textarea" rows={7} value={d.privacyPolicyText ?? ''} onChange={t('privacyPolicyText')} /></label>

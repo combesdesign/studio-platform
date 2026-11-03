@@ -5,6 +5,7 @@ import { store, useData } from '../shared/react';
 import { studioDate, time, dateFormat } from '../shared/format';
 import { CardSkeletons, Empty, ErrorBlock, Flower, Icon, ScreenHead, Segmented, useApp } from './ui';
 import { ClassSheet } from './timetable';
+import { Slot } from '../shared/slots';
 import { WEEKDAYS, dayLabel, firstName, freeCancelUntil, inZone, isLateCancel, placeOf, sessionZone, takePendingClass, timeRange, when, zoneLabel } from './lib';
 import { weekday } from '../shared/format';
 import { spotLabel } from '../domain/spots';
@@ -30,6 +31,7 @@ export function Bookings({ nav }: { nav: Nav }) {
   return (
     <div className="screen">
       <ScreenHead title={<>Your <em>bookings</em></>} />
+      <Slot name="client.bookings" props={{}} />
       <Segmented value={tab} onChange={setTab} options={[
         { value: 'upcoming', label: 'Upcoming', count: booked.length + waiting.length || undefined },
         { value: 'past', label: 'Past' },

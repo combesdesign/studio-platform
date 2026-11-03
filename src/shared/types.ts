@@ -317,6 +317,8 @@ export interface Client {
   emergencyContactPhone?: string;
   waiverSignedAt?: ISODateTime;
   healthForm?: HealthForm;
+  /** Set for staff who can't read this client's injuries and health form (Settings > Policies > health notes). Never stored. */
+  healthHidden?: boolean;
   /** The last time they answered the quick "any new injuries?" check (or the full form). */
   healthCheckedAt?: ISODateTime;
   /** The latest "yes, something's changed" from the quick check. Flags the roster until they next attend. */

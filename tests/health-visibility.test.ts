@@ -35,12 +35,14 @@ test('default: an instructor can not read health notes for a client who is not i
   assert.equal((await h.store.getClient('amy')).injuries, 'Bad knee', 'Amy is booked into Julia\'s class');
   assert.equal((await h.store.getClient('ben')).injuries, undefined, 'Ben is not');
   assert.equal((await h.store.getClient('ben')).healthForm, undefined);
+  assert.equal((await h.store.getClient('amy')).healthHidden, undefined, 'no flag when they can read them');
   const list = await h.store.listClients();
   assert.deepEqual(list.map((c) => [c.firstName, c.injuries]), [['Amy', 'Bad knee'], ['Ben', undefined]]);
   const roster = await h.store.getRoster('wed18');
   assert.ok(roster[0]!.flags.includes('injury'));
   await h.as(DESK);
   assert.equal((await h.store.getClient('amy')).injuries, undefined, 'front desk sees none');
+  assert.equal((await h.store.getClient('amy')).healthHidden, true, '...and is told they are private');
   assert.equal((await h.store.getRoster('wed18'))[0]!.flags.includes('injury'), false);
   assert.equal((await h.store.getRoster('wed18'))[0]!.client.injuries, undefined);
   await h.as(OWNER);

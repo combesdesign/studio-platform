@@ -237,6 +237,7 @@ export function ClientProfile({ id }: { id: string }) {
           <section className="card pad">
             <div className="sec-head"><h3>Health &amp; <em>waiver</em></h3>{can('waiver') && <button className="linkish" onClick={() => setSheet('waiver')}>{c.waiverSignedAt ? 'Update' : 'Record'}</button>}</div>
             <p className="small muted">{c.waiverSignedAt ? `Waiver signed ${dayShort(c.waiverSignedAt)} ${new Date(c.waiverSignedAt).getFullYear()}` : 'No waiver yet. They must sign before booking in the app.'}</p>
+            {c.healthHidden && <p className="small muted" style={{ marginTop: 12 }}>Health notes are private for this client. Ask the owner or a manager if you need them.</p>}
             {injuries && <div className="injury-box" style={{ marginTop: 12 }}><Icon name="injury" size={20} /><p style={{ whiteSpace: "pre-line" }}>{injuries}</p></div>}
             {c.healthForm && Object.keys(c.healthForm.answers).length > 0 && (
               <dl className="dl qa">
@@ -418,7 +419,9 @@ function EditClientSheet({ c, onClose }: { c: Client; onClose: () => void }) {
         <span />
         <label className="field"><span>Emergency contact</span><input className="input" value={v.emergencyContactName ?? ''} onChange={f('emergencyContactName')} /></label>
         <label className="field"><span>Emergency phone</span><input className="input" type="tel" value={v.emergencyContactPhone ?? ''} onChange={f('emergencyContactPhone')} /></label>
-        <label className="field span2"><span>Injuries or health notes (shown on rosters)</span><textarea className="textarea" rows={2} value={v.injuries ?? ''} onChange={f('injuries')} /></label>
+        {v.healthHidden
+          ? <p className="small muted span2">Health notes for this client are private under your studio’s settings (Settings › Policies). They stay as they are when you save.</p>
+          : <label className="field span2"><span>Injuries or health notes (shown on rosters)</span><textarea className="textarea" rows={2} value={v.injuries ?? ''} onChange={f('injuries')} /></label>}
         <label className="check span2"><input type="checkbox" checked={!!v.marketingOptIn} onChange={(e) => setV({ ...v, marketingOptIn: e.target.checked })} /><span>Happy to receive news and offers</span></label>
         <label className="check span2"><input type="checkbox" checked={!!v.archived} onChange={(e) => setV({ ...v, archived: e.target.checked })} /><span>Archive this client (hides them from lists)</span></label>
       </div>

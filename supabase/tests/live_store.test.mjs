@@ -181,7 +181,7 @@ const sample = (table) => {
 const cover = [
   ['StudioSettings', () => mod.mappers.toSettings(sample('studio_settings'))],
   ['Staff', () => mod.mappers.toStaff(sample('staff'), 5000)],
-  ['Client', () => mod.mappers.toClient({ ...sample('clients'), source: 'app', health_update: { note: 'sore knee', at: '2026-10-19T08:00:00+11:00' } }, 'notes'), ['guardianName']],
+  ['Client', () => mod.mappers.toClient({ ...sample('clients'), source: 'app', health_hidden: true, health_update: { note: 'sore knee', at: '2026-10-19T08:00:00+11:00' } }, 'notes'), ['guardianName']],
   ['ClassType', () => mod.mappers.toClassType(sample('class_types'))],
   ['ScheduleTemplate', () => mod.mappers.toTemplate(sample('schedule_templates'))],
   ['SessionWithCounts', () => mod.mappers.toSession(sample('sessions_with_counts'))],

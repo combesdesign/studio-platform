@@ -165,6 +165,8 @@ export interface SlotProps {
   'client.class': { session: SessionWithCounts };
   /** Client app: top of the timetable (announcements, "Book a private"). */
   'client.timetable': Record<string, never>;
+  /** Client app: top of the Bookings screen (the "how was your class?" card). */
+  'client.bookings': Record<string, never>;
   /** Client app: Passes screen, under the shop (gift cards, referrals). */
   'client.shop': Record<string, never>;
   /** Client app: Profile, in the settings list next to News + offers (e.g. the notifications switch). */

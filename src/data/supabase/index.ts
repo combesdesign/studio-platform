@@ -139,6 +139,7 @@ function toClient(r: Row, staffNotes?: string): Client {
     marketingOptIn: bool(r.marketing_opt_in),
     source: optStr(r.source) as Client['source'], archived: bool(r.archived),
     guardianClientId: optStr(r.guardian_client_id), guardianName: optStr(r.guardian_name), deletedAt: optIso(r.deleted_at),
+    healthHidden: r.health_hidden === true ? true : undefined,
   });
 }
 
@@ -1270,6 +1271,12 @@ class SupabaseStore implements DataStore {
     return new Map(rows.map((r) => [str(r.id), r] as const));
   }
 
+  /** Merge the health fields into a client row; for staff who can't read them, say so (the edit screen hides the box). */
+  private withHealth(r: Row, health: Map<string, Row>, staff: boolean): Row {
+    const h = health.get(str(r.id));
+    return h ? { ...r, ...h } : staff ? { ...r, health_hidden: true } : r;
+  }
+
   async listClients(opts: { search?: string; includeArchived?: boolean } = {}): Promise<Client[]> {
     await this.requireStaff('clients_view');
     let q = this.sb.from('clients').select(CLIENT_COLS).order('first_name').order('last_name');
@@ -1278,7 +1285,7 @@ class SupabaseStore implements DataStore {
     const health = await this.healthFor(rows.map((r) => str(r.id)));
     const terms = (opts.search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
     const names = new Map(rows.map((r) => [str(r.id), `${str(r.first_name)} ${str(r.last_name)}`.trim()] as const));
-    return rows.map((r) => toClient({ ...r, ...health.get(str(r.id)), ...(r.guardian_client_id && names.get(str(r.guardian_client_id)) ? { guardian_name: names.get(str(r.guardian_client_id)) } : {}) }, notes.get(str(r.id)))).filter((c) => {
+    return rows.map((r) => toClient({ ...this.withHealth(r, health, true), ...(r.guardian_client_id && names.get(str(r.guardian_client_id)) ? { guardian_name: names.get(str(r.guardian_client_id)) } : {}) }, notes.get(str(r.id)))).filter((c) => {
       if (!terms.length) return true;
       // family accounts: search a parent's name to find their dependants too
       const hay = `${c.firstName} ${c.lastName} ${c.email} ${c.phone ?? ''} ${(c.phone ?? '').replace(/\D/g, '')} ${c.guardianName ?? ''}`.toLowerCase();
@@ -1292,7 +1299,7 @@ class SupabaseStore implements DataStore {
       this.notesFor(id),
       this.healthFor([id]),
     ]);
-    const r = { ...r0, ...health.get(id) };
+    const r = this.withHealth(r0, health, (await this.meOrNull())?.kind === 'staff');
     const gid = optStr(r.guardian_client_id);
     const guardian = gid ? (await this.guardianNames([gid])).get(gid) : undefined;
     return toClient(guardian ? { ...r, guardian_name: guardian } : r, notes.get(id));

@@ -232,7 +232,7 @@ export class DemoStore implements DataStore {
     const st = this.viewerStaff();
     let out: Client = c;
     if (!(st && can(st.role, 'client_staff_notes'))) { const { staffNotes: _omit, ...rest } = c; out = rest; }
-    if (st && !this.staffSeesHealth(st, c.id)) { const { injuries: _i, healthForm: _h, healthUpdate: _u, ...rest } = out; out = rest; }
+    if (st && !this.staffSeesHealth(st, c.id)) { const { injuries: _i, healthForm: _h, healthUpdate: _u, ...rest } = out; out = { ...rest, healthHidden: true }; }
     const g = c.guardianClientId ? this.engine.findClient(c.guardianClientId) : undefined;
     return g ? { ...out, guardianName: `${g.firstName} ${g.lastName}`.trim() } : out;
   }
@@ -961,13 +961,14 @@ export class DemoStore implements DataStore {
       if (u.kind === 'client') {
         if (!existing || existing.id !== u.clientId) throw err('NOT_ALLOWED', 'You can only edit your own details.');
         if (!email) throw err('INVALID', 'Please enter your email address.');
-        const { staffNotes: _a, archived: _b, source: _c, waiverSignedAt: _d, healthForm: _e, createdAt: _f, id: _g, ...allowed } = input;
+        const { staffNotes: _a, archived: _b, source: _c, waiverSignedAt: _d, healthForm: _e, createdAt: _f, id: _g, healthHidden: _hh, ...allowed } = input;
         Object.assign(existing, allowed, { email });
         return this.redactClient(existing);
       }
       const st = this.requireStaff('clients_edit');
       const patch: Partial<Client> = { ...input, email };
       delete patch.guardianName; // derived on read, never stored
+      delete patch.healthHidden;
       if (!can(st.role, 'client_staff_notes')) delete patch.staffNotes;
       // someone who can't read the health notes can't overwrite them either (the form they edited never had them)
       if (existing && !this.staffSeesHealth(st, existing.id)) { delete patch.injuries; delete patch.healthForm; delete patch.healthUpdate; }
