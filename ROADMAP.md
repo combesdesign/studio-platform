@@ -103,9 +103,9 @@ Libby's pain points: Momence only offers a fixed list of problems (hers often is
 
 ## Phase C: launch-readiness (Snowy and platform)
 - [x] Capacitor wrap prepared (per studio): `npm run build:app -- --studio=snowy`, `capacitor.config.ts`, native shell code, icons and splash script, `docs/APP-STORES.md`. On a Mac: `npm install && npx cap add ios && npx cap add android && npx cap sync`
-- [ ] Store submission: Apple and Google accounts in Libby's business name, privacy policy page, TestFlight and internal testing run, real-device Stripe round trip
+- [ ] Store submission: Apple and Google accounts in Libby's business name, privacy policy page (built in the app, draft wording needs a lawyer), TestFlight and internal testing run, real-device Stripe round trip
 - [ ] Decide the on-demand video rule for iPhone (Apple IAP vs leave it out of the store app), see docs/APP-STORES.md section 0
-- [ ] In-app "Delete my account" (Apple 5.1.1(v) and Google require it before submission)
+- [x] In-app "Delete my account" (Apple 5.1.1(v) and Google require it before submission)
 - [ ] Native push delivery: FCM HTTP v1 (Android) and APNs (iOS) in `deliverPush` (tokens are already saved)
 - [ ] Universal links / app links files in `public/.well-known/` once the Team ID and signing fingerprint exist
 - [ ] Real accounts: Supabase, Stripe and Resend, plus a Stripe test-mode run-through

@@ -1,5 +1,6 @@
 /** Studio › Marketing › Campaigns: list, editor (email blocks or a text), schedule / send, results. */
 import React, { useEffect, useMemo, useState } from 'react';
+import { GOES_TO } from '../goesTo';
 import { Sheet, useAction, useData } from '../../../shared/react';
 import { Confirm, Empty, Icon, Loading, Seg, SheetHead, cx, useStudio } from '../../../studio/ui';
 import { appUrl, brandOf, dayTime, defaultSchedule, dmTime, needMarketing, pct, plural, STATUS_LABEL, STATUS_TONE } from '../api';
@@ -160,7 +161,7 @@ function CampaignEditor({ campaign, onClose, onSent }: { campaign: Campaign | nu
                     {b.type === 'button' && (
                       <div className="form-grid">
                         <label className="field"><span>Button label</span><input className="input" value={b.label ?? ''} onChange={(e) => patch(b.id, { label: e.target.value })} /></label>
-                        <label className="field"><span>Goes to</span><input className="input" value={b.url ?? ''} onChange={(e) => patch(b.id, { url: e.target.value })} placeholder="{{app_url}}" /></label>
+                        <GoesTo value={b.url ?? ''} onChange={(url) => patch(b.id, { url })} />
                       </div>
                     )}
                     {b.type === 'divider' && <hr className="mk-hr" />}
@@ -261,5 +262,24 @@ function CampaignResults({ id, onClose }: { id: string; onClose: () => void }) {
         {recipients.length === 0 && <p className="muted pad">Nothing has gone out yet.</p>}
       </div>
     </>
+  );
+}
+
+/** "Goes to" for a button: a friendly picker instead of the raw merge tag, plus "A custom link" for any https:// address. */
+export function GoesTo({ value, onChange }: { value: string; onChange: (url: string) => void }) {
+  const preset = GOES_TO.find((g) => g.value === value.trim());
+  const [custom, setCustom] = React.useState(!preset && value.trim() !== '');
+  const isCustom = custom || !preset;
+  return (
+    <div className="field">
+      <label><span>Goes to</span>
+        <select className="input" value={isCustom ? 'custom' : preset!.value} aria-label="Goes to"
+          onChange={(e) => { if (e.target.value === 'custom') { setCustom(true); if (preset) onChange(''); } else { setCustom(false); onChange(e.target.value); } }}>
+          {GOES_TO.map((g) => <option key={g.label} value={g.value}>{g.label}</option>)}
+          <option value="custom">A custom link</option>
+        </select>
+      </label>
+      {isCustom && <input className="input" style={{ marginTop: 8 }} value={value} onChange={(e) => onChange(e.target.value)} placeholder="https://…" aria-label="Custom link address" />}
+    </div>
   );
 }

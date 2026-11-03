@@ -241,6 +241,11 @@ select 'null'::json`));
           state.invites.push({ email, ...options });
           return { data: { user: { email } }, error: null };
         },
+        async deleteUser(id) {
+          const n = admin(`with w as (delete from auth.users where id = ${lit(id)} returning id) select to_json(count(*)) from w`);
+          (state.deletedUsers ??= []).push(id);
+          return Number(n) ? { data: {}, error: null } : { data: {}, error: { message: 'User not found' } };
+        },
       },
       async signOut() { state.users.delete(key); fire('SIGNED_OUT'); return { error: null }; },
       async resetPasswordForEmail() { return { data: {}, error: null }; },

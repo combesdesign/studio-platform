@@ -16,6 +16,7 @@ import { Bookings } from './bookings';
 import { Passes } from './passes';
 import { Profile, captureInstallPrompt } from './profile';
 import { Waiver } from './waiver';
+import { LEGAL_PATHS, LegalPage } from './legal';
 import { Family } from './family';
 import { Ctx, ErrorBlock, Flower, Icon, Logo } from './ui';
 import type { AppCtx } from './ui';
@@ -69,6 +70,10 @@ function App() {
   }
   const signedOut = auth.data === null || (auth.data === undefined && !!auth.error);
   useEffect(() => { if (signedOut && isDeepLink(path)) rememberLink(path); }, [signedOut, path]);
+
+  // Privacy policy and terms: public, so the stores (and anyone) can open #/privacy and #/terms without signing in.
+  const legal = LEGAL_PATHS[pathOnly(path)];
+  if (legal) return <div className="app signed-out"><LegalPage kind={legal} nav={nav} path={path} /></div>;
 
   if (link.arriving || (auth.data === undefined && !auth.error)) return <Splash tone="navy" />;
   if (auth.error && auth.data === undefined) return <div className="app"><div className="screen"><ErrorBlock error={auth.error} onRetry={auth.reload} /></div></div>;

@@ -140,6 +140,7 @@ function PoliciesTab() {
     bookingWindowDays: d.bookingWindowDays, defaultCapacity: d.defaultCapacity, cancellationPolicyText: d.cancellationPolicyText, waitlistPolicyText: d.waitlistPolicyText,
     waiverText: d.waiverText, healthQuestions: d.healthQuestions.map((q) => q.trim()).filter(Boolean),
     longHealthFormFirstTimers: hp.longFormFirstTimers, quickHealthCheck: hp.quickCheck, quickHealthCheckDays: hp.quickCheckDays,
+    privacyPolicyText: (d.privacyPolicyText ?? '').trim(), termsText: (d.termsText ?? '').trim(),
   }), 'Policies saved');
   return (
     <div className="set-grid">
@@ -191,6 +192,18 @@ function PoliciesTab() {
               <button className="btn sm soft" style={{ justifySelf: 'start' }} onClick={() => setD({ ...d, healthQuestions: [...d.healthQuestions, ''] })}><Icon name="plus" size={16} />Add question</button>
             </div>
           </div>
+        </div>
+      </section>
+      <section className="card pad span-all">
+        <h3>Privacy policy &amp; <em>terms</em></h3>
+        <p className="muted small" style={{ margin: '6px 0 14px' }}>
+          Clients can read these in the app (Profile, and the sign-up and waiver steps) and at <strong>#/privacy</strong> and <strong>#/terms</strong> on your booking address. The app store listings link to them.
+          Leave a box empty to use the standard wording with your studio name, ABN, email and address filled in. The standard wording is a draft: have a lawyer read it before you rely on it.
+          To write your own, separate paragraphs with a blank line and start a heading with “# ”.
+        </p>
+        <div className="stack">
+          <label className="field"><span>Privacy policy (your own text, optional)</span><textarea className="textarea" rows={7} value={d.privacyPolicyText ?? ''} onChange={t('privacyPolicyText')} /></label>
+          <label className="field"><span>Terms of use (your own text, optional)</span><textarea className="textarea" rows={7} value={d.termsText ?? ''} onChange={t('termsText')} /></label>
         </div>
       </section>
       <SaveBar dirty={dirty} busy={busy} onSave={save} onReset={reset} />

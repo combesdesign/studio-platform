@@ -92,6 +92,7 @@ function toSettings(r: Row): StudioSettings {
     longHealthFormFirstTimers: r.long_health_form_first_timers === undefined ? true : bool(r.long_health_form_first_timers),
     quickHealthCheck: r.quick_health_check === undefined ? true : bool(r.quick_health_check),
     quickHealthCheckDays: num(r.quick_health_check_days, 30),
+    privacyPolicyText: optStr(r.privacy_policy_text), termsText: optStr(r.terms_text),
   });
 }
 const SETTINGS_COLS: Record<keyof StudioSettings, string> = {
@@ -101,6 +102,7 @@ const SETTINGS_COLS: Record<keyof StudioSettings, string> = {
   defaultCapacity: 'default_capacity', waiverText: 'waiver_text', healthQuestions: 'health_questions',
   cancellationPolicyText: 'cancellation_policy_text', waitlistPolicyText: 'waitlist_policy_text',
   longHealthFormFirstTimers: 'long_health_form_first_timers', quickHealthCheck: 'quick_health_check', quickHealthCheckDays: 'quick_health_check_days',
+  privacyPolicyText: 'privacy_policy_text', termsText: 'terms_text',
 };
 
 function toStaff(r: Row, pay?: number): Staff {
@@ -132,7 +134,7 @@ function toClient(r: Row, staffNotes?: string): Client {
     waiverSignedAt: optIso(r.waiver_signed_at), healthForm, healthCheckedAt: optIso(r.health_checked_at), healthUpdate,
     marketingOptIn: bool(r.marketing_opt_in),
     source: optStr(r.source) as Client['source'], archived: bool(r.archived),
-    guardianClientId: optStr(r.guardian_client_id), guardianName: optStr(r.guardian_name),
+    guardianClientId: optStr(r.guardian_client_id), guardianName: optStr(r.guardian_name), deletedAt: optIso(r.deleted_at),
   });
 }
 
@@ -727,6 +729,19 @@ class SupabaseStore implements DataStore {
     this.me = null;
     this.ensured.clear();
     this.emit();
+  }
+
+  /** The delete-account edge function does the work (Stripe, photo files, database, login); this then drops the local session. */
+  async deleteMyAccount(): Promise<void> {
+    await this.write(async () => { await this.invoke('delete-account', {}); });
+    try { await this.sb.auth.signOut({ scope: 'local' }); } catch { /* the login is already gone */ }
+    this.me = null;
+    this.ensured.clear();
+    this.emit();
+  }
+
+  async deleteClientAccount(clientId: ID): Promise<void> {
+    await this.write(async () => { await this.invoke('delete-account', { clientId }); });
   }
 
   async requestPasswordReset(email: string): Promise<void> {

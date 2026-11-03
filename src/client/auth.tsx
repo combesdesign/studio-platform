@@ -10,6 +10,7 @@ import {
 } from './lib';
 import { Accented, FlowerStars, Marquee } from '../shared/brand';
 import { brandAsset, getBranding } from '../shared/branding';
+import { LegalLinks, LegalSheet, type LegalKind } from './legal';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 
@@ -163,6 +164,7 @@ function SignUp({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; p
   const [err, setErr] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  const [legal, setLegal] = useState<LegalKind | null>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const submit = async (e: React.FormEvent) => {
@@ -203,7 +205,9 @@ function SignUp({ nav, onSignedIn, path }: { nav: Nav; onSignedIn: () => void; p
         <label className="check"><input type="checkbox" checked={f.marketingOptIn} onChange={set('marketingOptIn')} /><span>Send me news, new classes and the odd offer. No spam, promise.</span></label>
         {err && <p className="form-error" role="alert">{err}</p>}
         <button className="btn block" disabled={busy}>{busy ? 'Creating your account…' : 'Create account'}</button>
+        <LegalLinks lead="By creating an account you agree to our" onOpen={setLegal} />
       </form>
+      <LegalSheet kind={legal} onClose={() => setLegal(null)} />
       <p className="auth-foot muted">Already a member? <button className="link-btn inline" onClick={() => swapFlow(nav, path, '/signin')}>Sign in</button></p>
     </AuthFrame>
   );

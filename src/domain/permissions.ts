@@ -12,6 +12,7 @@ export type StaffAction =
   | 'roster_own' // rosters + check-in for classes they teach
   | 'clients_view'
   | 'clients_edit'
+  | 'client_delete' // delete a client's account on request (owner only; see deleteClientAccount)
   | 'client_staff_notes' // see/edit staff-only notes (payment notes etc.)
   | 'waiver_record' // record a waiver on a client's behalf
   | 'pos' // sell passes/retail
@@ -28,13 +29,13 @@ export type StaffAction =
 
 const ALL: StaffAction[] = [
   'settings', 'settings_financial', 'staff', 'staff_pay', 'products', 'schedule', 'roster_all', 'roster_own', 'clients_view',
-  'clients_edit', 'client_staff_notes', 'waiver_record', 'pos', 'pos_refund', 'passes_manage', 'membership_edit', 'emails_edit', 'reports', 'reports_revenue',
+  'clients_edit', 'client_delete', 'client_staff_notes', 'waiver_record', 'pos', 'pos_refund', 'passes_manage', 'membership_edit', 'emails_edit', 'reports', 'reports_revenue',
   'reports_pay', 'export_sales', 'export_clients', 'sales_view',
 ];
 
 export const PERMISSIONS: Record<StaffRole, readonly StaffAction[]> = {
   owner: ALL,
-  manager: ALL.filter((a) => a !== 'staff_pay' && a !== 'settings_financial'),
+  manager: ALL.filter((a) => a !== 'staff_pay' && a !== 'settings_financial' && a !== 'client_delete'),
   front_desk: ['schedule', 'roster_all', 'roster_own', 'clients_view', 'clients_edit', 'client_staff_notes', 'waiver_record', 'pos', 'pos_refund', 'passes_manage', 'reports', 'export_clients', 'sales_view'],
   instructor: ['roster_own', 'clients_view', 'waiver_record', 'pos', 'reports'],
 };

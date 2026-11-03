@@ -1097,6 +1097,45 @@ export class DemoStore implements DataStore {
     });
   }
 
+  // ---------------------------------------------------------------- delete account (Apple 5.1.1(v), Google Play)
+  async deleteMyAccount(): Promise<void> {
+    await this.write(() => {
+      const u = this.me();
+      if (u.kind !== 'client') throw err('NOT_ALLOWED', 'Only clients can delete their own account here.');
+      if (this.engine.client(u.clientId).guardianClientId) throw err('NOT_ALLOWED', 'You can only delete your own account.');
+      this.anonymiseAccount(u.clientId);
+      this.writeAuth(null);
+    });
+  }
+
+  async deleteClientAccount(clientId: ID): Promise<void> {
+    await this.write(() => {
+      this.requireStaff('client_delete');
+      this.engine.client(clientId);
+      this.anonymiseAccount(clientId);
+    });
+  }
+
+  /** Same as the live account_delete_apply: future classes cancelled, passes cancelled, details cleared, rows kept anonymised. Safe to repeat. */
+  private anonymiseAccount(clientId: ID): void {
+    const main = this.engine.client(clientId);
+    if (main.deletedAt) return;
+    const ids = new Set<ID>([clientId, ...this.state.clients.filter((c) => c.guardianClientId === clientId).map((c) => c.id)]);
+    const now = this.now();
+    for (const b of this.state.bookings.filter((x) => ids.has(x.clientId) && (x.status === 'booked' || x.status === 'waitlisted')
+        && Date.parse(this.engine.session(x.sessionId).startsAt) >= now.getTime())) {
+      this.engine.cancel(b.id, { by: { kind: 'system' }, waive: true });
+    }
+    for (const p of this.state.passes.filter((x) => ids.has(x.clientId) && x.status !== 'cancelled')) p.status = 'cancelled';
+    for (const id of ids) {
+      const c = this.engine.client(id);
+      for (const k of ['phone', 'birthday', 'photoUrl', 'staffNotes', 'injuries', 'emergencyContactName', 'emergencyContactPhone', 'healthForm', 'healthCheckedAt', 'healthUpdate'] as const) delete c[k];
+      Object.assign(c, { firstName: 'Deleted', lastName: 'client', email: '', marketingOptIn: false, archived: true, deletedAt: now.toISOString() });
+    }
+    this.state.interest = (this.state.interest ?? []).filter((i) => !ids.has(i.clientId));
+    this.state.outbox = this.state.outbox.filter((m) => !ids.has(m.clientId));
+  }
+
   async removeDependant(dependantId: ID): Promise<void> {
     await this.write(() => {
       const u = this.me();

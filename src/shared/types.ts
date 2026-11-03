@@ -264,6 +264,9 @@ export interface StudioSettings {
   quickHealthCheck?: boolean;
   /** ...at most once every this many days. Unset = 30. */
   quickHealthCheckDays?: number;
+  /** The studio's own privacy policy / terms, replacing the built-in template (src/shared/legal.ts). Blank or unset = use the template. */
+  privacyPolicyText?: string;
+  termsText?: string;
 }
 
 // ---------------------------------------------------------------- people
@@ -317,6 +320,8 @@ export interface Client {
   /** Imported from Momence etc. */
   source?: 'app' | 'staff' | 'import';
   archived?: boolean;
+  /** Set when the account was deleted (details cleared, rows kept anonymised for the studio's records). */
+  deletedAt?: ISODateTime;
   /**
    * Family accounts: set on a dependant (a child, or a partner without their own login). It's the parent's client id.
    * A dependant is an ordinary client row (so bookings, rosters and reports just work) with no login and, usually, no email.

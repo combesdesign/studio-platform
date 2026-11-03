@@ -4,6 +4,12 @@ Plain-English, Mac only. One app per studio: Snowy's is "Snowy Pilates Club", wi
 
 The app is the same booking app clients already use on the web, wrapped with Capacitor. The web app doesn't change.
 
+**Code blockers (what the stores check inside the app)**
+- [x] In-app **Delete my account** (Profile, Account). Apple 5.1.1(v) and Google need it. Built 3 Nov 2026, see section 8.
+- [x] **Privacy policy and terms pages** inside the app and on the web (`#/privacy`, `#/terms`, no sign-in needed), filled in per studio. See section 8. **The wording is a draft: a lawyer has to read it before you submit.**
+- [x] Privacy policy and terms linked from sign-up, the waiver step and Profile.
+- [ ] Still yours to do: the on-demand video / Apple IAP decision (section 0), a lawyer's read of the policy, the store accounts, the Team ID / signing fingerprint for the `.well-known` files, and a real-phone test of the Stripe round trip and of deleting an account.
+
 ---
 
 ## 0. The one decision to make first (Pete)
@@ -191,9 +197,16 @@ Each new upload needs a higher **version code / build number**. iOS: bump **Buil
 
 ## 8. Privacy, the forms you have to fill in
 
-**You need a privacy policy web page** (a public URL) before either store will take the app. The app collects **health information** (the health form: injuries, pregnancy and so on), so the policy has to say so plainly: what's collected, why (to keep people safe in class), who sees it (the studio), where it's stored, how to ask for it to be deleted. The Australian Privacy Act treats health information as sensitive, so get Libby to sign off the wording. Put the link on the studio website and use it in both stores.
+**Privacy policy (built).** Every studio's app has its own privacy policy and terms, built from a template in `src/shared/legal.ts` and filled in with the studio's name, ABN, contact email and address from Settings. They open in the app (Profile, Account; the sign-up form; the waiver step) and are public web pages that work signed out:
 
-**Account deletion.** Apple (guideline 5.1.1(v)) and Google both require that an app which lets you create an account also lets you **delete it from inside the app**, plus a web page for deletion for Google. **The app doesn't have a "Delete my account" button yet.** This needs building before submission (to do, see ROADMAP).
+- Privacy policy: `https://<the studio's app address>/#/privacy` (Snowy: `https://app.snowypilatesclub.com/#/privacy`)
+- Terms of use: `https://<the studio's app address>/#/terms`
+
+Use the privacy link as the **Privacy Policy URL** in App Store Connect and Play Console, and in the app's store listing. It covers what is collected (health and injury information is named as sensitive information under the Australian Privacy Act), why, who it is shared with (Supabase, Stripe, Resend, Anthropic for the studio Help feature only, Twilio if SMS is on), where it is stored, how long it is kept, access and correction, deleting an account, and complaints to the OAIC.
+
+**The template is a draft.** It says so at the top of the file. A lawyer must read it, and the studio (Libby for Snowy) must check the facts in it are true for them (who they share with, where data is stored, how long they keep records) before you submit. A studio can also paste its own text over either page in Settings, Policies, and that is shown instead.
+
+**Account deletion (built).** Profile, Account, **Delete my account** explains what happens in plain English (the login is removed, personal details, photos and health info are deleted or made anonymous, booking and sales records stay anonymised for tax, active memberships are cancelled in Stripe) and then does it. Studio owners can do the same for a client who asks, from the client's Edit details sheet in the studio app. Behind it is the `delete-account` edge function, which you deploy with the others (`supabase functions deploy delete-account`). Google also wants a **web address where someone can ask for deletion**: use the privacy policy link, whose "Deleting your account" section explains both the in-app button and emailing the studio.
 
 ### Apple: App Privacy ("nutrition label") in App Store Connect
 Say **yes, we collect data**, and for each, **linked to the user, not used for tracking**:
@@ -238,8 +251,8 @@ Simulator screenshots are fine (in Xcode: Product, Destination, pick a device, r
 1. **Give the reviewers a login.** Apple and Google can't create an account like a real client. In App Store Connect, App Review Information, add a **demo account** (an email and password for a client with some classes and a pass) and a short note: "Book mat Pilates classes at Snowy Pilates Club, Cooma NSW." Make sure that account works on the live build.
 2. **Not just a website in a box** (guideline 4.2). Reviewers reject thin wrappers. Ours has push notifications, an in-app browser for payments, native status bar and back button, and a proper booking flow, so say so in the review notes.
 3. **Explain payments** in the review notes: "Payments are for real-world Pilates classes and memberships delivered in person in Cooma, so they use Stripe under guideline 3.1.3(e)." Then the video decision from section 0.
-4. **Health information**: say why it's collected (class safety) and link the privacy policy in the app too (Profile footer) and in App Store Connect.
-5. **Account deletion** must be in the app (section 8).
+4. **Health information**: say why it's collected (class safety). The privacy policy is already linked in the app (Profile, Account; sign-up; the waiver step); add the link in App Store Connect too.
+5. **Account deletion** is in the app (Profile, Account, Delete my account). Say where it is in the review notes, and make sure the demo login you give reviewers is one you can afford to have deleted: they may try it, so keep a spare.
 6. **Don't mention other platforms** or "Android" in the iPhone listing, and don't show other brands.
 7. **Test on a real phone** through TestFlight first. Check: sign in, book, buy a pass (full Stripe trip and back), cancel, the waiver, notification switch.
 8. **First review takes 1 to 3 days on average** for Apple, sometimes a week. Google's first review can take several days for new accounts.
@@ -288,7 +301,7 @@ Friendly Australian English. Edit freely. Character limits are Apple's and Googl
 
 **Category**: Primary **Health & Fitness**. Secondary **Lifestyle** (iOS). Google Play: **Health & Fitness**, tags like Fitness, Pilates.
 
-**Support URL**: `https://snowypilatesclub.com` &nbsp; **Privacy policy URL**: `https://snowypilatesclub.com/privacy` (needs writing, section 8)
+**Support URL**: `https://snowypilatesclub.com` &nbsp; **Privacy policy URL**: `https://app.snowypilatesclub.com/#/privacy` (built into the app, section 8; get the wording reviewed first) &nbsp; **Terms URL**: `https://app.snowypilatesclub.com/#/terms`
 
 **What's new** (first release): `Welcome to the Snowy Pilates Club app. Book classes, manage your passes and stay in the loop, all in one place.`
 

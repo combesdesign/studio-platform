@@ -11,6 +11,7 @@ import { Arrow, Avatar, Flower, Icon, Logo, SectionHead, SheetHead, Toggle, useA
 import { Receipt, ReceiptSkeleton } from './passes';
 import { squarePhoto } from '../shared/photo';
 import { Policies } from './bookings';
+import { LegalSheet, type LegalKind } from './legal';
 import { useDependants } from './family';
 import { dateShortNoDay, goFlow, isIOS, isNative, isStandalone, mapsUrl, saveClient, staffRole } from './lib';
 
@@ -26,7 +27,8 @@ export function Profile({ nav }: { nav: Nav }) {
   const app = useApp();
   const toast = useToast();
   const c = app.client;
-  const [sheet, setSheet] = useState<'details' | 'history' | null>(null);
+  const [sheet, setSheet] = useState<'details' | 'history' | 'delete' | null>(null);
+  const [legal, setLegal] = useState<LegalKind | null>(null);
   const [savingOpt, setSavingOpt] = useState(false);
   const family = useDependants();
   const sales = useData(() => store.listSales({ from: '2000-01-01', to: studioDate(), clientId: c.id }).catch(() => null), [c.id]);
@@ -140,6 +142,27 @@ export function Profile({ nav }: { nav: Nav }) {
         <Policies />
       </div>
 
+      <div className="group">
+        <div className="group-label">Account</div>
+        <div className="list-card">
+          <button className="list-row" onClick={() => setLegal('privacy')}>
+            <span className="row-ic"><Icon name="lock" size={20} /></span>
+            <span className="list-row-main"><span className="list-row-title">Privacy policy</span><span className="list-row-sub">What we keep, and why</span></span>
+            <Icon name="chevron" size={18} className="faint" />
+          </button>
+          <button className="list-row" onClick={() => setLegal('terms')}>
+            <span className="row-ic"><Icon name="receipt" size={20} /></span>
+            <span className="list-row-main"><span className="list-row-title">Terms of use</span></span>
+            <Icon name="chevron" size={18} className="faint" />
+          </button>
+          <button className="list-row danger-row" onClick={() => setSheet('delete')}>
+            <span className="row-ic"><Icon name="close" size={20} /></span>
+            <span className="list-row-main"><span className="list-row-title">Delete my account</span><span className="list-row-sub">Remove your login and personal details</span></span>
+            <Icon name="chevron" size={18} className="faint" />
+          </button>
+        </div>
+      </div>
+
       <div className="stack mt-28">
         <button className="btn soft block" onClick={signOut}><Icon name="logout" size={18} />Sign out</button>
         {store.mode === 'demo' && store.demoReset && <button className="btn link-btn block" onClick={resetDemo}>Reset demo data</button>}
@@ -163,6 +186,8 @@ export function Profile({ nav }: { nav: Nav }) {
 
       <DetailsSheet open={sheet === 'details'} onClose={() => setSheet(null)} />
       <HistorySheet open={sheet === 'history'} onClose={() => setSheet(null)} sales={salesList} />
+      <DeleteAccountSheet open={sheet === 'delete'} onClose={() => setSheet(null)} nav={nav} hasFamily={family.deps.length > 0} />
+      <LegalSheet kind={legal} onClose={() => setLegal(null)} />
     </div>
   );
 }
@@ -241,6 +266,43 @@ function DetailsSheet({ open, onClose }: { open: boolean; onClose: () => void })
         </div>
         <button className="btn block" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
       </form>
+    </Sheet>
+  );
+}
+
+/** "Delete my account": says plainly what happens, then does it (Apple 5.1.1(v) and Google Play need this inside the app). */
+function DeleteAccountSheet({ open, onClose, nav, hasFamily }: { open: boolean; onClose: () => void; nav: Nav; hasFamily: boolean }) {
+  const app = useApp();
+  const toast = useToast();
+  const [sure, setSure] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setSure(false); setBusy(false); } }, [open]);
+  const go = async () => {
+    setBusy(true);
+    try {
+      await store.deleteMyAccount();
+      onClose();
+      toast('Your account has been deleted');
+      app.refreshAuth();
+      nav('/', { replace: true });
+    } catch (e) { toast(errorMessage(e)); setBusy(false); }
+  };
+  return (
+    <Sheet open={open} onClose={busy ? () => {} : onClose} label="Delete my account">
+      <SheetHead title={<>Delete my <em>account</em></>} onClose={busy ? undefined : onClose} />
+      <div className="stack lg">
+        <p>This can’t be undone. Here’s what happens when you delete your account:</p>
+        <ul className="legal-list">
+          <li>Your login is removed, so you can’t sign in again with it.</li>
+          <li>Your personal details, photo and health info are deleted or made anonymous{hasFamily ? ', and so are your family members’' : ''}.</li>
+          <li>Your upcoming classes are cancelled.</li>
+          <li>Any active membership is cancelled with Stripe, so you won’t be charged again.</li>
+          <li>Booking and sales records stay, with your name and details taken off them, because the studio has to keep them for tax.</li>
+        </ul>
+        <label className="check"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /><span>I understand and want to delete my account.</span></label>
+        <button className="btn block danger-solid" disabled={!sure || busy} onClick={go}>{busy ? 'Deleting…' : 'Delete my account'}</button>
+        <button className="btn block ghost" disabled={busy} onClick={onClose}>Keep my account</button>
+      </div>
     </Sheet>
   );
 }

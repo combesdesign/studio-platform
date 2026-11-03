@@ -15,7 +15,7 @@ export const READ_ONLY_MESSAGE = 'Your studio is read-only until the plan paymen
 const READ = /^(get|list|find|preview|quote|is|has|my|export|search|count|check|read|can)([A-Z_]|$)/;
 const ALLOWED = new Set([
   'subscribe', 'currentUser', 'signIn', 'signOut', 'requestPasswordReset', 'setNewPassword', 'onPasswordRecovery',
-  'startPlanCheckout', 'openBillingPortal', 'demoSignInAs', 'demoReset', 'demoPersonas', 'demoOpenPasswordLink',
+  'startPlanCheckout', 'openBillingPortal', 'deleteClientAccount', 'demoSignInAs', 'demoReset', 'demoPersonas', 'demoOpenPasswordLink',
 ]);
 /** Feature stores that stay fully usable (asking us for help is never blocked). */
 const OPEN_FEATURES = new Set(['support']);

@@ -1456,6 +1456,47 @@ await t('web push: the server only posts to public https push services', async (
                      'https://db.internal/x', 'https://user:pw@fcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'ftp://fcm.googleapis.com/x', 'not a url', '']) assert.equal(ok(bad), false, bad);
 });
 
+await t('delete-account: stops Stripe, removes the photo, anonymises, deletes the login; a stranger and a repeat are handled', async () => {
+  const SNOWY = sql(`select id from public.studios where is_default`);
+  sql(`insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at) values (gen_random_uuid(), 'leaving@example.test', '{"first_name":"Leah","last_name":"Leaving"}', now())`);
+  const uid = sql(`select id from auth.users where email = 'leaving@example.test'`);
+  const cid = sql(`select id from public.clients where user_id = '${uid}'`);
+  sql(`insert into public.passes (client_id, kind, name, status, credits, billing_interval, stripe_subscription_id, next_billing_at, activated_at)
+       values ('${cid}', 'membership', '1 class per week', 'active', 1, 'week', 'sub_leah', '2026-10-26 08:00+11', '2026-10-19 08:00+11')`);
+  sql(`insert into public.stripe_customers (client_id, stripe_customer_id) values ('${cid}', 'cus_leah')`);
+  sql(`update public.clients set phone = '0400 111 222', injuries = 'Hip' where id = '${cid}'`);
+  sql(`insert into storage.objects (bucket_id, name) values ('avatars', '${cid}/1.jpg')`);
+  stripeObjects['subscriptions/sub_leah'] = { id: 'sub_leah', status: 'active' };
+  stripeObjects['customers/cus_leah'] = { id: 'cus_leah', deleted: true };
+  const h = await load('delete-account');
+  const mine = { Authorization: `Bearer ${uid}` };
+
+  assert.equal((await post(h, { studioId: SNOWY, clientId: cid }, { Authorization: `Bearer ${id('alice')}` })).status, 400, 'another client cannot');
+  assert.equal((await post(h, { studioId: SNOWY, clientId: cid }, { Authorization: `Bearer ${FRAN_USER}` })).status, 400, 'front desk cannot');
+  assert.equal((await post(h, { studioId: SNOWY, clientId: cid }, {})).status, 401, 'signed out cannot');
+  assert.equal(sql(`select first_name from public.clients where id = '${cid}'`), 'Leah', 'nothing changed so far');
+  assert.ok(!lastStripe('subscriptions/sub_leah', 'DELETE'), 'and Stripe was not touched');
+
+  const res = await post(h, { studioId: SNOWY }, mine);
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.equal((await res.json()).loginRemoved, true);
+  assert.ok(lastStripe('subscriptions/sub_leah', 'DELETE'), 'subscription cancelled in Stripe');
+  assert.ok(lastStripe('customers/cus_leah', 'DELETE'), 'Stripe customer deleted');
+  assert.equal(sql(`select count(*) from storage.objects where bucket_id = 'avatars' and name like '${cid}/%'`), '0', 'avatar file deleted');
+  assert.equal(sql(`select first_name || '|' || coalesce(phone, '-') || '|' || coalesce(injuries, '-') from public.clients where id = '${cid}'`), 'Deleted|-|-');
+  assert.equal(sql(`select status from public.passes where client_id = '${cid}'`), 'cancelled');
+  assert.equal(sql(`select count(*) from auth.users where id = '${uid}'`), '0', 'the login is deleted');
+  assert.equal(sql(`select count(*) from public.audit_log where action = 'account.delete' and entity_id = '${cid}'`), '1');
+
+  // a repeat (e.g. after a timeout) from the owner: Stripe already cancelled, nothing doubled
+  stripeObjects['subscriptions/sub_leah'] = { id: 'sub_leah', status: 'canceled' };
+  const before = calls.filter((c) => c.method === 'DELETE' && c.path.includes('subscriptions/sub_leah')).length;
+  const again = await post(h, { studioId: SNOWY, clientId: cid }, { Authorization: `Bearer ${id('libby')}` });
+  assert.equal(again.status, 200, await again.clone().text());
+  assert.equal(calls.filter((c) => c.method === 'DELETE' && c.path.includes('subscriptions/sub_leah')).length, before, 'no second cancel');
+  assert.equal(sql(`select count(*) from public.audit_log where action = 'account.delete' and entity_id = '${cid}'`), '1', 'no second audit row');
+});
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');

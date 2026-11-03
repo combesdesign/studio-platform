@@ -4,6 +4,7 @@ import { store, useToast, errorMessage, leaveSheets, useBackHandler } from '../s
 import { BackPill, Flower, Icon, useApp } from './ui';
 import { backOut, dateShortNoDay, flowFrom, queryOf, saveClient, swapFlow } from './lib';
 import { healthPolicy } from '../domain';
+import { LegalLinks, LegalSheet, type LegalKind } from './legal';
 
 type Nav = (to: string, o?: { replace?: boolean }) => void;
 type YN = 'Yes' | 'No' | '';
@@ -40,6 +41,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
   const [injuries, setInjuries] = useState(c.healthForm?.injuries ?? c.injuries ?? '');
   const [preg, setPreg] = useState<YN>(c.healthForm?.pregnantOrPostnatal == null ? '' : c.healthForm.pregnantOrPostnatal ? 'Yes' : 'No');
   const [agree, setAgree] = useState(false);
+  const [legal, setLegal] = useState<LegalKind | null>(null);
   const [sig, setSig] = useState('');
   const [busy, setBusy] = useState(false);
   const fullName = `${c.firstName} ${c.lastName}`.trim();
@@ -172,6 +174,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
             </div>
             <div className="stack lg mt-20">
               <label className="check"><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /><span>I’ve read and agree to the waiver, and my health info is correct.</span></label>
+              <LegalLinks lead="Your health info is kept private and only used to look after you in class. Read our" onOpen={setLegal} />
               <label className="field"><span>Type your full name to sign</span>
                 <input className="input sig" placeholder={fullName} value={sig} onChange={(e) => setSig(e.target.value)} autoComplete="name" />
               </label>
@@ -190,6 +193,7 @@ export function Waiver({ nav, path }: { nav: Nav; path: string }) {
           </button>
         )}
       </div>
+      <LegalSheet kind={legal} onClose={() => setLegal(null)} />
     </div>
   );
 }

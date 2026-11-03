@@ -177,6 +177,15 @@ export interface DataStore {
   signIn(email: string, password: string): Promise<AuthUser>;
   signUpClient(input: { firstName: string; lastName: string; email: string; phone?: string; password: string; marketingOptIn?: boolean }): Promise<AuthUser>;
   signOut(): Promise<void>;
+  /**
+   * "Delete my account" (Apple 5.1.1(v), Google Play). The signed-in client deletes their own account in this studio, and their dependants'.
+   * Their login is removed (unless they also use another studio), personal details, photo and health info are deleted or anonymised,
+   * future classes are cancelled, memberships are cancelled (live: in Stripe), and booking and sales rows stay anonymised for tax records.
+   * Safe to repeat. Signs them out when done. Live: the delete-account edge function.
+   */
+  deleteMyAccount(): Promise<void>;
+  /** Studio owner only (client_delete): the same deletion for a client who asked the studio to do it. Doesn't sign anyone out. */
+  deleteClientAccount(clientId: ID): Promise<void>;
   requestPasswordReset(email: string): Promise<void>;
   /** Demo only: list of quick-login personas (clients + staff). Live store returns []. */
   demoPersonas(): Promise<AuthUser[]>;

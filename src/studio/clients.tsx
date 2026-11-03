@@ -375,12 +375,38 @@ function AddDependantSheet({ parent, onClose }: { parent: Client; onClose: () =>
   );
 }
 
+/** Owner only: delete a client's account because they asked. Same path as "Delete my account" in the client app. */
+function DeleteClientSheet({ c, onClose }: { c: Client; onClose: () => void }) {
+  const { busy, run } = useAction();
+  const [sure, setSure] = useState(false);
+  const go = async () => { if (await run(async () => { await store.deleteClientAccount(c.id); return true; }, `${fullName(c)}’s account was deleted`)) { onClose(); replaceRoute('/clients'); } };
+  return (
+    <Sheet open onClose={onClose} label="Delete account">
+      <SheetHead title={<>Delete <em>{c.firstName}’s account</em></>} onClose={onClose} />
+      <div className="stack">
+        <p>Only do this when {c.firstName} has asked you to. It can’t be undone. This is what happens:</p>
+        <ul style={{ margin: 0, paddingLeft: 20, display: 'grid', gap: 6 }}>
+          <li>Their login is removed (unless they also use another studio).</li>
+          <li>Their personal details, photo and health info are deleted or made anonymous, and so are their dependants’.</li>
+          <li>Their upcoming classes are cancelled and any memberships are cancelled in Stripe.</li>
+          <li>Booking and sales records stay, anonymised, for your tax records.</li>
+        </ul>
+        <label className="check"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /><span>{c.firstName} asked me to delete their account.</span></label>
+      </div>
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn danger" onClick={go} disabled={busy || !sure}>Delete account</button></div>
+    </Sheet>
+  );
+}
+
 function EditClientSheet({ c, onClose }: { c: Client; onClose: () => void }) {
   const [v, setV] = useState({ ...c });
   const { busy, run } = useAction();
+  const { can } = useStudio();
+  const [deleting, setDeleting] = useState(false);
   const f = (k: keyof Client) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setV({ ...v, [k]: e.target.value || undefined });
   const save = async () => { if (await run(() => store.upsertClient({ ...v, firstName: v.firstName || c.firstName, email: v.email || c.email }), 'Details saved')) onClose(); };
   return (
+    <>
     <Sheet open onClose={onClose} label="Edit client">
       <SheetHead title={<>Edit <em>details</em></>} onClose={onClose} />
       <div className="form-grid">
@@ -396,8 +422,11 @@ function EditClientSheet({ c, onClose }: { c: Client; onClose: () => void }) {
         <label className="check span2"><input type="checkbox" checked={!!v.marketingOptIn} onChange={(e) => setV({ ...v, marketingOptIn: e.target.checked })} /><span>Happy to receive news and offers</span></label>
         <label className="check span2"><input type="checkbox" checked={!!v.archived} onChange={(e) => setV({ ...v, archived: e.target.checked })} /><span>Archive this client (hides them from lists)</span></label>
       </div>
+      {can('deleteClient') && !c.deletedAt && <p className="small" style={{ marginTop: 14 }}><button type="button" className="linkish" onClick={() => setDeleting(true)}>Delete this client’s account…</button></p>}
       <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn" onClick={save} disabled={busy}>Save</button></div>
     </Sheet>
+    {deleting && <DeleteClientSheet c={c} onClose={() => setDeleting(false)} />}
+    </>
   );
 }
 

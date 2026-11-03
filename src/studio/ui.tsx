@@ -42,6 +42,7 @@ const PERM_MAP = {
   editMembership: 'membership_edit', // renewal date + move to another membership (owner, manager)
   editEmails: 'emails_edit', // Settings > Emails: wording and on/off of client emails (owner, manager)
   editClients: 'clients_edit', // add / edit clients (walk-ins create a client)
+  deleteClient: 'client_delete', // delete a client's account on request (owner only)
   waiver: 'waiver_record',
   salesView: 'sales_view', // a client's purchase history
   exportSales: 'export_sales',
