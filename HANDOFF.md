@@ -17,13 +17,14 @@
    3. Get Snowy launch-ready.
    4. Park the rest of B5 (on-demand video, kiosk, family accounts, etc.) until a second studio is actually interested.
 
-## State as of 27 Oct 2026 (afternoon), paused by Pete
-- Master is pushed to GitHub (combesdesign/studio-platform). All features merged: everything in ROADMAP phases A/B except Stripe Terminal; plus support, undo, family, locations, spots, Stripe Connect, platform billing/plan gating, web push, Libby's feedback rounds 1 and 2, Momence import for her real export format.
-- Small gaps batch done.
-- Libby's real Momence exports are in /home/claude/libby-data (NOT in git, real client data). Tidy-up report sent to Pete.
-- Next after the gaps: refresh the demo artifact (STUDIO_SLUG=snowy build, landing page in scratchpad spc-demo), independent security review, Capacitor builds, real accounts + Stripe test run.
-- Selling later: name, pricing (draft only), switching-guide PDF. Libby's feature rundown PDF was sent 27 Oct.
-- Website: timetable strip on branch feat/timetable-strip (pushed, not merged; times from demo data, check with Libby).
+## State as of 4 Nov 2026
+- Build is feature-complete for Snowy and the platform. Master is pushed (combesdesign/studio-platform); 280 node tests + full SQL suite pass.
+- Done 3-4 Nov: independent security review (docs/SECURITY-REVIEW.md, all high/medium fixed), full QA click-through (docs/QA-PASS.md), Capacitor/app-store prep (docs/APP-STORES.md, icons in resources/), delete-my-account, privacy/terms pages (DRAFT, needs a lawyer), health-notes visibility setting, native push (FCM + APNs), gap sweep.
+- Docs for Pete (Claude Docs): Developer Brief, Snowy Switch-Day Checklist, Snowy Accounts Setup Guide. Libby got the feature-rundown PDF and the Studio App Checklist (no answers back yet).
+- Everything left needs people: Libby's decisions (billing start, surcharge, health-notes default, online classes in the iPhone app, switch week), real accounts, a developer, a lawyer for privacy/terms, Apple/Google accounts, a platform name.
+- Optional build work: Stripe Terminal at the desk.
+- Libby's real Momence exports are in /home/claude/libby-data (NOT in git).
+- Website: timetable strip on branch feat/timetable-strip (pushed, not merged; check times with Libby).
 
 **Demo.** The clickable demo is published as an Artifact. Pete has the link. It was built from master before the platform work. Republished 26 Oct from a `STUDIO_SLUG=snowy` build (before online classes/support/marketing/appointments); republish again when convenient.
 
