@@ -8,6 +8,7 @@
 //   customer.subscription.deleted    -> membership ended: pass cancelled
 //   charge.refunded                  -> record refund on the sale
 //   invoice.payment_failed           -> logged (Stripe retries and emails the client, if turned on)
+//   terminal.reader.action_succeeded / action_failed, payment_intent.succeeded (card_present) -> card reader sale at the desk (idempotent with the app's status poll: whichever lands first records it, the other is a no-op)
 //   account.updated                  -> Connect only: keeps the studio's charges_enabled / payouts_enabled / details_submitted in sync
 //
 // Stripe Connect (STRIPE_CONNECT=1, see _shared/connect.ts): add a second endpoint in Stripe, "Events on Connected accounts",
@@ -18,6 +19,7 @@ import { adminClient, type Db, must } from '../_shared/db.ts';
 import { connectMode, studioForAccount } from '../_shared/connect.ts';
 import { env, json, serve } from '../_shared/http.ts';
 import { fromUnix, stripe, type StripeObject, verifyStripeSignature } from '../_shared/stripe.ts';
+import { getPayment, intentOfReader, recordPaid, settleTerminal } from '../_shared/terminal.ts';
 
 /** Who an event is for: in Connect mode the studio that owns event.account (and the account to call Stripe on). */
 interface Ctx { studioId: string | null; account?: string }
@@ -163,6 +165,31 @@ async function handle(admin: Db, event: StripeObject, ctx: Ctx): Promise<void> {
       const pi = idOf(o.payment_intent);
       if (pi && !(await inStudio(admin, ctx, 'sales', 'stripe_payment_intent_id', pi))) return wrongStudio('sale', pi);
       if (pi) must(await admin.rpc('record_stripe_refund', { p_payment_intent_id: pi, p_refunded_cents: o.amount_refunded ?? 0 }));
+      return;
+    }
+
+    case 'terminal.reader.action_succeeded':
+    case 'terminal.reader.action_failed': {
+      const pi = intentOfReader(o);
+      if (!pi) return;
+      const row = await getPayment(admin, pi);
+      if (!row) return;   // not a sale made from this app
+      if (ctx.studioId && row.studio_id !== ctx.studioId) return wrongStudio('card reader sale', pi);
+      const pay = { account: ctx.account, feeBps: 0 };
+      if (event.type === 'terminal.reader.action_succeeded') { await settleTerminal(admin, pi, pay); return; }
+      // Failed (declined, timed out on the reader): settle first, because a card that went through must still be recorded.
+      const out = await settleTerminal(admin, pi, pay);
+      if (out?.state === 'pending') await admin.rpc('terminal_mark', { p_payment_intent: pi, p_status: 'declined', p_failure: String(o.action?.failure_message ?? 'The card was declined.') });
+      return;
+    }
+
+    case 'payment_intent.succeeded': {
+      // Only card-present payments we started from the desk (terminal_payments has the cart); online payments arrive as checkout sessions.
+      if (o.metadata?.kind !== 'pos_terminal' && !(o.payment_method_types ?? []).includes('card_present')) return;
+      const row = await getPayment(admin, String(o.id));
+      if (!row) return;
+      if (ctx.studioId && row.studio_id !== ctx.studioId) return wrongStudio('card reader sale', o.id);
+      await recordPaid(admin, String(o.id), o.amount_received ?? o.amount);
       return;
     }
 

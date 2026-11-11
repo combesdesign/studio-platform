@@ -84,10 +84,16 @@ export const METHODS: { value: PaymentMethod; label: string; icon: string }[] = 
   { value: 'cash', label: 'Cash', icon: 'cash' },
   { value: 'comp', label: 'Comp', icon: 'gift' },
 ];
-export function MethodPicker({ value, onChange }: { value: PaymentMethod; onChange: (m: PaymentMethod) => void }) {
+/** `stripe`: the studio has a Stripe Terminal reader, so "Card reader" drives it and the old option becomes "Other reader" (a separate machine). */
+export const STRIPE_READER = 'stripe_reader' as const;
+export type PosMethod = PaymentMethod | typeof STRIPE_READER;
+export function MethodPicker({ value, onChange, stripe }: { value: PosMethod; onChange: (m: PosMethod) => void; stripe?: boolean }) {
+  const list: { value: PosMethod; label: string; icon: string }[] = stripe
+    ? [{ value: STRIPE_READER, label: 'Card reader', icon: 'card' }, { value: 'card_reader', label: 'Other reader', icon: 'card' }, ...METHODS.filter((m) => m.value !== 'card_reader')]
+    : METHODS;
   return (
-    <div className="methods" role="radiogroup" aria-label="Payment method">
-      {METHODS.map((m) => (
+    <div className="methods" role="radiogroup" aria-label="Payment method" style={stripe ? { gridTemplateColumns: 'repeat(2, 1fr)' } : undefined}>
+      {list.map((m) => (
         <button key={m.value} type="button" role="radio" aria-checked={value === m.value} className={cx('method', value === m.value && 'on')} onClick={() => onChange(m.value)}>
           <Icon name={m.icon} size={22} /><span>{m.label}</span>
         </button>

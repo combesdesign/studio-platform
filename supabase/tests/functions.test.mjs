@@ -1595,6 +1595,215 @@ await t('delete-account: stops Stripe, removes the photo, anonymises, deletes th
   assert.equal(sql(`select count(*) from public.audit_log where action = 'account.delete' and entity_id = '${cid}'`), '1', 'no second audit row');
 });
 
+console.log('\n-- stripe terminal (card reader at the desk)');
+let termSeq = 0;
+const termIntents = {};      // pi id -> what Stripe would say about it
+const READER = 'tmr_SNOWY1', HB_READER = 'tmr_HARBOUR1';
+const setIntent = (pi, o) => { termIntents[pi] = { id: pi, status: 'requires_payment_method', ...o }; stripeObjects[`payment_intents/${pi}`] = termIntents[pi]; };
+const termStubs = () => {
+  stripeObjects['terminal/locations'] = { id: 'tml_SNOWY1' };
+  stripeObjects['terminal/readers'] = { id: READER, label: 'Front desk', device_type: 'stripe_s700', status: 'online' };
+  stripeObjects[`terminal/readers/${READER}`] = { id: READER, label: 'Front desk', device_type: 'stripe_s700', status: 'online' };
+  stripeObjects[`terminal/readers/${READER}/process_payment_intent`] = { id: READER };
+  stripeObjects[`terminal/readers/${READER}/cancel_action`] = { id: READER };
+  stripeObjects.payment_intents = (body) => { const pi = `pi_term_${++termSeq}`; setIntent(pi, { amount: Number(form(body).amount) }); stripeObjects[`payment_intents/${pi}/cancel`] = { id: pi, status: 'canceled' }; return { id: pi, status: 'requires_payment_method' }; };
+};
+const asUser = (u) => ({ Authorization: `Bearer ${u}` });
+const termH = {};
+const handlerOf = async (n) => (termH[n] ??= await load(n));   // load() shares one global, so load each function once, up front
+await handlerOf('terminal-pay'); await handlerOf('stripe-webhook'); await handlerOf('terminal-readers'); await handlerOf('refund-payment');
+const startPay = async (user, o = {}) => post(await handlerOf('terminal-pay'), { action: 'start', studioId: 'snowy', readerId: READER, attemptId: `a${++termSeq}`, clientId: CARA, items: [{ productId: P_PACK4, qty: 1 }], ...o }, asUser(user));
+const payStatus = async (user, paymentId, action = 'status') => post(await handlerOf('terminal-pay'), { action, studioId: 'snowy', paymentId }, asUser(user));
+const termHook = async (ev, secret) => { const { raw, header } = signed(ev, secret); return post(await handlerOf('stripe-webhook'), raw, { 'Stripe-Signature': header }); };
+let evtN = 0;
+const piEvent = (pi, amount, extra = {}) => ({ id: `evt_term_${++evtN}`, type: 'payment_intent.succeeded', ...extra, data: { object: { id: pi, amount, amount_received: amount, metadata: { kind: 'pos_terminal' }, payment_method_types: ['card_present'] } } });
+const readerEvent = (type, pi, extra = {}, action = {}) => ({ id: `evt_term_${++evtN}`, type, ...extra, data: { object: { id: READER, object: 'terminal.reader', action: { type: 'process_payment_intent', process_payment_intent: { payment_intent: pi }, ...action } } } });
+const salesFor = (pi) => sql(`select count(*) from public.sales where stripe_payment_intent_id = '${pi}'`);
+const PACK4_PRICE = Number(sql(`select price_cents from public.products where id = '${P_PACK4}'`));
+
+await t('terminal-readers: owner and manager register a reader (location made once), front desk cannot, list shows it', async () => {
+  termStubs();
+  const h = await handlerOf('terminal-readers');
+  const reg = (user, code = 'sepia-cat-river') => post(h, { action: 'register', studioId: 'snowy', code, label: 'Front desk' }, asUser(user));
+  assert.equal((await reg(FRAN_USER)).status, 403, 'front desk can\'t register');
+  assert.equal((await reg(CARA_USER)).status, 403, 'a client can\'t');
+  assert.equal((await post(h, { action: 'register', studioId: 'snowy', code: 'x' })).status, 401);
+  assert.equal((await reg(id('libby'), 'bad code!')).status, 400, 'a pairing code has to look like one');
+  const before = calls.filter((c) => c.path.endsWith('/terminal/locations')).length;
+  const res = await reg(id('libby'));
+  assert.equal(res.status, 200, await res.clone().text());
+  const j = await res.json();
+  assert.equal(j.reader.id, READER); assert.equal(j.reader.deviceType, 'stripe_s700'); assert.equal(j.reader.status, 'online');
+  const loc = form(lastStripe('/terminal/locations').body);
+  assert.equal(loc.display_name.length > 0, true); assert.equal(loc['address[country]'], 'AU'); assert.equal(loc['metadata[studio_id]'], SNOWY_ID);
+  const rd = form(lastStripe('/terminal/readers').body);
+  assert.equal(rd.registration_code, 'sepia-cat-river'); assert.equal(rd.location, 'tml_SNOWY1');
+  assert.equal(sql(`select studio_id || ' ' || reader_id from public.terminal_readers where reader_id = '${READER}'`), `${SNOWY_ID} ${READER}`);
+  assert.equal((await reg(id('mia'), 'second-code-here')).status, 200, 'a manager can too');
+  assert.equal(calls.filter((c) => c.path.endsWith('/terminal/locations')).length, before + 1, 'the location is reused');
+  // list: any staff
+  const l = await (await post(h, { action: 'list', studioId: 'snowy' }, asUser(FRAN_USER))).json();
+  assert.deepEqual(l.readers.map((r) => r.id), [READER]);
+  assert.equal(l.readers[0].status, 'online');
+  assert.equal((await post(h, { action: 'list', studioId: 'snowy' }, asUser(CARA_USER))).status, 403);
+  // remove is owner/manager, and only this studio's reader
+  sql(`insert into public.terminal_readers (reader_id, studio_id, label) values ('${HB_READER}', '${HB}', 'Harbour desk')`);
+  assert.equal((await post(h, { action: 'remove', studioId: 'snowy', readerId: READER }, asUser(FRAN_USER))).status, 403);
+  assert.equal((await post(h, { action: 'remove', studioId: 'snowy', readerId: HB_READER }, asUser(id('libby')))).status, 404, 'another studio\'s reader');
+  assert.equal(sql(`select count(*) from public.terminal_readers where reader_id = '${HB_READER}'`), '1');
+});
+
+await t('terminal-pay start: card_present PaymentIntent for the SERVER\'s amount (a bogus amount from the app is ignored), then process_payment_intent on the reader', async () => {
+  const res = await startPay(FRAN_USER, { amountCents: 1, total: 1, discountCents: 0 });
+  assert.equal(res.status, 200, await res.clone().text());
+  const j = await res.json();
+  assert.equal(j.amountCents, PACK4_PRICE, 'charged what the cart costs');
+  const pi = form(lastStripe('/payment_intents').body);
+  assert.equal(pi.amount, String(PACK4_PRICE)); assert.equal(pi['payment_method_types[0]'], 'card_present'); assert.equal(pi.capture_method, 'automatic');
+  assert.equal(pi.currency, 'aud'); assert.equal(pi['metadata[kind]'], 'pos_terminal'); assert.equal(pi['metadata[studio_id]'], SNOWY_ID);
+  assert.equal(form(lastStripe(`/${READER}/process_payment_intent`).body).payment_intent, j.paymentId);
+  assert.equal(sql(`select status || ' ' || amount_cents from public.terminal_payments where payment_intent_id = '${j.paymentId}'`), `pending ${PACK4_PRICE}`);
+  assert.equal(salesFor(j.paymentId), '0', 'no sale until the card goes through');
+  assert.equal(sql(`select count(*) from public.passes p join public.sales s on s.id = p.sale_id where s.stripe_payment_intent_id = '${j.paymentId}'`), '0');
+  const st = await (await payStatus(FRAN_USER, j.paymentId)).json();
+  assert.equal(st.state, 'pending');
+  // a discount is applied by the server too, and can't push the amount below zero
+  const d = await (await startPay(FRAN_USER, { discountCents: 1000 })).json();
+  assert.equal(d.amountCents, PACK4_PRICE - 1000);
+  const free = await startPay(FRAN_USER, { discountCents: PACK4_PRICE * 10 });
+  assert.equal(free.status, 400, 'a fully discounted cart has nothing to charge');
+  // not a cart we can sell
+  assert.equal((await startPay(FRAN_USER, { items: [] })).status, 400, 'empty cart');
+  assert.equal((await startPay(FRAN_USER, { clientId: null })).status, 400, 'a class pass needs a client');
+  assert.equal((await startPay(FRAN_USER, { items: [{ productId: hbProduct, qty: 1 }] })).status >= 400, true, 'another studio\'s product');
+  assert.equal((await startPay(CARA_USER)).status, 403, 'clients can\'t use the till');
+});
+
+await t('terminal sale is recorded exactly once whether the poll or the webhook (or both, twice) arrives first', async () => {
+  const j = await (await startPay(FRAN_USER)).json();
+  setIntent(j.paymentId, { status: 'succeeded', amount: PACK4_PRICE, amount_received: PACK4_PRICE });
+  const [poll, hook, hook2] = await Promise.all([
+    payStatus(FRAN_USER, j.paymentId),
+    termHook(piEvent(j.paymentId, PACK4_PRICE)),
+    termHook(readerEvent('terminal.reader.action_succeeded', j.paymentId)),
+  ]);
+  assert.equal(hook.status, 200); assert.equal(hook2.status, 200);
+  const out = await poll.json();
+  assert.equal(out.state, 'succeeded', JSON.stringify(out));
+  assert.equal(out.sale.total_cents, PACK4_PRICE); assert.equal(out.sale.method, 'card_reader'); assert.equal(out.passes.length, 1, 'the receipt carries the pass');
+  assert.equal(salesFor(j.paymentId), '1');
+  assert.equal(sql(`select count(*) from public.passes p join public.sales s on s.id = p.sale_id where s.stripe_payment_intent_id = '${j.paymentId}' and p.client_id = '${CARA}'`), '1', 'the client\'s pass is credited once');
+  assert.equal(sql(`select staff_id from public.sales where stripe_payment_intent_id = '${j.paymentId}'`), sql(`select id from public.staff where email = (select email from auth.users where id = '${FRAN_USER}')`), 'rung up by the staff member who charged');
+  // everything again, in any order: still one sale, same answer
+  assert.equal((await termHook(piEvent(j.paymentId, PACK4_PRICE))).status, 200);
+  assert.equal((await termHook(readerEvent('terminal.reader.action_succeeded', j.paymentId))).status, 200);
+  const again = await (await payStatus(FRAN_USER, j.paymentId)).json();
+  assert.equal(again.state, 'succeeded'); assert.equal(again.sale.id, out.sale.id);
+  assert.equal(salesFor(j.paymentId), '1'); assert.equal(sql(`select count(*) from public.sales where id = '${out.sale.id}' and total_cents = ${PACK4_PRICE}`), '1');
+  // and the webhook first, then the poll
+  const k = await (await startPay(FRAN_USER, { items: [{ productId: id('p_socks'), qty: 1 }], clientId: null })).json();
+  setIntent(k.paymentId, { status: 'succeeded', amount: k.amountCents, amount_received: k.amountCents });
+  assert.equal((await termHook(piEvent(k.paymentId, k.amountCents))).status, 200);
+  assert.equal(salesFor(k.paymentId), '1');
+  assert.equal((await (await payStatus(FRAN_USER, k.paymentId)).json()).state, 'succeeded');
+  assert.equal(salesFor(k.paymentId), '1');
+  // an online (non-terminal) payment_intent.succeeded is none of our business
+  assert.equal((await termHook({ id: `evt_term_${++evtN}`, type: 'payment_intent.succeeded', data: { object: { id: 'pi_online_x', amount: 100, metadata: {}, payment_method_types: ['card'] } } })).status, 200);
+});
+
+await t('terminal refund goes through the existing refund path (Stripe refund on the PaymentIntent, recorded on the sale)', async () => {
+  const saleId = sql(`select id from public.sales where method = 'card_reader' and stripe_payment_intent_id like 'pi_term_%' order by created_at limit 1`);
+  const pi = sql(`select stripe_payment_intent_id from public.sales where id = '${saleId}'`);
+  stripeObjects.refunds = { id: 're_term1', charge: 'ch_term1' };
+  stripeObjects['charges/ch_term1'] = { id: 'ch_term1', amount_refunded: 1000 };
+  const r = await post(await handlerOf('refund-payment'), { saleId, amountCents: 1000, studioId: 'snowy' }, asUser(FRAN_USER));
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.equal(form(lastStripe('/refunds').body).payment_intent, pi);
+  assert.equal(sql(`select refunded_cents from public.sales where id = '${saleId}'`), '1000');
+});
+
+await t('terminal decline: the poll and the reader-failed webhook both end it cleanly, nothing is sold', async () => {
+  const j = await (await startPay(FRAN_USER)).json();
+  setIntent(j.paymentId, { status: 'requires_payment_method', last_payment_error: { message: 'Your card was declined.', code: 'card_declined' } });
+  const out = await (await payStatus(FRAN_USER, j.paymentId)).json();
+  assert.equal(out.state, 'declined'); assert.equal(out.message, 'Your card was declined.');
+  assert.equal(salesFor(j.paymentId), '0');
+  assert.equal(sql(`select status from public.terminal_payments where payment_intent_id = '${j.paymentId}'`), 'declined');
+  // via webhook only
+  const k = await (await startPay(FRAN_USER)).json();
+  assert.equal((await termHook(readerEvent('terminal.reader.action_failed', k.paymentId, {}, { failure_code: 'card_declined', failure_message: 'The card was declined at the reader.' }))).status, 200);
+  const o2 = await (await payStatus(FRAN_USER, k.paymentId)).json();
+  assert.equal(o2.state, 'declined'); assert.equal(o2.message, 'The card was declined at the reader.'); assert.equal(salesFor(k.paymentId), '0');
+  // a reader that is off: friendly error, the PaymentIntent is cancelled and nothing is left waiting
+  const prev = stripeObjects[`terminal/readers/${READER}/process_payment_intent`];
+  delete stripeObjects[`terminal/readers/${READER}/process_payment_intent`];
+  const off = await startPay(FRAN_USER);
+  assert.equal(off.status, 409); assert.equal((await off.json()).code, 'READER_UNAVAILABLE');
+  assert.equal(sql(`select status from public.terminal_payments order by created_at desc limit 1`), 'failed');
+  stripeObjects[`terminal/readers/${READER}/process_payment_intent`] = prev;
+});
+
+await t('terminal cancel: clears the reader, cancels the PaymentIntent, nothing sold; a card that got through first is still recorded', async () => {
+  const j = await (await startPay(FRAN_USER)).json();
+  const res = await payStatus(FRAN_USER, j.paymentId, 'cancel');
+  assert.equal((await res.json()).state, 'canceled');
+  assert.ok(lastStripe(`/${READER}/cancel_action`), 'reader cleared');
+  assert.ok(lastStripe(`/payment_intents/${j.paymentId}/cancel`), 'PaymentIntent cancelled');
+  assert.equal(salesFor(j.paymentId), '0');
+  assert.equal((await (await payStatus(FRAN_USER, j.paymentId)).json()).state, 'canceled');
+  // the customer tapped just as staff pressed cancel
+  const k = await (await startPay(FRAN_USER)).json();
+  setIntent(k.paymentId, { status: 'succeeded', amount: k.amountCents, amount_received: k.amountCents });
+  const late = await (await payStatus(FRAN_USER, k.paymentId, 'cancel')).json();
+  assert.equal(late.state, 'succeeded'); assert.equal(salesFor(k.paymentId), '1');
+  // waiting too long: the server gives up (timeout) and cancels
+  const m = await (await startPay(FRAN_USER)).json();
+  sql(`update public.terminal_payments set created_at = now() - interval '10 minutes' where payment_intent_id = '${m.paymentId}'`);
+  const t2 = await (await payStatus(FRAN_USER, m.paymentId)).json();
+  assert.equal(t2.state, 'timeout'); assert.equal(salesFor(m.paymentId), '0');
+});
+
+await t('terminal: another studio\'s reader and payments can\'t be used (not found), and its events can\'t sell our cart', async () => {
+  // Snowy staff naming Harbour's reader
+  const r = await startPay(FRAN_USER, { readerId: HB_READER });
+  assert.equal(r.status, 404);
+  assert.equal(sql(`select count(*) from public.terminal_payments where reader_id = '${HB_READER}'`), '0');
+  // a Harbour payment row: Snowy staff can't poll or cancel it
+  sql(`insert into public.terminal_payments (payment_intent_id, studio_id, reader_id, client_id, cart, amount_cents) values ('pi_hb_term1', '${HB}', '${HB_READER}', '${hbClient}', '[{"product_id":"${hbProduct}","qty":1}]', 19500)`);
+  assert.equal((await payStatus(FRAN_USER, 'pi_hb_term1')).status, 404);
+  assert.equal((await payStatus(id('libby'), 'pi_hb_term1', 'cancel')).status, 404);
+  // Connect: Harbour's account (signed with the Connect secret) reporting a Snowy payment as paid: ignored
+  const mine = await (await startPay(FRAN_USER)).json();
+  connectEnv(true);
+  try {
+    const ev = { ...piEvent(mine.paymentId, PACK4_PRICE), account: 'acct_HARBOUR1' };
+    assert.equal((await termHook(ev, connectSecret)).status, 200);
+    assert.equal(salesFor(mine.paymentId), '0', 'one studio\'s Stripe account can\'t record another studio\'s sale');
+    const ok = { ...piEvent('pi_hb_term1', 19500), account: 'acct_HARBOUR1' };
+    assert.equal((await termHook(ok, connectSecret)).status, 200);
+    assert.equal(salesFor('pi_hb_term1'), '1', 'its own sale is recorded, in its own studio');
+    assert.equal(sql(`select studio_id from public.sales where stripe_payment_intent_id = 'pi_hb_term1'`), HB);
+  } finally { connectEnv(false); }
+});
+
+await t('terminal Connect mode: PaymentIntent and reader calls carry the studio\'s Stripe-Account; single mode and STUDIO_SLUG builds do not', async () => {
+  connectEnv(true);
+  try {
+    const j = await (await startPay(FRAN_USER)).json();
+    assert.equal(lastStripe('/payment_intents').headers['Stripe-Account'], 'acct_SNOWY1');
+    assert.equal(lastStripe(`/${READER}/process_payment_intent`).headers['Stripe-Account'], 'acct_SNOWY1');
+    setIntent(j.paymentId, { status: 'succeeded', amount: j.amountCents, amount_received: j.amountCents });
+    assert.equal(lastStripe(`payment_intents/${j.paymentId}`, 'GET') === undefined, true, 'not fetched yet');
+    assert.equal((await (await payStatus(FRAN_USER, j.paymentId)).json()).state, 'succeeded');
+    assert.equal(lastStripe(`payment_intents/${j.paymentId}`, 'GET').headers['Stripe-Account'], 'acct_SNOWY1');
+    ENV.STUDIO_SLUG = 'snowy';
+    await startPay(FRAN_USER);
+    assert.equal(lastStripe('/payment_intents').headers['Stripe-Account'], undefined, 'a single-studio build uses its own keys');
+  } finally { connectEnv(false); }
+  await startPay(FRAN_USER);
+  assert.equal(lastStripe('/payment_intents').headers['Stripe-Account'], undefined);
+});
+
 await t('no secrets in the code: every key comes from the environment', () => {
   const r = spawnSync('grep', ['-rnE', 'sk_(live|test)_[A-Za-z0-9]{8,}|whsec_[A-Za-z0-9]{8,}|re_[A-Za-z0-9]{16,}|eyJhbGciOi', FN], { encoding: 'utf8' });
   assert.equal(r.stdout.trim(), '');

@@ -14,7 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 import type {
   AuthUser, Booking, EmailTemplateRow, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Pass,
   PassStatus, PaymentMethod, Product, ProductKind, ReportRange, Sale, SaleItem, ScheduleTemplate, SessionWithCounts,
-  Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus,
+  Staff, StaffRole, Studio, StudioBranding, StudioMembership, StudioReport, StudioSettings, StudioStatus, PlatformUser, PaymentsStatus, TerminalPaymentStatus, TerminalReader,
   BillingInfo, BillingStatus, Plan, PlatformBillingSettings, StudioPlan, Location, Room, SessionSpots, SpotKind, SpotLayout,
 } from '../../shared/types';
 import {
@@ -290,6 +290,17 @@ function toBooking(r: Row): Booking {
   });
 }
 
+function toReader(r: Row): TerminalReader {
+  return { id: str(r.id), label: str(r.label), deviceType: str(r.deviceType), status: r.status === 'online' ? 'online' : 'offline' };
+}
+function toTerminalStatus(r: Row): TerminalPaymentStatus {
+  const out: TerminalPaymentStatus = { state: str(r.state) as TerminalPaymentStatus['state'] };
+  if (r.message) out.message = str(r.message);
+  if (r.amountCents !== undefined) out.amountCents = num(r.amountCents);
+  if (r.sale && typeof r.sale === 'object') out.sale = toSale(r.sale as Row);
+  if (Array.isArray(r.passes)) out.passes = r.passes.map((p) => toPass(p as Row));
+  return out;
+}
 function toSale(r: Row): Sale {
   const items: SaleItem[] = arr(r.items ?? r.sale_items).map((i) => {
     const x = obj(i);
@@ -868,6 +879,32 @@ class SupabaseStore implements DataStore {
     const u = await this.requireMe();
     if (u.kind !== 'staff' || u.role !== 'owner') throw new StoreError('NOT_ALLOWED', 'Only the studio owner can see payment settings.');
     return toPaymentsStatus(await this.invoke('connect-status', {}));
+  }
+
+  // ------------------------------------------------------------------ Stripe Terminal card readers (edge functions terminal-readers / terminal-pay)
+
+  async terminalReaders(): Promise<TerminalReader[]> {
+    await this.requireStaff('pos');
+    return arr((await this.invoke('terminal-readers', { action: 'list' })).readers).map((x) => toReader(obj(x)));
+  }
+  async registerTerminalReader(input: { code: string; label: string }): Promise<TerminalReader> {
+    await this.requireStaff('settings');
+    return toReader(obj((await this.invoke('terminal-readers', { action: 'register', code: input.code, label: input.label })).reader));
+  }
+  async removeTerminalReader(readerId: ID): Promise<void> {
+    await this.requireStaff('settings');
+    await this.invoke('terminal-readers', { action: 'remove', readerId });
+  }
+  async startTerminalPayment(input: { readerId: ID; attemptId: string; clientId?: ID; items: { productId: ID; qty: number }[]; discountCents?: number; note?: string }): Promise<{ paymentId: string; amountCents: number }> {
+    await this.requireStaff('pos');
+    const r = await this.invoke('terminal-pay', { action: 'start', readerId: input.readerId, attemptId: input.attemptId, clientId: input.clientId ?? null, items: input.items, discountCents: input.discountCents ?? 0, note: input.note ?? '' });
+    return { paymentId: str(r.paymentId), amountCents: num(r.amountCents) };
+  }
+  async terminalPaymentStatus(paymentId: string): Promise<TerminalPaymentStatus> {
+    return this.write(async () => toTerminalStatus(await this.invoke('terminal-pay', { action: 'status', paymentId })));
+  }
+  async cancelTerminalPayment(paymentId: string): Promise<TerminalPaymentStatus> {
+    return this.write(async () => toTerminalStatus(await this.invoke('terminal-pay', { action: 'cancel', paymentId })));
   }
 
   async startPaymentsOnboarding(returnUrl: string): Promise<{ url: string } | null> {
@@ -1670,7 +1707,7 @@ class SupabaseStore implements DataStore {
     return this.write(async () => {
       await this.requireStaff('pos_refund');
       const s = await this.one(this.sb.from('sales').select('id, method, stripe_payment_intent_id').eq('id', saleId).limit(1), 'We couldn’t find that sale.');
-      if (s.method === 'card_online' && s.stripe_payment_intent_id) {
+      if ((s.method === 'card_online' || s.method === 'card_reader') && s.stripe_payment_intent_id) {   // card_reader + a PaymentIntent = a Stripe Terminal sale
         // Online card payments are refunded in Stripe first; the edge function records it here.
         const r = await this.invoke('refund-payment', { saleId, amountCents: opts.amountCents ?? null, cancelPass: !!opts.cancelPass, reason: opts.reason ?? '' });
         return toSale(obj(r.sale));

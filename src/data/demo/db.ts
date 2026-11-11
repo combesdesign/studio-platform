@@ -31,6 +31,8 @@ export interface PlatformDemoState {
   platformAdmins: { email: string; name: string }[];
   /** Fake Stripe Connect: studios whose owner has run the demo "Connect Stripe" flow. Missing in older saved demos = none. */
   connected?: Record<ID, boolean>;
+  /** Fake Stripe Terminal: the simulated card readers each studio has registered. */
+  terminalReaders?: Record<ID, { id: string; label: string }[]>;
   /** Platform plans (edited in the admin). Missing in older saved demos: ensureBilling seeds them. */
   plans?: Plan[];
   billingSettings?: PlatformBillingSettings;

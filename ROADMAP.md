@@ -81,7 +81,7 @@ Every feature built from here lands in both.
 - [x] ClassPass and Gympass: needs a partner agreement. Build the hooks and stub the integration.
   - [x] Settings tab (partner IDs, write-only keys), spots held per class type, roster badge, webhook stub (signature check left as a TODO)
 - [x] Accounting export to Xero
-- [ ] Stripe Terminal card reader at the POS
+- [x] Stripe Terminal card reader at the POS (server-driven smart reader: S700 / WisePOS E; demo has a simulated reader)
 
 ## Support that's actually good (Libby: Momence support is horrible)
 Libby's pain points: Momence only offers a fixed list of problems (hers often isn't on it), and they're US-based so replies come overnight.

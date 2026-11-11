@@ -39,6 +39,13 @@ export interface PaymentsStatus {
   detailsSubmitted: boolean;
 }
 
+/** A Stripe Terminal smart reader registered to the studio (card payments at the desk). `simulated` = the demo's fake reader. */
+export interface TerminalReader { id: string; label: string; deviceType: string; status: 'online' | 'offline'; simulated?: boolean }
+
+/** Where one card-reader payment is. `paid_unrecorded`: the card was charged but the sale couldn't be recorded (needs a look in Stripe). */
+export type TerminalState = 'pending' | 'succeeded' | 'declined' | 'canceled' | 'timeout' | 'failed' | 'paid_unrecorded';
+export interface TerminalPaymentStatus { state: TerminalState; message?: string; amountCents?: number; sale?: Sale; passes?: Pass[] }
+
 /** Where a studio is with its platform plan (what it pays Pete). */
 export type BillingStatus = 'trialing' | 'active' | 'past_due' | 'cancelled';
 

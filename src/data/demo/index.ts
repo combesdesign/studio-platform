@@ -11,7 +11,7 @@ import type {
   BookResult, BookingWithDetails, CreditSummary, DataStore, DependantInput, FeatureStores, MembershipChange, PurchaseResult, RosterEntry, StudioPatch, Unsubscribe,
 } from '../../shared/store';
 import type {
-  AuthUser, BillingInfo, EmailTemplateRow, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, Plan,
+  AuthUser, BillingInfo, EmailTemplateRow, Booking, BookingStatus, ClassSession, ClassType, Client, HealthForm, ID, ISODate, ISODateTime, Location, Pass, PaymentMethod, PaymentsStatus, TerminalPaymentStatus, TerminalReader, Plan,
   Product, ReportRange, Room, Sale, ScheduleTemplate, SessionSpots, SessionWithCounts, SpotLayout, Staff, Studio, StudioReport, StudioSettings,
 } from '../../shared/types';
 import { dayShort, studioToUTC, withStudioFormat } from '../../shared/format';
@@ -55,6 +55,15 @@ export function createDemoStore(opts: DemoStoreOptions = {}): DataStore {
   if (!studio) throw new Error('The demo has no studios.');
   return new DemoStore(db, studio.id);
 }
+
+/** The demo's simulated card reader: one entry per attempt, kept in memory (a page refresh drops a payment that was still waiting). */
+interface DemoTerminalAttempt {
+  studioId: ID; amountCents: number; startedAt: number; canceled: boolean; result?: TerminalPaymentStatus;
+  input: { clientId?: ID; items: { productId: ID; qty: number }[]; discountCents?: number; note?: string };
+}
+const demoTerminal = new Map<string, DemoTerminalAttempt>();
+/** How long the simulated reader "waits for a card" before it approves or declines. */
+export const DEMO_READER_MS = 2000;
 
 export class DemoStore implements DataStore {
   readonly mode = 'demo' as const;
@@ -442,6 +451,74 @@ export class DemoStore implements DataStore {
       const single = this.studioId === SNOWY_ID;
       const on = !single && !!this.db.ps.connected?.[this.studioId];
       return { connectMode: !single, connected: on, ...(on ? { accountId: 'acct_demo' + this.studioRec.slug } : {}), chargesEnabled: on, payoutsEnabled: on, detailsSubmitted: on };
+    });
+  }
+
+  // ---------------------------------------------------------------- Stripe Terminal (simulated reader)
+  async terminalReaders(): Promise<TerminalReader[]> {
+    return this.read(() => { this.requireStaff('pos'); return (this.db.ps.terminalReaders?.[this.studioId] ?? []).map((r) => ({ ...r, deviceType: 'simulated_wisepos_e', status: 'online' as const, simulated: true })); });
+  }
+  async registerTerminalReader(input: { code: string; label: string }): Promise<TerminalReader> {
+    return this.write(() => {
+      this.requireStaff('settings');
+      if (!input.code.trim()) throw err('INVALID', 'Enter the pairing code shown on the reader.');
+      const r = { id: 'tmr_demo' + Math.random().toString(36).slice(2, 8), label: input.label.trim() || 'Front desk' };
+      ((this.db.ps.terminalReaders ??= {})[this.studioId] ??= []).push(r);
+      return { ...r, deviceType: 'simulated_wisepos_e', status: 'online' as const, simulated: true };
+    });
+  }
+  async removeTerminalReader(readerId: ID): Promise<void> {
+    return this.write(() => {
+      this.requireStaff('settings');
+      const list = this.db.ps.terminalReaders?.[this.studioId] ?? [];
+      if (!list.some((r) => r.id === readerId)) throw err('NOT_FOUND', 'We couldn’t find that card reader.');
+      this.db.ps.terminalReaders![this.studioId] = list.filter((r) => r.id !== readerId);
+    });
+  }
+  /** Demo: the amount is worked out here from the cart, like the server does. */
+  async startTerminalPayment(input: { readerId: ID; attemptId: string; clientId?: ID; items: { productId: ID; qty: number }[]; discountCents?: number; note?: string }): Promise<{ paymentId: string; amountCents: number }> {
+    return this.write(() => {
+      this.requireStaff('pos');
+      if (!(this.db.ps.terminalReaders?.[this.studioId] ?? []).some((r) => r.id === input.readerId)) throw err('NOT_FOUND', 'We couldn’t find that card reader.');
+      const paymentId = `pi_demo_${input.attemptId}`;
+      const prior = demoTerminal.get(paymentId);
+      if (prior) return { paymentId, amountCents: prior.amountCents };
+      let sub = 0;
+      for (const i of input.items) {
+        const p = this.state.products.find((x) => x.id === i.productId);
+        if (!p) throw err('NOT_FOUND', 'We couldn’t find one of the products.');
+        if (p.kind !== 'retail' && !input.clientId) throw err('INVALID', 'Choose a client for class passes.');
+        sub += p.priceCents * Math.max(1, i.qty);
+      }
+      const amountCents = sub - Math.min(sub, Math.max(0, input.discountCents ?? 0));
+      if (amountCents <= 0) throw err('INVALID', 'There’s nothing to charge. Use Comp for a free sale.');
+      demoTerminal.set(paymentId, { studioId: this.studioId, amountCents, startedAt: Date.now(), canceled: false, input: { ...(input.clientId ? { clientId: input.clientId } : {}), items: input.items, ...(input.discountCents ? { discountCents: input.discountCents } : {}), ...(input.note ? { note: input.note } : {}) } });
+      return { paymentId, amountCents };
+    });
+  }
+  /** Demo: after about 2 seconds the reader approves, or declines when the sale note says "decline". The sale is recorded once. */
+  async terminalPaymentStatus(paymentId: string): Promise<TerminalPaymentStatus> {
+    return this.write(() => {
+      const st = this.requireStaff('pos');
+      const a = demoTerminal.get(paymentId);
+      if (!a || a.studioId !== this.studioId) throw err('NOT_FOUND', 'We couldn’t find that payment.');
+      if (a.result) return a.result;
+      if (a.canceled) return { state: 'canceled' as const };
+      const waited = Date.now() - a.startedAt;
+      if (waited < DEMO_READER_MS) return { state: 'pending' as const };
+      if (/decline/i.test(a.input.note ?? '')) return (a.result = { state: 'declined' as const, message: 'The card was declined.' });
+      const { sale, passes } = this.checkoutAs({ ...a.input, method: 'card_reader', staffId: st.id });
+      return (a.result = { state: 'succeeded' as const, amountCents: a.amountCents, sale, passes });
+    });
+  }
+  async cancelTerminalPayment(paymentId: string): Promise<TerminalPaymentStatus> {
+    return this.write(() => {
+      this.requireStaff('pos');
+      const a = demoTerminal.get(paymentId);
+      if (!a || a.studioId !== this.studioId) throw err('NOT_FOUND', 'We couldn’t find that payment.');
+      if (a.result) return a.result;
+      a.canceled = true;
+      return { state: 'canceled' as const };
     });
   }
 

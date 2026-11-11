@@ -15,7 +15,7 @@
  * All methods are async. Errors are thrown as StoreError with a user-friendly message.
  */
 import type {
-  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PaymentsStatus, PlatformUser, Studio, StudioMembership, StudioStatus,
+  BillingInfo, BillingStatus, Plan, PlatformBillingSettings, PaymentsStatus, TerminalPaymentStatus, TerminalReader, PlatformUser, Studio, StudioMembership, StudioStatus,
   AuthUser, Booking, BookingStatus, ClassSession, ClassType, Client, ID, ISODate, ISODateTime, Location, Room,
   Pass, PaymentMethod, Product, Sale, SaleItem, ScheduleTemplate, SessionSpots, SessionWithCounts, SpotLayout, Staff,
   StudioReport, StudioSettings, ReportRange, HealthForm, EmailTemplateRow,
@@ -146,6 +146,20 @@ export interface DataStore {
    * which refreshes the flags from Stripe. Demo: a fake status.
    */
   getPaymentsStatus(): Promise<PaymentsStatus>;
+  /**
+   * Stripe Terminal smart readers at the desk (server-driven: the iPad can't use Bluetooth readers). Optional: a store without
+   * them hides the feature. Live: the terminal-readers / terminal-pay edge functions. Demo: one simulated reader.
+   * - terminalReaders: any staff. registerTerminalReader / removeTerminalReader: owner or manager.
+   * - startTerminalPayment: the amount is worked out by the server from the cart (never sent by the app); returns the id to poll.
+   * - terminalPaymentStatus: poll it; on 'succeeded' the sale is recorded (receipt + passes) exactly as a card sale is today.
+   * - cancelTerminalPayment: clears the reader. Refunds go through refundSale as for any card sale.
+   */
+  terminalReaders?(): Promise<TerminalReader[]>;
+  registerTerminalReader?(input: { code: string; label: string }): Promise<TerminalReader>;
+  removeTerminalReader?(readerId: ID): Promise<void>;
+  startTerminalPayment?(input: { readerId: ID; attemptId: string; clientId?: ID; items: { productId: ID; qty: number }[]; discountCents?: number; note?: string }): Promise<{ paymentId: string; amountCents: number }>;
+  terminalPaymentStatus?(paymentId: string): Promise<TerminalPaymentStatus>;
+  cancelTerminalPayment?(paymentId: string): Promise<TerminalPaymentStatus>;
   /**
    * Owner only: start (or finish) connecting Stripe. Returns Stripe's hosted onboarding URL to open, or null when there is
    * nothing to open (demo: the studio is marked connected straight away).

@@ -13,6 +13,7 @@ import { healthPolicy, healthVisibility } from '../domain';
 import { BrandingTab } from './branding';
 import { LocationsTab, useLocationsTabVisible } from './locations';
 import { PaymentsPanel } from './payments';
+import { CardReaderPanel } from './terminal';
 import { isSingleStudio } from '../shared/boot';
 import { SingleRoomLayoutCard } from './spots';
 import { EmailsTab } from './emails';
@@ -21,8 +22,8 @@ const TABS: { key: string; label: string; perm?: Perm | string; order: number }[
   { key: 'studio', label: 'Studio', order: 10 }, { key: 'branding', label: 'Branding', order: 15 }, { key: 'policies', label: 'Policies', order: 20 }, { key: 'emails', label: 'Emails', perm: 'editEmails', order: 25 },
   { key: 'classes', label: 'Class types', order: 30 }, { key: 'products', label: 'Products & pricing', perm: 'products', order: 40 },
   { key: 'staff', label: 'Staff', perm: 'staff', order: 50 },
-  // Stripe Connect: each studio on the platform is paid into its own Stripe account. The single-studio Snowy build never shows this.
-  { key: 'payments', label: 'Payments', perm: 'studioFinance', order: 45 },
+  // Card payments: Stripe Connect (multi-studio platform only, owner) and the Stripe Terminal card reader (everyone, owner/manager).
+  { key: 'payments', label: 'Payments', perm: 'settings', order: 45 },
   // What the studio pays Pete (plans + billing). The single-studio Snowy build never shows this.
   { key: 'plan', label: 'Plan & billing', perm: 'studioFinance', order: 46 },
 ];
@@ -35,7 +36,7 @@ export function Settings({ tab = 'studio' }: { tab?: string }) {
   const feature = settingsTabsList();
   // Locations & rooms: only when the plan has multi_location, or the studio already runs more than one location. One-location studios never see it.
   const locationsOn = useLocationsTabVisible();
-  const all = [...TABS.filter((t) => (t.key !== 'payments' && t.key !== 'plan') || !isSingleStudio()), ...feature.map((t) => ({ key: t.id, label: t.label, ...(t.perm ? { perm: t.perm } : {}), order: t.order ?? 100 }))]
+  const all = [...TABS.filter((t) => t.key !== 'plan' || !isSingleStudio()), ...feature.map((t) => ({ key: t.id, label: t.label, ...(t.perm ? { perm: t.perm } : {}), order: t.order ?? 100 }))]
     .concat(locationsOn ? [{ key: 'locations', label: 'Locations & rooms', perm: 'settings', order: 47 }] : [])
     .concat(store.mode === 'demo' ? [{ key: 'demo', label: 'Demo', order: 90 }] : [])
     .sort((x, y) => x.order - y.order);
@@ -113,7 +114,7 @@ function StudioTab() {
         </div>
         <div className="panel" style={{ marginTop: 18 }}>
           <strong>Card payments</strong>
-          <p className="small muted" style={{ marginTop: 4 }}>{store.mode === 'demo' ? 'Demo mode: payments are simulated.' : 'Online payments and memberships run through Stripe. Bank details are managed in your Stripe dashboard.'} In-studio card reader (Stripe Terminal) is coming later.</p>
+          <p className="small muted" style={{ marginTop: 4 }}>{store.mode === 'demo' ? 'Demo mode: payments are simulated.' : 'Online payments and memberships run through Stripe. Bank details are managed in your Stripe dashboard.'} The in-studio card reader is set up under Settings, Payments.</p>
         </div>
       </section>
       <SaveBar dirty={dirty} busy={busy} onSave={save} onReset={reset} />
@@ -122,11 +123,23 @@ function StudioTab() {
 }
 
 function PaymentsTab() {
+  const { can } = useStudio();
+  // Connect (owner only, multi-studio platform): where online card payments land. Snowy runs on its own Stripe account, so no panel.
+  const connect = can('studioFinance') && !isSingleStudio();
   return (
-    <div className="card pad" style={{ maxWidth: 640 }}>
-      <h3>Card <em>payments</em></h3>
-      <p className="muted small" style={{ margin: '6px 0 18px' }}>Clients pay by card in the app and the money goes straight to your own Stripe account.</p>
-      <PaymentsPanel returnRoute="/settings/payments" />
+    <div className="stack" style={{ maxWidth: 640 }}>
+      {connect && (
+        <div className="card pad">
+          <h3>Card <em>payments</em></h3>
+          <p className="muted small" style={{ margin: '6px 0 18px' }}>Clients pay by card in the app and the money goes straight to your own Stripe account.</p>
+          <PaymentsPanel returnRoute="/settings/payments" />
+        </div>
+      )}
+      <div className="card pad">
+        <h3>Card <em>reader</em></h3>
+        <p className="muted small" style={{ margin: '6px 0 18px' }}>Take card payments at the desk.</p>
+        <CardReaderPanel />
+      </div>
     </div>
   );
 }

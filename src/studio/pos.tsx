@@ -5,7 +5,8 @@ import { gstOf, money } from '../shared/format';
 import type { Client, Pass, PaymentMethod, Product, Sale } from '../shared/types';
 import { FlowerStars, Logo } from '../shared/brand';
 import { Avatar, BackLink, Icon, Loading, PageHead, Seg, SheetHead, backFrom, cx, dateTime, fullName, toCents, useStudio, type BackTo } from './ui';
-import { ClientSearch, MethodPicker, NewClientSheet, productKindLabel } from './book';
+import { ClientSearch, MethodPicker, NewClientSheet, STRIPE_READER, productKindLabel, type PosMethod } from './book';
+import { TerminalPaySheet, useReaders } from './terminal';
 import { METHOD_LABEL } from './clients';
 import { VoidSaleSheet, canVoidSale } from './undo';
 
@@ -21,7 +22,12 @@ export function Pos({ clientId }: { clientId?: string }) {
   const [pick, setPick] = useState<null | 'search' | 'new' | 'search-new'>(null); // search-new: New client opened from the search
   const [discType, setDiscType] = useState<'$' | '%'>('$');
   const [disc, setDisc] = useState('');
-  const [method, setMethod] = useState<PaymentMethod>('card_reader');
+  const { current: reader } = useReaders();
+  const [method, setMethod] = useState<PosMethod>('card_reader');
+  const [methodTouched, setMethodTouched] = useState(false);
+  const [paying, setPaying] = useState(false);   // the "tap or insert card" sheet is open
+  // With a registered Stripe reader, "Card reader" is the default (until staff pick something else).
+  useEffect(() => { if (reader && !methodTouched) setMethod(STRIPE_READER); }, [reader?.id, methodTouched]);
   const [note, setNote] = useState('');
   const [receipt, setReceipt] = useState<{ sale: Sale; passes: Pass[]; client: Client | null } | null>(null);
   const { busy, run } = useAction();
@@ -63,9 +69,10 @@ export function Pos({ clientId }: { clientId?: string }) {
     });
   };
   const setQty = (id: string, q: number) => setCart((c) => (q <= 0 ? c.filter((l) => l.productId !== id) : c.map((l) => (l.productId === id ? { ...l, qty: q } : l))));
-  const reset = () => { setCart([]); setDisc(''); setNote(''); setMethod('card_reader'); setReceipt(null); if (!clientId) setClient(null); };
+  const reset = () => { setCart([]); setDisc(''); setNote(''); setMethod(reader ? STRIPE_READER : 'card_reader'); setMethodTouched(false); setReceipt(null); if (!clientId) setClient(null); };
 
   const charge = async () => {
+    if (method === STRIPE_READER) { setPaying(true); return; }
     const r = await run(() => store.checkoutCart({
       clientId: client?.id, items: cart, method, staffId: me.staffId,
       discountCents: method === 'comp' ? subtotal : discCents || undefined, note: note.trim() || undefined,
@@ -149,8 +156,9 @@ export function Pos({ clientId }: { clientId?: string }) {
                   <Seg value={discType} onChange={setDiscType} options={[{ value: '$', label: '$' }, { value: '%', label: '%' }]} className="sm" />
                   <input className="input sm" inputMode="decimal" value={disc} onChange={(e) => setDisc(e.target.value)} placeholder="0" aria-label="Discount" disabled={method === 'comp'} />
                 </div>
-                <MethodPicker value={method} onChange={setMethod} />
-                {method === 'card_reader' && <p className="pc-hint"><Icon name="card" size={16} />Run the card on the studio terminal, then tap Charge to record it. Stripe tap-to-pay is coming later.</p>}
+                <MethodPicker value={method} onChange={(m) => { setMethodTouched(true); setMethod(m); }} stripe={!!reader} />
+                {method === STRIPE_READER && reader && <p className="pc-hint"><Icon name="card" size={16} />Charges the card on {reader.label || 'the card reader'}. The sale is recorded when the payment goes through.</p>}
+                {method === 'card_reader' && <p className="pc-hint"><Icon name="card" size={16} />Run the card on {reader ? 'the other' : 'the studio'} terminal, then tap Charge to record it.</p>}
                 {method === 'comp' && <p className="pc-hint"><Icon name="gift" size={16} />Recorded as complimentary, $0 total.</p>}
                 <input className="input sm pc-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" />
                 <div className="pc-totals">
@@ -160,7 +168,7 @@ export function Pos({ clientId }: { clientId?: string }) {
                   {studio.taxRegistered && <div className="faint small"><span>Includes {studio.taxName}</span><span>{money(gstOf(total), { cents: true })}</span></div>}
                 </div>
                 <button className="btn block pc-charge" disabled={busy || (needsClient && !client)} onClick={charge}>
-                  {busy ? 'Processing…' : needsClient && !client ? 'Add a client to continue' : method === 'comp' ? 'Complete comp sale' : `Charge ${money(total, { cents: true })}`}
+                  {busy ? 'Processing…' : needsClient && !client ? 'Add a client to continue' : method === 'comp' ? 'Complete comp sale' : method === STRIPE_READER ? `Charge ${money(total, { cents: true })} on reader` : `Charge ${money(total, { cents: true })}`}
                 </button>
               </>
             )}
@@ -172,6 +180,12 @@ export function Pos({ clientId }: { clientId?: string }) {
         <button className="pos-bar" onClick={() => cartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
           <span>{count} item{count === 1 ? '' : 's'}</span><strong>{money(total, { cents: true })}</strong><span className="pb-go">Checkout<Icon name="down" size={16} /></span>
         </button>
+      )}
+
+      {reader && (
+        <TerminalPaySheet open={paying} reader={reader} onClose={() => setPaying(false)}
+          cart={{ ...(client ? { clientId: client.id } : {}), items: cart, ...(discCents ? { discountCents: discCents } : {}), ...(note.trim() ? { note: note.trim() } : {}) }}
+          onPaid={(r) => { setPaying(false); setReceipt({ ...r, client }); }} />
       )}
 
       <Sheet open={pick === 'search'} onClose={() => setPick(null)} label="Choose client">

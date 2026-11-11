@@ -136,10 +136,26 @@ If someone made a client account with their staff email before you added them to
 8. Start in **Test mode** (the toggle at the top). Copy **Developers → API keys → Secret key** (`sk_test_...`) into your note as `STRIPE_SECRET_KEY`.
 9. **Developers → Webhooks → Add endpoint**:
    - URL: `https://YOUR-PROJECT-REF.supabase.co/functions/v1/stripe-webhook`
-   - Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`, `charge.refunded`
+   - Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.deleted`, `charge.refunded`, and (only if you buy a card reader, see 6b) `terminal.reader.action_succeeded`, `terminal.reader.action_failed`, `payment_intent.succeeded`
    - After saving, click **Reveal signing secret** (`whsec_...`) and save it as `STRIPE_WEBHOOK_SECRET`.
 
 Fees are roughly **1.7% + 30c** per domestic card payment (international cards cost more). **Check current pricing.**
+
+### 6b. Card reader at the desk (Stripe Terminal, optional)
+
+Lets the front desk take card payments on a Stripe reader from the POS: pick **Card reader**, the reader asks for a tap or insert, and the sale (receipt, passes) is recorded when it goes through. Without one, the POS keeps working with cash and the studio's existing machine ("Other reader").
+
+- **Which reader to buy.** The desk is an iPad web app, so it needs a **smart reader that runs over wifi** (the app drives it from the server). Stripe's smart readers sold in Australia are the **Stripe Reader S700** (newer, the one to get) and the **BBPOS WisePOS E**. Bluetooth readers (M2, WisePad 3) need a native app and don't work here. **Check Stripe's site** for what's on sale in Australia today (stripe.com/au/terminal, Terminal hardware shop).
+- **Rough cost** (**check Stripe's site**): a smart reader is around A$300 to A$550 each, one off, plus a charging dock/stand if you want one. One reader is plenty for Snowy.
+- **Terminal fees** (**check Stripe's site**): card-present payments are charged per transaction, roughly **1.7% + 10c to 15c** for domestic cards in Australia, usually a touch cheaper than online. There is no monthly Terminal fee. Refunds go through the same refund button as online payments.
+- **Before you start:** the reader needs the Stripe account from step 6 in live mode (or test mode to practise). Add the three Terminal events to the webhook in step 6.9 and deploy `terminal-readers` and `terminal-pay` (step 8).
+- **Pairing:**
+  1. Plug the reader in, connect it to the studio wifi (reader screen: Settings, wifi) and let it update.
+  2. On the reader: **Settings, Generate pairing code**. It shows three words like `sepia-cat-river`.
+  3. In the studio app: **Settings, Payments, Card reader**, type a name and the three words, **Add reader**. The first one becomes this iPad's reader. On another device, tap **Use on this device** next to it.
+  4. Practise in test mode first: Stripe's simulated reader uses the pairing code `simulated-wpe` (create it with the test secret key) and approves test cards without hardware.
+- **If it doesn't answer:** the POS says "The card reader didn't respond". Check it's on, awake and on the wifi, then try again. A payment that was cancelled or timed out never charges the card.
+- **Platform (Connect) studios** do the same. The reader is registered on the studio's own connected Stripe account, so card-present money goes to the studio like online payments.
 
 ### Snowy stays on its own Stripe account (single-account mode)
 
@@ -192,6 +208,8 @@ These are the little server bits in `supabase/functions/`: checkout, the Stripe 
    supabase functions deploy commerce-checkout
    supabase functions deploy billing-portal
    supabase functions deploy refund-payment
+   supabase functions deploy terminal-readers
+   supabase functions deploy terminal-pay
    supabase functions deploy invite-user
    supabase functions deploy edit-membership
    supabase functions deploy support-assist

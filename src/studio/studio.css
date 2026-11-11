@@ -1109,3 +1109,15 @@ input[type=checkbox], input[type=radio] { margin: 0; }
 summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 @media (max-width: 999px) { .brand { min-height: 44px; min-width: 44px; } }
 a[href^="mailto:"], a[href^="tel:"] { display: inline-block; padding: 12px 0; margin: -12px 0; }
+
+/* Stripe Terminal: card reader panel + the "tap or insert card" sheet */
+.reader-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.reader { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; flex-wrap: wrap; }
+.reader.on { border-color: var(--primary); }
+.term { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 18px 8px 8px; }
+.term h2 { margin: 0; font-size: 22px; }
+.term-amt { margin: 0; font-size: 34px; font-weight: 600; min-height: 1.2em; }
+.term-ring { width: 104px; height: 104px; border-radius: 50%; display: grid; place-items: center; color: var(--primary); background: var(--soft); box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 35%, transparent); animation: term-pulse 2.2s ease-out infinite; }
+.term-ring.bad { color: var(--danger, #b3402f); animation: none; }
+@keyframes term-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 35%, transparent); } 100% { box-shadow: 0 0 0 28px transparent; } }
+@media (prefers-reduced-motion: reduce) { .term-ring { animation: none; } }
