@@ -3,3 +3,4 @@ dist
 .env
 .env.*
 dist-app
+screenshots/e2e-failures
