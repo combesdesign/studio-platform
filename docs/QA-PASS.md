@@ -50,3 +50,25 @@ Scripted with Playwright (one script per area), checking for console errors, bla
 - Real push notification toggle only shows when a VAPID key is set, so it was not tested here.
 
 Screenshots from this pass are in `screenshots/qa/`.
+
+## Running the E2E regression suite
+
+16 journeys in `tests/e2e/` (new client, member quick book, cancel credits, waitlist, POS and void, gift card, privates and workshops, parent and dependant, messages, membership edits, cancel and restore a class, kiosk, card reader, instructor access, Harbour, delete account).
+
+```
+ln -sfn /opt/npm-tools/node_modules node_modules   # once per fresh container (no npm registry)
+npm run test:e2e                # builds the Snowy and platform apps, serves them, runs every journey, exits non-zero on any failure
+npm run test:e2e -- 05 12       # only the journeys whose file name contains 05 or 12
+E2E_JOBS=1 npm run test:e2e     # one at a time (default 4 in parallel)
+```
+
+- Each journey is its own file and its own browser process with empty storage, a pinned demo clock (a Tuesday, 8:00am Sydney) and fresh demo data. Client journeys run at 390x844, studio ones at 1024x768. Journeys 15 and 16 use the platform build (`?studio=harbour`), the rest the Snowy single-studio build.
+- Any console error or page error fails the journey (blocked Google Fonts and the missing `sw.js` are ignored).
+- On a failure a screenshot per page goes to `screenshots/e2e-failures/` (gitignored).
+- To work on one journey without rebuilding every time: build into two folders, serve them with `python3 -m http.server 4173` (Snowy) and `4174` (platform), then `node tests/e2e/05-pos-void.e2e.mjs`. Override the addresses with `E2E_SNOWY_URL` and `E2E_PLATFORM_URL`.
+- Helpers are in `tests/e2e/lib.mjs`. Use `eventually()` and locator waits, never fixed sleeps. After closing a sheet, `settled(page)` waits for the app's history step-back to land before the next navigation.
+
+### Found by the E2E suite
+
+- Closing a sheet right after another one could step the studio off the page (back to Today) because two history back steps were issued for one sheet (`src/shared/react.tsx`). Fixed: the deferred step-back is skipped while one of its own is still in flight.
+- Dependants' bookings do not show on the parent's Bookings tab (only the parent's own do). The parent sees them in the class sheet and the studio roster. Not changed, flagged for a decision.
