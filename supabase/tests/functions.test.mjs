@@ -1426,6 +1426,15 @@ console.log('\n-- platform billing (the platform\'s own Stripe account, fake Str
       assert.equal(sql(`select count(*) from public.stripe_events where id like 'evt_plat_%' and processed_at is null`), '0');
     });
 
+    await t('platform-webhook: events out of order: a late "updated: active" after the subscription ended does not bring it back', async () => {
+      sub.status = 'canceled';   // what Stripe says now
+      assert.equal((await send(evt(9, 'customer.subscription.updated', { ...subObject(), status: 'active' }))).status, 200);
+      assert.equal(studio()[1], 'cancelled', 'Stripe\'s current state wins over the stale payload');
+      sub.status = 'active';
+      assert.equal((await send(evt(10, 'customer.subscription.updated', { ...subObject(), status: 'canceled' }))).status, 200);
+      assert.equal(studio()[1], 'active', 'and the other way round');
+    });
+
     await t('platform-subscribe: an existing subscription is swapped in place and prorated', async () => {
       sub.status = 'active'; sub.price = 'price_plus1';
       sql(`update public.studios set plan_id = '${PLUS}' where id = '${snowy}'`);

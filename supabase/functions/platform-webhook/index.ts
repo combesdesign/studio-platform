@@ -61,7 +61,9 @@ async function handle(admin: Db, event: StripeObject): Promise<void> {
     case 'customer.subscription.deleted': {
       const studioId = await studioOfSubscription(admin, o);
       if (!studioId) { console.warn('platform webhook: subscription is not one of ours, ignored', o.id); return; }
-      await applySubscription(admin, studioId, o);
+      // Events can arrive out of order (a late "updated: active" after "deleted"), so never apply the payload: ask Stripe for
+      // the subscription as it is now, like the invoice events do.
+      await applySubscription(admin, studioId, await platformStripe('GET', `subscriptions/${o.id}`));
       return;
     }
 

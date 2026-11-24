@@ -354,6 +354,8 @@ test('promo codes: a client buys a pass with a code, and a $ off code can\'t go 
   const single = (await d.s.listProducts()).find((x) => x.kind === 'dropin')!;
   await d.c.upsertPromo({ code: 'TAKE5', kind: 'amount', value: 500, productIds: [], newClientsOnly: false, active: true, maxUsesPerClient: 1 });
   await d.c.upsertPromo({ code: 'HUGE', kind: 'amount', value: 999900, productIds: [single.id], newClientsOnly: false, active: true });
+  const membership = (await d.s.listProducts()).find((x) => x.kind === 'membership')!;
+  await d.c.upsertPromo({ code: 'FREEWEEK', kind: 'percent', value: 100, productIds: [], newClientsOnly: false, active: true });
   const cl = await d.newClient('Casey');
   await d.as(clientUser(cl));
   await assert.rejects(() => d.c.purchaseWithCodes({ productId: pack.id, promoCode: 'NOSUCH' }), /isn’t valid/);
@@ -362,6 +364,8 @@ test('promo codes: a client buys a pass with a code, and a $ off code can\'t go 
   assert.match(r.sale!.note ?? '', /Promo TAKE5/);
   assert.equal((await d.s.listPasses(cl.id)).length, 1, 'she gets her pass');
   await assert.rejects(() => d.c.purchaseWithCodes({ productId: pack.id, promoCode: 'TAKE5' }), /already used/);
+  await assert.rejects(() => d.c.purchaseWithCodes({ productId: membership.id, promoCode: 'FREEWEEK' }), /membership can’t be paid for with codes/, 'a code can\'t buy a membership nothing will bill');
+  assert.equal((await d.s.listPasses(cl.id)).filter((x) => x.kind === 'membership').length, 0);
   const free = await d.c.purchaseWithCodes({ productId: single.id, promoCode: 'HUGE' });
   assert.equal(free.sale!.totalCents, 0, 'the code takes off at most the price');
   assert.equal(free.quote.promoCents, single.priceCents);

@@ -648,6 +648,9 @@ registerDemoFeature({
       settleHold: (token) => ctx.write(() => { requireStaff('commerce.sell'); tick(token); }),
       purchaseWithCodes: (input: PurchaseWithCodesInput) => ctx.write(() => {
         const u = clientMe();
+        if (core().state.products.find((x) => x.id === input.productId)?.kind === 'membership') {
+          throw err('INVALID', 'A membership can’t be paid for with codes alone, because nothing would bill it after the first week. Ask the studio to set it up at the desk.');
+        }
         tick();
         const q = buildQuote({ items: [{ productId: input.productId, qty: 1 }], ...(input.promoCode ? { promoCode: input.promoCode } : {}), ...(input.giftCodes?.length ? { giftCodes: input.giftCodes } : {}) }, u.clientId, 'client');
         if (q.promoError) throw err('INVALID', q.promoError);
