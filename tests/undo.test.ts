@@ -193,3 +193,13 @@ test('void refuses card sales, old sales and passes already used', async () => {
   h.setNow(at('2026-10-13', '09:00'));
   assert.match((await h.store.voidSale!(cash.sale.id, { dryRun: true })).blocked ?? '', /Only sales made today/);
 });
+
+test('undo no-show: refused when someone has taken the spot meanwhile (round 3: it used to overbook the class)', async () => {
+  const h = await harness(state(1), NOW);
+  await h.give('a', 'pr_p4'); await h.give('b', 'pr_p4');
+  const a = await h.store.bookClass('a', 'mon18', { asStaff: true });
+  await h.store.markNoShow(a.booking.id);                       // a no-show doesn't hold a spot...
+  await h.store.bookClass('b', 'mon18', { asStaff: true });      // ...so someone else books it
+  await rejects(h.store.undoNoShow!(a.booking.id), 'CLASS_FULL');
+  assert.equal(await spots(h, 'mon18'), 1);
+});

@@ -652,6 +652,8 @@ export class Engine {
   undoNoShow(bookingId: ID): Booking {
     const b = this.booking(bookingId);
     if (b.status !== 'no_show') throw err('INVALID', 'This booking is no longer marked as a no-show.');
+    const session = this.session(b.sessionId);
+    if (this.counts(session.id).booked >= session.capacity) throw err('CLASS_FULL', 'Someone else has taken that spot, so they can\'t be put back.');
     this.setStatus(b, 'booked');
     this.dropPenaltyFee(b.id, 'delete');
     this.syncSpots(b.sessionId);
