@@ -123,6 +123,7 @@ export async function bookOpenClass(p) {
 export async function closeSheet(p) {
   await p.keyboard.press('Escape');
   await p.locator('.cs-foot').waitFor({ state: 'hidden', ...T });
+  await settled(p);
 }
 
 /** Wait until every sheet's history entry has been popped (the app steps back asynchronously after a sheet closes). Opening the next sheet before that lands races the browser history. */
