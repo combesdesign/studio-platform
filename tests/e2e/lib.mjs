@@ -124,3 +124,6 @@ export async function closeSheet(p) {
   await p.keyboard.press('Escape');
   await p.locator('.cs-foot').waitFor({ state: 'hidden', ...T });
 }
+
+/** Wait until every sheet's history entry has been popped (the app steps back asynchronously after a sheet closes). Opening the next sheet before that lands races the browser history. */
+export const settled = (p) => p.waitForFunction(() => !(history.state && history.state.spcBack), null, T).then(() => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))));

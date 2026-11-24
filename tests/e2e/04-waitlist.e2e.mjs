@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { eventually, journey, clientSignInAs, studioSignInAs, T, goStudio, pickDay } from './lib.mjs';
+import { settled, eventually, journey, clientSignInAs, studioSignInAs, T, goStudio, pickDay } from './lib.mjs';
 await journey('4 full class: join waitlist, studio removes a booking, waitlisted client is promoted', async (env) => {
   const c = await env.client();
   await clientSignInAs(c, 'Hannah');
@@ -32,6 +32,7 @@ await journey('4 full class: join waitlist, studio removes a booking, waitlisted
     await s.getByText(/gets the credit back/).waitFor(T);
     await s.getByRole('button', { name: 'Cancel booking', exact: true }).last().click();
     await attending.filter({ hasText: name }).waitFor({ state: 'detached', ...T });
+    await settled(s);
   }
   await hannah.waitFor(T);
   await hannah.getByRole('button', { name: 'Check in Hannah' }).waitFor(T);
@@ -40,7 +41,7 @@ await journey('4 full class: join waitlist, studio removes a booking, waitlisted
 
   // and on her phone she is now booked, no longer waitlisted
   await c.getByRole('button', { name: 'Bookings' }).click();
-  const mine = c.locator('.view').getByText('Booked', { exact: true }).or(c.locator('.view').getByText(/6:00\s*pm/i));
+  const mine = c.locator('.view').getByText(/Today · 6:00/);
   await mine.first().waitFor(T);
   assert.equal(await c.getByText('Waitlist', { exact: true }).count(), 0);
 });

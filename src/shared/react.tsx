@@ -184,7 +184,9 @@ export function useBackHandler(active: boolean, onBack: () => void) {
       if (!pushed) return;
       // Deferred: if this close is followed by a link / route change in the same tick, our entry is no
       // longer on top and mustn't be popped (it becomes an orphan that back skips over instead).
-      window.setTimeout(() => { if (hstate()?.spcBack === e.token) traverse(-1); }, 0);
+      // Also not while one of our own back() calls is still in flight: history.state is stale until it lands, and a
+      // second back() would step off the route (the landing handler already skips an orphan entry like this one).
+      window.setTimeout(() => { if (backTraversing === 0 && hstate()?.spcBack === e.token) traverse(-1); }, 0);
     };
   }, [active]);
 }
