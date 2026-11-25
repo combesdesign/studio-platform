@@ -11,3 +11,4 @@ import './reviews/demo';
 import './integrations/demo';
 import './ondemand/demo';
 import './support/demo';
+import './notices/demo';

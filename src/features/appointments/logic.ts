@@ -12,7 +12,7 @@ import type {
 export const MINUTE_MS = 60_000;
 export const HOUR_MS = 3_600_000;
 
-export const DEFAULT_SETTINGS: AppointmentSettings = { slotStepMin: 30, minNoticeHours: 4, horizonDays: 28, waitlistClaimHours: 12, reminderHours: 24 };
+export const DEFAULT_SETTINGS: AppointmentSettings = { slotStepMin: 30, minNoticeHours: 4, horizonDays: 28, waitlistClaimHours: 12, reminderHours: 24, clientEnabled: true };
 
 /** The lead times a studio can pick for reminder emails (Settings › Appointments). */
 export const REMINDER_HOURS: readonly number[] = [2, 12, 24, 48];

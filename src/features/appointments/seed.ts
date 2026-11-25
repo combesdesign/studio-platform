@@ -18,6 +18,7 @@ export function seedAppointments(studio: Studio, state: DemoState, now: Date, _n
   };
   const build = BUILDERS[studio.slug];
   if (build) build(slice, state, now);
+  if (studio.slug === 'snowy') slice.settings.clientEnabled = false;   // privates and events aren't on offer at Snowy right now; the owner can switch them back on in Settings › Appointments
   return slice;
 }
 

@@ -272,7 +272,7 @@ function toPass(r: Row): Pass {
     expiresAt: r.expires_at ? iso(r.expires_at) : r.activated_at ? null : undefined,
     credits: nullableNum(r.credits), creditsUsed: num(r.credits_used),
     billingInterval: optStr(r.billing_interval) as Pass['billingInterval'],
-    nextBillingAt: optIso(r.next_billing_at), pausedFrom: optDate(r.paused_from), pausedUntil: optDate(r.paused_until),
+    nextBillingAt: optIso(r.next_billing_at), cancelReason: optStr(r.cancel_reason), cancelledAt: optIso(r.cancelled_at), pausedFrom: optDate(r.paused_from), pausedUntil: optDate(r.paused_until),
     priceCents: num(r.price_cents), classTypeIds: ids(r.class_type_ids), noClasses: r.no_classes ? true : undefined, adjustments: adj.length ? adj : undefined,
     familyShareable: r.family_shareable === null || r.family_shareable === undefined ? undefined : bool(r.family_shareable),
     pendingChange: pending,
@@ -1662,9 +1662,9 @@ class SupabaseStore implements DataStore {
       return p;
     });
   }
-  async cancelMembership(passId: ID): Promise<Pass> {
+  async cancelMembership(passId: ID, reason: string): Promise<Pass> {
     return this.write(async () => {
-      const p = toPass(obj(await this.rpc('cancel_membership', { p_pass_id: passId })));
+      const p = toPass(obj(await this.rpc('cancel_membership', { p_pass_id: passId, p_reason: reason })));
       await this.syncMembership(passId);
       return p;
     });

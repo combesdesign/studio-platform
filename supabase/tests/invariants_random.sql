@@ -288,7 +288,7 @@ begin
         v_desc := format('%s cancels a membership', v_cl);
         perform test.login(v_cl);
         if v_p.id is null then raise exception 'SKIP'; end if;
-        perform public.cancel_membership(v_p.id);
+        perform public.cancel_membership(v_p.id, 'Taking a break');
       else                                                           -- time passes
         v_op := 'time'; v_now := v_now + make_interval(mins => 5 + test.rnd_pick(55));
         v_desc := 'clock moves to ' || to_char(v_now at time zone 'Australia/Sydney', 'Dy DD HH24:MI');

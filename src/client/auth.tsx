@@ -33,7 +33,7 @@ function Welcome({ nav, onSignedIn }: { nav: Nav; onSignedIn: () => void }) {
         <div className="welcome-shade" />
         <div className="welcome-copy">
           <Logo animate white width={252} />
-          <h1><Accented text={b.welcome.headline} /></h1>
+          {b.welcome.headline && <h1><Accented text={b.welcome.headline} /></h1>}
           <p className="lede">{b.welcome.copy}</p>
           <div className="welcome-actions">
             <button className="btn white" onClick={() => goFlow(nav, '/signup', { label: 'Welcome', where: '/' })}>Join the club <Arrow /></button>

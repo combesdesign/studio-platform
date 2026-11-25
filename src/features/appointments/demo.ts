@@ -261,7 +261,7 @@ function createStore(ctx: DemoFeatureContext): AppointmentsStore {
       if (!REMINDER_HOURS.includes(next.reminderHours)) throw err('INVALID', 'Reminders can go out 2, 12, 24 or 48 hours before.');
       S().settings = {
         slotStepMin: Math.round(next.slotStepMin), minNoticeHours: Math.round(next.minNoticeHours), horizonDays: Math.round(next.horizonDays),
-        waitlistClaimHours: Math.round(next.waitlistClaimHours), reminderHours: next.reminderHours,
+        waitlistClaimHours: Math.round(next.waitlistClaimHours), reminderHours: next.reminderHours, clientEnabled: next.clientEnabled !== false,
       };
       return S().settings;
     }),

@@ -69,6 +69,8 @@ export interface ClientProfileEntry {
   icon: IconRef;
   /** Where it goes (a registered client route). */
   path: string;
+  /** Optional: resolves false to hide the entry (e.g. the studio switched the feature off for clients). */
+  visible?: () => Promise<boolean>;
   order?: number;
   feature?: string;
   /** A small element shown before the chevron, e.g. an unread count. It loads its own data and renders nothing when there is none. */

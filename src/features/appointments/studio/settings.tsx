@@ -25,8 +25,19 @@ export function AppointmentSettingsTab() {
     void run(async () => { await ap.updateSettings(patch); cur.reload(); }, 'Saved');
   };
   const dirty = !!cur.data && !!s && (String(cur.data.slotStepMin) !== s.slotStepMin || String(cur.data.minNoticeHours) !== s.minNoticeHours || String(cur.data.horizonDays) !== s.horizonDays || String(cur.data.waitlistClaimHours) !== s.waitlistClaimHours || String(cur.data.reminderHours) !== s.reminderHours);
+  const [shown, setShown] = useState<boolean | null>(null);   // flips straight away; the saved value follows
+  const on = shown ?? (cur.data ? cur.data.clientEnabled !== false : true);
   return (
     <div className="stack lg">
+      <section className="card pad">
+        <h3>Show to <em>clients</em></h3>
+        <label className="check" style={{ marginTop: 8 }}>
+          <input type="checkbox" checked={on} disabled={busy || !cur.data} onChange={(e) => { const v = e.target.checked; setShown(v); void run(async () => { try { await ap.updateSettings({ clientEnabled: v }); } catch (err) { setShown(null); throw err; } cur.reload(); }, v ? 'Privates and events are on for clients' : 'Privates and events are hidden from clients'); }} />
+          <span>Offer privates and events to clients</span>
+        </label>
+        <p className="muted small">Switch this off to hide the Privates and events page, and the banner on the timetable, from the client app. Nothing is deleted, and you can still manage anything already booked. Switch it back on whenever you’re ready.</p>
+      </section>
+
       <section className="card pad">
         <h3>Booking <em>rules</em></h3>
         <p className="muted">Instructors’ weekly hours turn into bookable times using these. The cancellation window is your studio’s one in Policies. Reminder emails go out the number of hours you pick before a session, workshop or event.</p>

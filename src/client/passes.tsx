@@ -1,4 +1,5 @@
 /** Passes tab: my passes + memberships, the shop, checkout and receipts. */
+import { CANCEL_REASONS, cancelReasonText } from '../domain/cancelReasons';
 import React, { useEffect, useMemo, useState } from 'react';
 import type { CreditSummary, PurchaseResult } from '../shared/store';
 import type { Pass, Product, Sale } from '../shared/types';
@@ -140,7 +141,7 @@ export function Passes({ nav, path }: { nav: Nav; path: string }) {
 
               {groups.retail.length > 0 && (
                 <section className="extras">
-                  <SectionHead title={<>Studio <em>extras</em></>} sub="Pay now and pick up at the front desk." />
+                  <SectionHead title={<>Studio <em>extras</em></>} sub="Pay now and collect from the studio." />
                   <div className="retail-grid">
                     {groups.retail.map((p) => (
                       <button key={p.id} className="retail" onClick={() => setBuy(p)} disabled={p.stock === 0}>
@@ -264,9 +265,13 @@ function PauseSheet({ open, p, onClose }: { open: boolean; p: Pass; onClose: () 
 function CancelMembershipSheet({ open, p, onClose }: { open: boolean; p: Pass; onClose: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [pick, setPick] = useState('');
+  const [other, setOther] = useState('');
+  const reason = cancelReasonText(pick, other);
   const go = async () => {
+    if (!reason) return;
     setBusy(true);
-    try { const r = await store.cancelMembership(p.id); toast(r.nextBillingAt ? `Cancelled – you can keep booking until ${dateShortNoDay(r.nextBillingAt)}` : 'Membership cancelled'); onClose(); }
+    try { const r = await store.cancelMembership(p.id, reason); toast(r.nextBillingAt ? `Cancelled – you can keep booking until ${dateShortNoDay(r.nextBillingAt)}` : 'Membership cancelled'); onClose(); }
     catch (e) { toast(errorMessage(e)); } finally { setBusy(false); }
   };
   return (
@@ -275,7 +280,14 @@ function CancelMembershipSheet({ open, p, onClose }: { open: boolean; p: Pass; o
       <div className="stack lg">
         <p className="muted">We’ll stop your weekly payments. {p.nextBillingAt ? <>Your membership stays usable until <strong>{dateShortNoDay(p.nextBillingAt)}</strong>, so you can still book until then.</> : 'You can keep using it until the end of the current week.'}</p>
         <p className="panel-soft">Just need a break? Pausing keeps your membership without billing you.</p>
-        <button className="btn danger block" disabled={busy} onClick={go}>{busy ? 'Cancelling…' : 'Cancel membership'}</button>
+        <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend className="small"><strong>Why are you cancelling?</strong> (so we can get better)</legend>
+          {CANCEL_REASONS.map((r) => (
+            <label key={r} className="check"><input type="radio" name="cancel-reason" checked={pick === r} onChange={() => setPick(r)} /><span>{r}</span></label>
+          ))}
+          {pick === 'Other' && <textarea className="textarea" rows={3} maxLength={280} placeholder="Tell us a little more" aria-label="Your reason" value={other} onChange={(e) => setOther(e.target.value)} />}
+        </fieldset>
+        <button className="btn danger block" disabled={busy || !reason} onClick={go}>{busy ? 'Cancelling…' : 'Cancel membership'}</button>
         <button className="btn ghost block" onClick={onClose}>Keep my membership</button>
       </div>
     </Sheet>

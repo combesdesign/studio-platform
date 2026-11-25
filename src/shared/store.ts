@@ -368,7 +368,8 @@ export interface DataStore {
 
   pausePass(passId: ID, from: ISODate, until: ISODate): Promise<Pass>;
   resumePass(passId: ID): Promise<Pass>;
-  cancelMembership(passId: ID): Promise<Pass>;
+  /** The client (or staff) cancels a membership. A reason is required (see domain/cancelReasons). */
+  cancelMembership(passId: ID, reason: string): Promise<Pass>;
   /** Owner/manager: move a membership's next billing date (no proration, nothing charged in between). Live: updates the Stripe subscription. */
   changeRenewalDate(passId: ID, date: ISODate): Promise<Pass>;
   /**

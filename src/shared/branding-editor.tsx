@@ -153,9 +153,9 @@ export function BrandingEditor({ value, onChange, name, upload, compact }: {
               <label className="field"><span>App name</span><input className="input" value={b.appName} onChange={(e) => set({ appName: e.target.value })} /></label>
               <label className="field"><span>Short name (home screen)</span><input className="input" maxLength={12} value={b.shortName} onChange={(e) => set({ shortName: e.target.value })} /></label>
             </div>
-            <label className="field"><span>Welcome headline (wrap the accent word in *stars*)</span><input className="input" value={b.welcome.headline} onChange={(e) => set({ welcome: { ...b.welcome, headline: e.target.value } })} /></label>
+            <label className="field"><span>Welcome headline (wrap the accent word in *stars*, leave blank for none)</span><input className="input" value={b.welcome.headline} onChange={(e) => set({ welcome: { ...b.welcome, headline: e.target.value } })} /></label>
             <label className="field"><span>Welcome line</span><textarea className="textarea" value={b.welcome.copy} onChange={(e) => set({ welcome: { ...b.welcome, copy: e.target.value } })} /></label>
-            <label className="field"><span>Scrolling phrases (one per line)</span><textarea className="textarea" value={b.marquee.join('\n')} onChange={(e) => set({ marquee: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} /></label>
+            <PhrasesField value={b.marquee} onChange={(marquee) => set({ marquee })} />
           </section>
           <section className="be-sec">
             <h3>Photos</h3>
@@ -188,7 +188,7 @@ export function BrandPreview({ branding, name }: { branding: StudioBranding; nam
           <div className="bp-shade" />
           <div className="bp-copy">
             <Logo branding={b} letters="var(--highlight)" flower="var(--accent)" style={{ width: 150, height: 'auto' }} />
-            <h2><Accented text={b.welcome.headline} /></h2>
+            {b.welcome.headline && <h2><Accented text={b.welcome.headline} /></h2>}
             <div className="bp-actions"><span className="bp-btn white">Join</span><span className="bp-btn glass">Sign in</span></div>
           </div>
         </section>
@@ -205,3 +205,26 @@ export function BrandPreview({ branding, name }: { branding: StudioBranding; nam
     </div>
   );
 }
+
+
+/**
+ * Scrolling phrases, one per line. The text box keeps what's typed as-is (including blank lines) and only the saved list drops empty
+ * lines. Before, the box was driven straight from the cleaned list, so pressing Enter did nothing (the new blank line was removed on
+ * the spot) and a new phrase could never be started on its own line.
+ */
+function PhrasesField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+  const [text, setText] = useState(value.join('\n'));
+  const last = React.useRef(value);
+  useEffect(() => {
+    // A change from outside (a starting palette, a reload of the saved studio) replaces the text; our own edits don't.
+    if (value !== last.current && value.join('\n') !== clean(text).join('\n')) setText(value.join('\n'));
+    last.current = value;
+  }, [value]);
+  return (
+    <label className="field"><span>Scrolling phrases (one per line)</span>
+      <textarea className="textarea" rows={6} value={text} onChange={(e) => { setText(e.target.value); const next = clean(e.target.value); last.current = next; onChange(next); }} />
+      <small className="muted">Press Enter for a new phrase. They scroll across the welcome screen and the shop.</small>
+    </label>
+  );
+}
+const clean = (t: string): string[] => t.split('\n').map((x) => x.trim()).filter(Boolean);

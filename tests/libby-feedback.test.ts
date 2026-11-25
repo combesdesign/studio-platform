@@ -167,7 +167,7 @@ test('move membership: immediately switches credits now; prorate charges the dif
   await h.as(JULIA);
   await rejects(h.store.changeMembership(id, { productId: 'pr_m2' }), 'NOT_ALLOWED');
   await h.as(OWNER);
-  await h.store.cancelMembership(id);
+  await h.store.cancelMembership(id, 'Taking a break');
   await rejects(h.store.changeMembership(id, { productId: 'pr_m2' }), 'INVALID');
   await rejects(h.store.changeRenewalDate(id, '2026-11-09'), 'INVALID');
 });

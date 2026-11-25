@@ -108,7 +108,7 @@ select test.admin();
 -- cancel membership: usable until next billing date
 select test.login('bob');
 select public.book_class(test.id('s_eve'));  -- activates; next_billing_at = now + 7 days
-select public.cancel_membership((select id from public.passes where client_id = test.id('bob_client')));
+select public.cancel_membership((select id from public.passes where client_id = test.id('bob_client')), 'Too expensive');
 select test.admin();
 select test.ok((select cancel_at_period_end and status = 'cancelled' and next_billing_at = '2026-10-26 08:00+11' from public.passes where client_id = test.id('bob_client')),
                'cancelled membership: status cancelled, runs until the next billing date');

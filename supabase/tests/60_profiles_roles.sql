@@ -183,7 +183,7 @@ insert into public.passes (client_id, kind, name, credits, billing_interval, str
 values (test.id('gus_client'), 'membership', '1 class per week', 1, 'week', 'sub_gus', '2026-10-25 09:00+11');
 update public.clients set archived = false where id = test.id('gus_client');
 select test.login('gus');
-select public.cancel_membership((select id from public.passes where stripe_subscription_id = 'sub_gus'));
+select public.cancel_membership((select id from public.passes where stripe_subscription_id = 'sub_gus'), 'Taking a break');
 select test.eq(public.book_class(test.id('s_thu')) ->> 'outcome', 'booked', 'paid-up Stripe membership still works after cancelling (never used)');
 select test.admin();
 select test.eq((select next_billing_at from public.passes where stripe_subscription_id = 'sub_gus'), '2026-10-25 09:00+11'::timestamptz,

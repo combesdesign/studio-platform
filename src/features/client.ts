@@ -10,3 +10,4 @@ import './kiosk/client/index';
 import './reviews/client/index';
 import './integrations/client/index';
 import './ondemand/client/index';
+import './notices/client/index';

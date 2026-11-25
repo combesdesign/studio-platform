@@ -514,6 +514,9 @@ export interface Pass {
   /** membership */
   billingInterval?: 'week' | 'month';
   nextBillingAt?: ISODateTime;
+  /** membership: why it was cancelled (picked or typed when cancelling), and when. */
+  cancelReason?: string;
+  cancelledAt?: ISODateTime;
   pausedFrom?: ISODate;
   pausedUntil?: ISODate;
   priceCents: Cents;

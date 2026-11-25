@@ -7,11 +7,11 @@
 import React from 'react';
 import '../permissions';
 import { registerClientProfileEntry, registerClientRoute, registerSlot } from '../../../shared/registry';
-import { ApptIcon, AppointmentsScreen, TimetableBanner } from './screens';
+import { ApptIcon, AppointmentsScreen, TimetableBanner, clientPageOn } from './screens';
 import '../appointments.css';
 
 registerClientRoute({ id: 'appointments.home', feature: 'appointments', path: '/appointments', tab: '/profile', render: ({ nav, path }) => <AppointmentsScreen nav={nav} path={path} /> });
-registerClientProfileEntry({ id: 'appointments.home', feature: 'appointments', label: 'Privates and events', sub: 'Book a one on one, workshops and courses', icon: <ApptIcon />, path: '/appointments', order: 15 });
+registerClientProfileEntry({ id: 'appointments.home', feature: 'appointments', label: 'Privates and events', sub: 'Book a one on one, workshops and courses', icon: <ApptIcon />, path: '/appointments', order: 15, visible: () => clientPageOn() });
 registerSlot('client.timetable', { id: 'appointments.banner', feature: 'appointments', order: 40, render: () => <TimetableBannerSlot /> });
 
 function TimetableBannerSlot() {

@@ -201,7 +201,8 @@ insert into test.pm_idtbl values
   ('commerce_void_gift_card', 'p_id', 'commerce_gift_cards'),
   ('payroll_delete_rule', 'p_id', 'payroll_pay_rules'), ('payroll_claim_cover', 'p_id', 'payroll_cover_requests'), ('payroll_withdraw_claim', 'p_id', 'payroll_cover_requests'),
   ('payroll_decide_cover', 'p_id', 'payroll_cover_requests'), ('payroll_cancel_cover', 'p_id', 'payroll_cover_requests'),
-  ('payroll_delete_timesheet', 'p_id', 'payroll_timesheets'), ('payroll_remove_adjustment', 'p_id', 'payroll_adjustments'), ('platform_save_plan', 'p_id', 'plans');
+  ('payroll_delete_timesheet', 'p_id', 'payroll_timesheets'), ('payroll_remove_adjustment', 'p_id', 'payroll_adjustments'), ('platform_save_plan', 'p_id', 'plans'),
+  ('notices_set_pinned', 'p_id', 'notices'), ('notices_remove', 'p_id', 'notices');
 
 create function test.pm_arg(p_fn text, p_arg text, p_studio text) returns text language plpgsql as $$
 declare v text; t text;
@@ -425,7 +426,7 @@ insert into test.pm_rpc_expect values
   ('marketing_send_campaign','mo'), ('marketing_set_client_tags','mo'), ('marketing_unschedule_campaign','mo'), ('marketing_update_settings','mo'),
   ('ondemand_admin_list','mo'), ('ondemand_delete_video','mo'), ('ondemand_reorder','mo'), ('ondemand_save_products','mo'),
   ('ondemand_save_video','mo'), ('ondemand_set_published','mo'), ('payroll_cancel_cover','mo'), ('payroll_decide_cover','mo'),
-  ('payroll_delete_timesheet','mo'), ('payroll_period_inputs','mo'), ('reviews_save_settings','mo'), ('save_email_template','mo'),
+  ('payroll_delete_timesheet','mo'), ('payroll_period_inputs','mo'), ('reviews_save_settings','mo'), ('notices_remove','mo'), ('notices_save','mo'), ('notices_set_pinned','mo'), ('save_email_template','mo'),
   ('send_test_email','mo'), ('support_follow','mo'), ('update_my_studio','mo'),
   -- jgfmo: 20
   ('checkout_cart','jgfmo'), ('commerce_find_retail','jgfmo'), ('commerce_hold_codes','jgfmo'), ('commerce_quote','jgfmo'),
@@ -529,7 +530,7 @@ insert into test.pm_table_expect values
   -- public read, owner/manager write   [read any: Aabjgfmop | read all: Aabjgfmop | insert: mo | update: mo | delete: mo]
   ('products','Aabjgfmop','Aabjgfmop','mo','mo','mo'),
   -- everyone in the studio reads, RPCs write   [read any: abjgfmo | read all: abjgfmo | insert: - | update: - | delete: -]
-  ('commerce_settings','abjgfmo','abjgfmo','','',''),
+  ('commerce_settings','abjgfmo','abjgfmo','','',''), ('notices','abjgfmo','abjgfmo','','',''),
   -- a client sees their own, staff see all   [read any: abjgfmo | read all: jgfmo | insert: - | update: - | delete: -]
   ('passes','abjgfmo','jgfmo','','',''),
   -- signed-in people see only themselves (staff see all); a client can edit their own row   [read any: abjgfmo | read all: jgfmo | insert: fmo | update: abfmo | delete: -]

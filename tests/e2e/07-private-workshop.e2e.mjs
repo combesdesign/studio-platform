@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { journey, clientSignInAs, studioSignInAs, goStudio, T, eventually } from './lib.mjs';
 await journey('7 book a private with a credit, move it, sign up to a workshop', async (env) => {
+  // Snowy has privates and events switched off for clients (Settings › Appointments); the owner turns them on first.
+  const s = await env.studio();
+  await studioSignInAs(s, 'Libby');
+  await goStudio(s, '#/settings/appointments');
+  const offer = s.getByLabel('Offer privates and events to clients');
+  await offer.waitFor(T);
+  await eventually(() => offer.isEnabled(), 'the setting to load');
+  assert.equal(await offer.isChecked(), false, 'Snowy starts with the page off');
+  await offer.check();
+  await s.getByText('Privates and events are on for clients').waitFor(T);
   const c = await env.client();
   await clientSignInAs(c, 'Jess');
   await c.evaluate(() => { location.hash = '#/appointments'; });
@@ -45,8 +55,6 @@ await journey('7 book a private with a credit, move it, sign up to a workshop', 
   // it shows under Mine, and the studio sees both on her profile
   await c.locator('.view').getByText(/^Mine/).first().click();
   await c.getByText('Sunday Reset: Mobility + Breath').first().waitFor(T);
-  const s = await env.studio();
-  await studioSignInAs(s, 'Libby');
   await goStudio(s, '#/clients');
   await s.locator('input.input').first().fill('Jess');
   await s.getByRole('link', { name: /Jess Walker/ }).first().click();

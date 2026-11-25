@@ -70,6 +70,13 @@ function WaiverNote({ nav, where, dep }: { nav: Nav; where: string; /** Family: 
 }
 
 // ------------------------------------------------------------------ the screen
+/** Is the studio offering privates and events to clients right now? (Settings › Appointments › Show to clients.) */
+export async function clientPageOn(): Promise<boolean> {
+  const ap = store.features.appointments;
+  if (!ap) return false;
+  return (await ap.getSettings()).clientEnabled !== false;
+}
+
 export function AppointmentsScreen({ nav, path }: { nav: Nav; path: string }) {
   const app = useApp();
   const toast = useToast();
@@ -86,12 +93,14 @@ export function AppointmentsScreen({ nav, path }: { nav: Nav; path: string }) {
   const [pack, setPack] = useState<AppointmentPack | null>(null);
   const [event, setEvent] = useState<string | null>(null);
   const paid = q.get('paid');
+  const pageOn = useData(() => clientPageOn(), []);
 
   useEffect(() => {
     if (paid) { toast('Payment received. Your booking will show up in a moment.'); setTab('mine'); nav('/appointments', { replace: true }); }
   }, [paid]);
 
   if (!ap) return null;
+  if (pageOn.data === false) return <div className="screen"><p className="muted" style={{ padding: 24 }}>Privates and events aren’t on offer right now. Check back soon.</p></div>;
   const left = creditsLeft(credits.data ?? []);
   const upcomingCount = (mineAppts.data ?? []).filter((a) => a.status === 'booked' && Date.parse(a.endsAt) > Date.now()).length
     + (regs.data ?? []).filter((r) => r.status === 'registered').length;
@@ -706,7 +715,8 @@ export function TimetableBanner({ nav }: { nav: Nav }) {
   const ap = store.features.appointments;
   const types = useData(async () => (ap ? ap.listTypes() : []), []);
   const events = useData(async () => (ap ? ap.listEvents() : []), []);
-  if (!ap || (!(types.data ?? []).length && !(events.data ?? []).length)) return null;
+  const pageOn = useData(() => clientPageOn(), []);
+  if (!ap || pageOn.data !== true || (!(types.data ?? []).length && !(events.data ?? []).length)) return null;
   const n = (events.data ?? []).length;
   const offer = (events.data ?? []).find((e) => e.myWaitlist?.status === 'offered');
   if (offer) {

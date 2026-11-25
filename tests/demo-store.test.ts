@@ -251,8 +251,15 @@ test('cancelled membership stays usable until next billing; weekly billing creat
   const sales = await h.store.listSales({ from: '2026-10-01', to: '2026-10-31', clientId: 'a' });
   assert.equal(sales.length, 2, 'purchase + one weekly debit');
   await h.as(asClient('a'));
-  const c = await h.store.cancelMembership(pid);
+  await assert.rejects(() => h.store.cancelMembership(pid, '  '), /why you’re cancelling/);
+  await assert.rejects(() => h.store.cancelMembership(pid, 'x'.repeat(301)), /300 characters/);
+  const c = await h.store.cancelMembership(pid, 'Too expensive');
   assert.equal(c.status, 'cancelled');
+  assert.equal(c.cancelReason, 'Too expensive');
+  assert.ok(c.cancelledAt, 'cancel time is stored');
+  await h.as(OWNER);
+  assert.equal((await h.store.listPasses('a'))[0]?.cancelReason, 'Too expensive', 'the studio sees the reason on the membership');
+  await h.as(asClient('a'));
   assert.equal(c.nextBillingAt, at('2026-10-26', '08:00').toISOString());
   const passes = await h.store.listPasses('a');
   assert.equal(passes.length, 1, 'still current until next billing date');

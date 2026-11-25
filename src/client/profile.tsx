@@ -31,6 +31,7 @@ export function Profile({ nav }: { nav: Nav }) {
   const [legal, setLegal] = useState<LegalKind | null>(null);
   const [savingOpt, setSavingOpt] = useState(false);
   const family = useDependants();
+  const visibleEntries = useData(async () => { const o: Record<string, boolean> = {}; for (const e of clientProfileEntries()) if (e.visible) o[e.id] = await e.visible().catch(() => true); return o; }, []);
   const sales = useData(() => store.listSales({ from: '2000-01-01', to: studioDate(), clientId: c.id }).catch(() => null), [c.id]);
   const salesList = (sales.data ?? []).filter((s) => !s.clientId || s.clientId === c.id || family.deps.some((d) => d.id === s.clientId));   // yours, and what you bought for your family
 
@@ -104,7 +105,7 @@ export function Profile({ nav }: { nav: Nav }) {
             <Toggle checked={!!c.marketingOptIn} disabled={savingOpt} onChange={setOptIn} label="News and offers emails" />
           </div>
           <Slot name="client.account" props={{}} />
-          {clientProfileEntries().map((e) => (
+          {clientProfileEntries().filter((e) => (!e.visible || visibleEntries.data?.[e.id] === true)).map((e) => (
             <button key={e.id} className="list-row" onClick={() => goFlow(nav, e.path, { label: 'Profile', where: '/profile' })}>
               <span className="row-ic">{typeof e.icon === 'string' ? <Icon name={e.icon} size={20} /> : e.icon}</span>
               <span className="list-row-main"><span className="list-row-title">{e.label}</span>{e.sub && <span className="list-row-sub">{e.sub}</span>}</span>

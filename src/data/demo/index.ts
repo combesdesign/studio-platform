@@ -1367,8 +1367,8 @@ export class DemoStore implements DataStore {
   async resumePass(passId: ID): Promise<Pass> {
     return this.write(() => { this.requirePassOwnerOrStaff(passId); return this.engine.resume(passId); });
   }
-  async cancelMembership(passId: ID): Promise<Pass> {
-    return this.write(() => { this.requirePassOwnerOrStaff(passId); return this.engine.cancelMembership(passId); });
+  async cancelMembership(passId: ID, reason: string): Promise<Pass> {
+    return this.write(() => { this.requirePassOwnerOrStaff(passId); return this.engine.cancelMembership(passId, reason); });
   }
   async changeRenewalDate(passId: ID, date: ISODate): Promise<Pass> {
     return this.write(() => { const st = this.requireStaff('membership_edit'); return this.engine.changeRenewalDate(passId, date, st.id); });

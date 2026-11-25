@@ -13,6 +13,7 @@ import type {
 import { addDays, dateTime as dateTimeLabel, studioToUTC, time as clockTime } from '../../shared/format';
 import { directFull, directSpotsLeft } from '../../domain/capacity';
 import { demoFeatures } from './features';
+import { cancelReasonProblem } from '../../domain/cancelReasons';
 import { renderClassEmail, type EmailKind, type EmailPayload } from '../../domain/emails';
 import {
   ACTIVE_BOOKING_STATUSES, CREDIT_USING_STATUSES, SPOT_STATUSES, activatePass, canAutoPromote, cancellationOutcome,
@@ -920,11 +921,15 @@ export class Engine {
     return p;
   }
 
-  cancelMembership(passId: ID): Pass {
+  cancelMembership(passId: ID, reason: string): Pass {
     const p = this.pass(passId);
     if (p.kind !== 'membership') throw err('INVALID', 'Only memberships can be cancelled this way.');
     if (p.status === 'cancelled') return p;
+    const problem = cancelReasonProblem(reason);
+    if (problem) throw err('INVALID', problem);
     p.status = 'cancelled';
+    p.cancelReason = reason.trim();
+    p.cancelledAt = this.now().toISOString();
     // Usable until nextBillingAt; drop bookings after that (or all future ones if never activated).
     const end = p.nextBillingAt ? Date.parse(p.nextBillingAt) : this.now().getTime();
     this.cancelFutureBookingsOnPass(p.id, end);

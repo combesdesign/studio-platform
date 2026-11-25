@@ -486,8 +486,9 @@ await t('memberships: pause / resume / cancel through the store (no Stripe call 
   const paused = await studio.pausePass(bobPass.id, '2026-10-26', '2026-11-01');
   assert.deepEqual([paused.pausedFrom, paused.pausedUntil], ['2026-10-26', '2026-11-01']);
   assert.equal((await studio.resumePass(bobPass.id)).pausedFrom, undefined);
-  const cancelled = await studio.cancelMembership(bobPass.id);
+  const cancelled = await studio.cancelMembership(bobPass.id, 'Other: moving away');
   assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.cancelReason, 'Other: moving away');
   assert.ok(cancelled.nextBillingAt);
   assert.equal(fake.invoked.filter((x) => x.name === 'manage-membership').length, 0);
 });

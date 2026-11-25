@@ -1,3 +1,4 @@
+import { CANCEL_REASONS, cancelReasonText } from '../domain/cancelReasons';
 import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { Sheet, featureOn, leaveSheets, match, store, useAction, useData, useToast } from '../shared/react';
 import { Slot } from '../shared/slots';
@@ -294,6 +295,9 @@ function PassCard({ p, summary, onAction }: { p: Pass; summary?: CreditSummary; 
         {p.activatedAt ? (p.expiresAt ? <>Expires {dayShort(p.expiresAt)} {new Date(p.expiresAt).getFullYear()}</> : 'No expiry') : 'Starts on first booking'}
         {p.nextBillingAt && p.kind === 'membership' && st !== 'cancelled' && <> · Next billing {dayShort(p.nextBillingAt)}</>}
       </div>
+      {p.kind === 'membership' && st === 'cancelled' && p.cancelReason && (
+        <div className="pass-meta"><strong>Reason for cancelling:</strong> {p.cancelReason}{p.cancelledAt ? ` (${dayShort(p.cancelledAt)})` : ''}</div>
+      )}
       {p.pendingChange && p.kind === 'membership' && st !== 'cancelled' && (
         <div className="pass-meta pass-pending"><Icon name="sparkle" size={14} /> Moves to <strong>{p.pendingChange.name}</strong> on {dayShort(p.pendingChange.effectiveAt)}</div>
       )}
@@ -496,12 +500,18 @@ function PauseSheet({ p, onClose }: { p: Pass; onClose: () => void }) {
 
 function CancelMembershipSheet({ p, onClose }: { p: Pass; onClose: () => void }) {
   const { busy, run } = useAction();
-  const go = async () => { if (await run(() => store.cancelMembership(p.id), 'Membership cancelled')) onClose(); };
+  const [pick, setPick] = useState('');
+  const [other, setOther] = useState('');
+  const reason = cancelReasonText(pick, other);
+  const go = async () => { if (reason && await run(() => store.cancelMembership(p.id, reason), 'Membership cancelled')) onClose(); };
   return (
     <Sheet open onClose={onClose} label="Cancel membership">
       <SheetHead title={<>Cancel <em>membership</em>?</>} sub={p.name} onClose={onClose} />
       <p className="muted">Billing stops. {p.nextBillingAt ? `They can keep booking until ${dayShort(p.nextBillingAt)}, the end of the period they've paid for.` : 'They can keep booking until the end of the period they’ve paid for.'}</p>
-      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Keep membership</button><button className="btn danger-solid" onClick={go} disabled={busy}>Cancel membership</button></div>
+      <label className="field"><span>Reason (required)</span>
+        <select className="select" value={pick} onChange={(e) => setPick(e.target.value)}><option value="">Choose a reason</option>{CANCEL_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+      {pick === 'Other' && <label className="field"><span>Tell us more</span><textarea className="textarea" rows={2} maxLength={280} value={other} onChange={(e) => setOther(e.target.value)} /></label>}
+      <div className="sh-foot"><button className="btn ghost" onClick={onClose}>Keep membership</button><button className="btn danger-solid" onClick={go} disabled={busy || !reason}>Cancel membership</button></div>
     </Sheet>
   );
 }

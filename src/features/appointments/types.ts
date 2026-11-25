@@ -26,6 +26,8 @@ export interface AppointmentSettings {
   waitlistClaimHours: number;
   /** How long before a session, workshop or event the reminder email goes out: 2, 12, 24 or 48 hours (REMINDER_HOURS). */
   reminderHours: number;
+  /** Show Privates and events to clients (Profile entry, timetable banner, screen). Off = hidden from clients; staff still manage what's booked. Unset = on. */
+  clientEnabled: boolean;
 }
 
 export interface AppointmentType {

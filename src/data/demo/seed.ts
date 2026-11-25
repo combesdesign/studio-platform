@@ -434,7 +434,7 @@ export function seedState(now: Date): DemoState {
   const lucyPass = memberPass('Lucy');
   if (lucyPass) eng.pause(lucyPass.id, addDays(thisMon, 7), addDays(thisMon, 20));
   const matildaPass = memberPass('Matilda');
-  if (matildaPass) eng.cancelMembership(matildaPass.id);
+  if (matildaPass) eng.cancelMembership(matildaPass.id, 'Moving away');
   const olivia = byName('Olivia');
   const oliviaPack = olivia && state.passes.filter((x) => x.clientId === olivia.id && x.status === 'active').pop();
   if (oliviaPack) eng.adjust(oliviaPack.id, { creditsDelta: 1, reason: 'Goodwill credit — class moved at short notice' }, 'st_libby');
