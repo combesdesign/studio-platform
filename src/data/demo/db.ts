@@ -20,7 +20,7 @@ export const STATE_KEY = 'spc-demo-v4';
 export const REV_KEY = 'spc-demo-v4:rev';
 export const AUTH_KEYS = { client: 'spc-demo-auth-client', studio: 'spc-demo-auth-studio', admin: 'spc-demo-auth-admin' } as const;
 export type DemoApp = keyof typeof AUTH_KEYS;
-export const PLATFORM_STATE_VERSION = 1;
+export const PLATFORM_STATE_VERSION = 2;
 
 export interface PlatformDemoState {
   platformVersion: number;
